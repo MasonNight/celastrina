@@ -29,8 +29,16 @@ _Avoid_: Type, kind, section
 ### Where it plays from
 
 **Source**:
-A provider that, given a Title (or episode), can offer Streams for it; Sources can be added by the household after installation.
+A provider that, given a Title (or episode), can offer Streams for it; Sources can be added by the household after installation. Each Source is one configured instance of a Source Kind, such as a particular Jellyfin server.
 _Avoid_: Provider, addon, plugin, scraper
+
+**Source Kind**:
+A type of Source that Celastrina knows how to talk to, such as Internet Archive, Jellyfin or Stremio-compatible add-on; a Household can have several Sources of the same Kind.
+_Avoid_: Source type, adapter, integration
+
+**Extension**:
+An unverified Source, such as a web scraper written by a third party, that a Household imports into Celastrina after installation; Celastrina itself ships none.
+_Avoid_: Plugin, addon, provider
 
 **Stream**:
 One playable offering of a Title from a specific Source.
