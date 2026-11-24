@@ -3,12 +3,21 @@
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.animalsniffer)
     `java-test-fixtures`
 }
 
 kotlin { jvmToolchain(17) }
 
+// The Core compiles against JDK 17 but runs on Android from API 25, and Android lint doesn't check plain JVM
+// modules. `check` runs Animal Sniffer over the shipped code against Android 25's API, so a JDK call Android 25
+// lacks (like URLEncoder.encode(String, Charset), API 33) fails the build instead of crashing on the TV.
+animalsniffer {
+    sourceSets = listOf(project.sourceSets.main.get())
+}
+
 dependencies {
+    signature(libs.android.signature.api25) { artifact { type = "signature" } }
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
 
