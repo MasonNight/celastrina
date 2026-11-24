@@ -22,6 +22,10 @@ _Avoid_: Film
 A Title made of seasons and episodes.
 _Avoid_: Show, TV show
 
+**Title kind**:
+Whether a Title is a Movie or a Series.
+_Avoid_: Type, format, media type
+
 **Category**:
 A label that groups Titles for browsing, such as Anime or Cartoons; it does not change what kind of Title something is.
 _Avoid_: Type, kind, section
@@ -45,8 +49,28 @@ A list of Extensions, published by a third party at a URL, that a Household impo
 _Avoid_: Repo, store, marketplace, feed
 
 **Stream**:
-One playable offering of a Title from a specific Source.
+One offering of a Title from a specific Source. Celastrina plays only unencrypted http(s), HLS and DASH Streams; it drops the rest.
 _Avoid_: Link, URL, file
+
+**Title reference**:
+What Celastrina tells a Source about the Title (or episode) it wants Streams for: the Title's IDs, names and year, as the Catalogue knows them.
+_Avoid_: Query, request
+
+**Lookup**:
+Asking a Household's Sources for Streams of one Title, which happens only when its detail screen opens or an episode is picked.
+_Avoid_: Search, scrape, resolve
+
+**Not available**:
+A Source's answer that it has no Streams for a Title: a normal outcome, not a Failure.
+_Avoid_: Not found, no results
+
+**Failure**:
+A Source's answer that it couldn't complete a Lookup, with a reason: unreachable, login needed, rate limited, or a Source error. A Stream that stops playing is not a Failure; Failover handles it.
+_Avoid_: Error
+
+**Not playable**:
+Said of a Title whose latest Lookup, within the past week, found every Source Not available.
+_Avoid_: Unavailable, dead
 
 **Failover**:
 Automatically moving playback to another Stream for the same Title when the current one doesn't work.
