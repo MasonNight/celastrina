@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,11 +14,25 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Unit tests
-        run: ./gradlew test --console=plain
-      - name: Test report
+      # Unit tests, Android lint, and the debug APK's platform rules (no native code, minSdk 25, TV manifest).
+      - name: Check
+        run: ./gradlew check --console=plain
+      - name: Reports
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-reports
-          path: "**/build/reports/tests/"
+          name: reports
+          path: "**/build/reports/"
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan history for secrets
+        env:
+          GITLEAKS_VERSION: 8.21.2
+        run: |
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar xz gitleaks
+          ./gitleaks git --redact --no-banner -v .

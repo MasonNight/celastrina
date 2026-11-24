@@ -37,7 +37,7 @@ class MoviesRowTest {
 
     @Test
     fun `a v4 read access token works as the TMDB key`() = runTest {
-        val v4Token = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJ0ZXN0In0.c2lnbmF0dXJl"
+        val v4Token = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJ0ZXN0In0.c2lnbmF0dXJl" // gitleaks:allow (made-up token)
         RecordedTmdb(apiKey = v4Token).use { tmdb ->
             val row = Catalogue(JdkHttpClient(), tmdb.settings).moviesRow()
 
