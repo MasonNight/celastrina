@@ -129,4 +129,8 @@ dependencies {
     implementation(libs.tv.material)
     implementation(libs.activity.compose)
     implementation(libs.coil.compose)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.exoplayer.hls)
+    implementation(libs.media3.exoplayer.dash)
+    implementation(libs.media3.ui)
 }

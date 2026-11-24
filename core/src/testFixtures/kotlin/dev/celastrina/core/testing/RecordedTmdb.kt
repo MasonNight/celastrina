@@ -17,6 +17,7 @@ class RecordedTmdb(private val apiKey: String) : AutoCloseable {
 
     private val recordings = mapOf(
         "/3/trending/movie/week" to "recorded/tmdb/trending-movie-week.json",
+        "/3/movie/10331" to "recorded/tmdb/movie-10331.json",
     )
 
     private val server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0).apply {

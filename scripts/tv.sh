@@ -4,6 +4,7 @@
 #   scripts/tv.sh connect               connect and print the ADB serial
 #   scripts/tv.sh install [apk]         install (default: the debug APK), keeping app data
 #   scripts/tv.sh launch                wake the display and start Celastrina Dev
+#   scripts/tv.sh open-movie <tmdb-id>  start Celastrina Dev on that Movie's detail screen
 #   scripts/tv.sh screenshot [out.png]  wake the display and save a screenshot (default: tv.png)
 #
 # The TV's address is remembered in ~/.config/celastrina/tv. If it doesn't answer there, the script
@@ -65,6 +66,12 @@ case "${1:-}" in
     wake "$serial"
     adb -s "$serial" shell am start -W -n "$PACKAGE/$ACTIVITY"
     ;;
+  open-movie)
+    [ -n "${2:-}" ] || { echo "Usage: scripts/tv.sh open-movie <tmdb-id>" >&2; exit 2; }
+    serial="$(connect)"
+    wake "$serial"
+    adb -s "$serial" shell am start -W -S -n "$PACKAGE/$ACTIVITY" --ei dev.celastrina.OPEN_MOVIE "$2"
+    ;;
   screenshot)
     serial="$(connect)"
     wake "$serial"
@@ -73,5 +80,5 @@ case "${1:-}" in
     adb -s "$serial" exec-out screencap -p | python3 -c 'import sys; b = sys.stdin.buffer.read(); sys.stdout.buffer.write(b[b.find(b"\x89PNG"):])' >"$out"
     echo "$out"
     ;;
-  *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

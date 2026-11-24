@@ -1,0 +1,47 @@
+{
+  "head" : {
+    "vars" : [ "film", "archiveId", "copyrightStatus" ]
+  },
+  "results" : {
+    "bindings" : [ {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q623051"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "Night.Of.The.Living.Dead_1080p"
+      },
+      "copyrightStatus" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q19652"
+      }
+    }, {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q623051"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "Night.Of.The.Living.Dead_1080p"
+      },
+      "copyrightStatus" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q19652"
+      }
+    }, {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q623051"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "Night.Of.The.Living.Dead_1080p"
+      },
+      "copyrightStatus" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q19652"
+      }
+    } ]
+  }
+}
