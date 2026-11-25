@@ -2,6 +2,9 @@ name: CI
 
 on:
   push:
+    # Every branch; a release tag runs the same jobs in the release workflow instead.
+    branches: ['**']
+    tags-ignore: ['v*']
   pull_request:
 
 jobs:
@@ -23,6 +26,10 @@ jobs:
         with:
           name: reports
           path: "**/build/reports/"
+
+  # The minified release APK's gates, including loading the test Extension on an emulator.
+  release-gates:
+    uses: ./.github/workflows/release-gates.yml
 
   secrets:
     runs-on: ubuntu-latest

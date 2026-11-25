@@ -1,7 +1,11 @@
 import com.android.build.api.artifact.SingleArtifact
 import com.android.build.api.variant.BuiltArtifactsLoader
+import dev.celastrina.build.ReleaseVersion
 import java.io.ByteArrayOutputStream
 import java.util.zip.ZipFile
+import javax.inject.Inject
+
+buildscript { dependencies { classpath(libs.celastrina.build.logic) } }
 
 plugins {
     alias(libs.plugins.android.application)
@@ -15,6 +19,23 @@ val tmdbApiKey: String = providers.gradleProperty("TMDB_API_KEY")
     .orElse(providers.environmentVariable("TMDB_API_KEY"))
     .getOrElse("")
 
+// A release build: the release workflow passes the tag that started it (-PreleaseTag=v1.2.3) and every earlier
+// release's tag (-PreleasedTags=v1.2.2,v1.2.1). The tag sets the version, and must be higher than every earlier release.
+val releaseVersion: ReleaseVersion? = providers.gradleProperty("releaseTag").orNull?.let { tag ->
+    val released = providers.gradleProperty("releasedTags").getOrElse("").split(',').map(String::trim).filter(String::isNotEmpty)
+    try {
+        ReleaseVersion.nextRelease(tag, released)
+    } catch (e: IllegalArgumentException) {
+        throw GradleException(e.message!!, e)
+    }
+}
+
+// The release signing key, which only the release workflow has (docs/release-keystore.md). Without it the release APK
+// is left unsigned; the CI gates sign it with a throwaway key.
+val releaseKeystore: String? = providers.environmentVariable("CELASTRINA_KEYSTORE").orNull
+val releaseKeystoreSecrets = listOf("CELASTRINA_KEYSTORE_PASSWORD", "CELASTRINA_KEY_ALIAS", "CELASTRINA_KEY_PASSWORD")
+    .associateWith { providers.environmentVariable(it).orNull }
+
 android {
     namespace = "dev.celastrina.app"
     compileSdk = 35
@@ -23,14 +44,38 @@ android {
         applicationId = "dev.celastrina"
         minSdk = 25
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.0.0"
+        versionCode = releaseVersion?.code ?: 1
+        versionName = releaseVersion?.name ?: "0.0.0"
         manifestPlaceholders["appName"] = "Celastrina"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "TMDB_API_KEY", "\"${tmdbApiKey.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
 
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = releaseKeystoreSecrets["CELASTRINA_KEYSTORE_PASSWORD"]
+                keyAlias = releaseKeystoreSecrets["CELASTRINA_KEY_ALIAS"]
+                keyPassword = releaseKeystoreSecrets["CELASTRINA_KEY_PASSWORD"]
+                // minSdk 25 verifies v2; Fire OS 8 refuses v1-only APKs. v3 lets the key be rotated later.
+                enableV1Signing = false
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
+    // The emulator gate runs the instrumented tests against the minified release APK: -PtestBuildType=release.
+    testBuildType = providers.gradleProperty("testBuildType").getOrElse("debug")
+
     buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.findByName("release")
+        }
         debug {
             applicationIdSuffix = ".debug"
             manifestPlaceholders["appName"] = "Celastrina Dev"
@@ -103,6 +148,40 @@ abstract class VerifyApk : DefaultTask() {
     }
 }
 
+/**
+ * The instrumented tests' assets for loading the test Extension: the test Extension Repository Gradle builds, and the
+ * Core's recordings of the sites the test Extension reaches.
+ */
+abstract class ExtensionTestAssets : DefaultTask() {
+    @get:InputFiles abstract val testRepository: ConfigurableFileCollection
+    @get:InputDirectory abstract val recordings: DirectoryProperty
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+    @get:Inject abstract val files: FileSystemOperations
+
+    @TaskAction
+    fun copy() {
+        files.sync {
+            into(outputDir)
+            from(testRepository) { into("test-repository") }
+            from(recordings) {
+                include("wikidata/**", "internet-archive/**", "internet-archive-search/**")
+                into("recorded")
+            }
+        }
+    }
+}
+
+val extensionTestRepository: Configuration by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+
+val extensionTestAssets = tasks.register<ExtensionTestAssets>("extensionTestAssets") {
+    testRepository.from(extensionTestRepository)
+    recordings.set(rootProject.layout.projectDirectory.dir("core/src/testFixtures/resources/recorded"))
+}
+
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 
 androidComponents {
@@ -119,10 +198,31 @@ androidComponents {
                 },
             )
         }
+        variant.androidTest?.sources?.assets?.addGeneratedSourceDirectory(extensionTestAssets, ExtensionTestAssets::outputDir)
     }
 }
 
 tasks.named("check") { dependsOn("verifyDebugApk") }
+
+// Run by the release workflow with -PreleaseTag (and -PreleasedTags): fails on a tag that isn't the next release, and
+// prints the version it names.
+tasks.register("printReleaseVersion") {
+    description = "Prints the version -PreleaseTag names, after checking it is higher than every -PreleasedTags release."
+    val name = checkNotNull(releaseVersion) { "Pass -PreleaseTag=vMAJOR.MINOR.PATCH" }.name
+    doLast { println(name) }
+}
+
+// A release build can't go without the project TMDB key or the signing key.
+val verifyReleaseInputs by tasks.registering {
+    description = "Fails a release build (-PreleaseTag) that lacks TMDB_API_KEY or the signing key."
+    val missing = buildList {
+        if (tmdbApiKey.isBlank()) add("TMDB_API_KEY")
+        if (releaseKeystore.isNullOrBlank()) add("CELASTRINA_KEYSTORE")
+        releaseKeystoreSecrets.filterValues { it.isNullOrEmpty() }.keys.forEach(::add)
+    }
+    doLast { if (missing.isNotEmpty()) throw GradleException("A release build needs ${missing.joinToString()}") }
+}
+if (releaseVersion != null) tasks.named("preBuild") { dependsOn(verifyReleaseInputs) }
 
 dependencies {
     implementation(project(":core"))
@@ -144,9 +244,13 @@ dependencies {
     implementation(libs.media3.exoplayer.dash)
     implementation(libs.media3.ui)
 
+    extensionTestRepository(project(path = ":test-extension", configuration = "testRepositoryElements"))
+
     // Seam 2: drives the configuration ContentProvider on a device the way the agent does. Run on the TV with
-    // `connectedDebugAndroidTest`; there's no emulator in CI.
+    // `connectedDebugAndroidTest`. CI's emulator runs ExtensionLoadingTest against the minified release APK.
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(kotlin("test-junit"))
+    // CloudStream's shared HTTP client, which ExtensionLoadingTest routes to recordings; the app has it at run time.
+    androidTestImplementation(libs.nicehttp)
 }
