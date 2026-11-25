@@ -117,6 +117,6 @@ private fun PlayRow(streams: List<Stream>, lookupFinished: Boolean, onPlay: (Str
 
 private fun MovieDetails.metadataLine(): String = listOfNotNull(
     title.year?.toString(),
-    runtimeMinutes?.let { if (it >= 60) "${it / 60}h ${it % 60}m" else "${it}m" },
+    runtimeMinutes?.let(::runtimeText),
     genres.takeIf { it.isNotEmpty() }?.joinToString(", "),
 ).joinToString("  ·  ")

@@ -22,21 +22,25 @@ import dev.celastrina.core.source.StreamLookup
 
 private sealed interface Screen {
     data object Home : Screen
-    data class Detail(val tmdbId: Int) : Screen
-    data object SeriesDetail : Screen
-    data class Player(val tmdbId: Int, val stream: Stream) : Screen
+    data class MovieDetail(val tmdbId: Int) : Screen
+
+    /** [season] is the season tab it opens on; null opens on the first. */
+    data class SeriesDetail(val tmdbId: Int, val season: Int? = null) : Screen
+    data class Player(val stream: Stream, val back: Screen) : Screen
 }
 
 /**
- * The whole app: home, a Movie's detail screen, and the player, with Back going one step up.
- * [openMovie] starts on that Movie's detail screen instead of home.
+ * The whole app: home, a Movie's or a Series' detail screen, and the player, with Back going one step up.
+ * [openMovie] or [openSeries] starts on that Title's detail screen instead of home.
  */
 @Composable
-fun CelastrinaApp(catalogue: Catalogue, streamLookup: StreamLookup, openMovie: Int? = null) {
+fun CelastrinaApp(catalogue: Catalogue, streamLookup: StreamLookup, openMovie: Int? = null, openSeries: Int? = null) {
     // Home lives here, so coming back from a detail screen finds its rows, hero and focus as they were.
     val scope = rememberCoroutineScope()
     val home = remember(catalogue) { HomeModel(catalogue, scope) }
-    var screen by remember { mutableStateOf<Screen>(openMovie?.let(Screen::Detail) ?: Screen.Home) }
+    var screen by remember {
+        mutableStateOf(openMovie?.let(Screen::MovieDetail) ?: openSeries?.let { Screen.SeriesDetail(it) } ?: Screen.Home)
+    }
 
     MaterialTheme(colorScheme = darkColorScheme()) {
         Surface(modifier = Modifier.fillMaxSize(), colors = SurfaceDefaults.colors(containerColor = Color.Black, contentColor = Color.White)) {
@@ -44,21 +48,22 @@ fun CelastrinaApp(catalogue: Catalogue, streamLookup: StreamLookup, openMovie: I
                 Screen.Home -> HomeScreen(home) { homeRow, title ->
                     home.focusTarget = homeRow to title
                     screen = when (title.kind) {
-                        Title.Kind.Movie -> Screen.Detail(title.tmdbId)
-                        Title.Kind.Series -> Screen.SeriesDetail
+                        Title.Kind.Movie -> Screen.MovieDetail(title.tmdbId)
+                        Title.Kind.Series -> Screen.SeriesDetail(title.tmdbId)
                     }
                 }
-                Screen.SeriesDetail -> {
+                is Screen.MovieDetail -> {
                     BackHandler { screen = Screen.Home }
-                    // Stopgap until the Series detail screen (#25).
-                    Message("Series detail screens are coming soon.")
+                    DetailScreen(s.tmdbId, catalogue, streamLookup) { stream -> screen = Screen.Player(stream, back = s) }
                 }
-                is Screen.Detail -> {
+                is Screen.SeriesDetail -> {
                     BackHandler { screen = Screen.Home }
-                    DetailScreen(s.tmdbId, catalogue, streamLookup) { stream -> screen = Screen.Player(s.tmdbId, stream) }
+                    SeriesDetailScreen(s.tmdbId, s.season, catalogue, streamLookup) { season, stream ->
+                        screen = Screen.Player(stream, back = s.copy(season = season))
+                    }
                 }
                 is Screen.Player -> {
-                    BackHandler { screen = Screen.Detail(s.tmdbId) }
+                    BackHandler { screen = s.back }
                     PlayerScreen(s.stream)
                 }
             }
