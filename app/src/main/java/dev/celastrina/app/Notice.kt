@@ -58,6 +58,9 @@ private const val NOTICE_MILLIS = 6_000L
 
 /** "Source removed from a computer: Internet Archive". */
 fun ConfigurationChange.notice(): String = when (action) {
+    ConfigurationChange.Action.Added -> "Source added from a computer: $sourceName"
+    ConfigurationChange.Action.Changed -> "Source changed from a computer: $sourceName"
+    ConfigurationChange.Action.Reordered -> "Source order changed from a computer: $sourceName first"
     ConfigurationChange.Action.Renamed -> "Source renamed from a computer: $previousName → $sourceName"
     ConfigurationChange.Action.Enabled -> "Source enabled from a computer: $sourceName"
     ConfigurationChange.Action.Disabled -> "Source disabled from a computer: $sourceName"

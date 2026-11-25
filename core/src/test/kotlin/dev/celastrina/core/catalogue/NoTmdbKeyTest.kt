@@ -12,6 +12,7 @@ class NoTmdbKeyTest {
     /** A Catalogue without a key has nothing to ask TMDB with, so it mustn't try. */
     private val unasked = object : HttpClient {
         override suspend fun get(url: String, headers: Map<String, String>): HttpResponse = error("TMDB was asked without a key: $url")
+        override suspend fun postJson(url: String, json: String, headers: Map<String, String>): HttpResponse = error("TMDB was asked without a key: $url")
     }
 
     @Test

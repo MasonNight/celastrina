@@ -22,6 +22,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     testFixturesImplementation(libs.kotlinx.coroutines.core)
+    testFixturesImplementation(libs.kotlinx.serialization.json)
 
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)

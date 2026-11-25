@@ -19,9 +19,10 @@ class ConfigurationServiceTest {
     @TempDir
     lateinit var dir: File
 
-    /** Nothing here goes online: no command in these tests runs a connection test. */
+    /** Nothing here goes online: the Internet Archive has no connection test. */
     private val offline = object : HttpClient {
         override suspend fun get(url: String, headers: Map<String, String>): HttpResponse = error("No network in these tests: $url")
+        override suspend fun postJson(url: String, json: String, headers: Map<String, String>): HttpResponse = error("No network in these tests: $url")
     }
 
     private fun service(projectTmdbKey: String = PROJECT_KEY) =
@@ -138,7 +139,7 @@ class ConfigurationServiceTest {
         val service = service()
         val announced = announcementsOf(service)
 
-        assertEquals(WriteOutcome.Ok, service.rename("internet-archive", "  Archive.org  ", ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Ok, service.update("internet-archive", SourceChanges(name = "  Archive.org  "), ChangedFrom.Computer))
 
         val afterRestart = service().list().single()
         assertEquals("internet-archive" to "Archive.org", afterRestart.id to afterRestart.name)
@@ -152,25 +153,25 @@ class ConfigurationServiceTest {
     @Test
     fun `renaming to the same name again is harmless and announces nothing`() = runTest {
         val service = service()
-        service.rename("internet-archive", "Archive.org", ChangedFrom.Computer)
+        service.update("internet-archive", SourceChanges(name = "Archive.org"), ChangedFrom.Computer)
         val announced = announcementsOf(service)
 
-        assertEquals(WriteOutcome.Ok, service.rename("internet-archive", "Archive.org", ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Ok, service.update("internet-archive", SourceChanges(name = "Archive.org"), ChangedFrom.Computer))
 
         assertEquals(emptyList(), announced)
     }
 
     @Test
-    fun `a rename with a blank name or of a Source that doesn't exist is refused and changes nothing`() {
+    fun `a rename with a blank name or of a Source that doesn't exist is refused and changes nothing`() = runTest {
         val service = service()
 
         assertEquals(
             WriteOutcome.Invalid(WriteOutcome.Problem.BlankName, "A Source needs a name."),
-            service.rename("internet-archive", " ", ChangedFrom.Computer),
+            service.update("internet-archive", SourceChanges(name = " "), ChangedFrom.Computer),
         )
         assertEquals(
             WriteOutcome.Invalid(WriteOutcome.Problem.UnknownSource, "There's no Source with the ID jellyfin."),
-            service.rename("jellyfin", "Jellyfin", ChangedFrom.Computer),
+            service.update("jellyfin", SourceChanges(name = "Jellyfin"), ChangedFrom.Computer),
         )
         assertEquals(listOf("Internet Archive"), service().list().map { it.name })
     }
@@ -215,7 +216,7 @@ class ConfigurationServiceTest {
     }
 
     @Test
-    fun `enabling or disabling a Source that doesn't exist is refused`() {
+    fun `enabling or disabling a Source that doesn't exist is refused`() = runTest {
         val unknown = WriteOutcome.Invalid(WriteOutcome.Problem.UnknownSource, "There's no Source with the ID jellyfin.")
 
         assertEquals(unknown, service().enable("jellyfin", ChangedFrom.Computer))

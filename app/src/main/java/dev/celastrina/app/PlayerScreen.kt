@@ -1,5 +1,6 @@
 package dev.celastrina.app
 
+import android.net.Uri
 import android.util.Pair
 import androidx.annotation.OptIn
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,8 +26,10 @@ import dev.celastrina.core.source.Stream
 fun PlayerScreen(stream: Stream) {
     val context = LocalContext.current
     val player = remember(stream) {
-        // Sending a Stream's headers and loading its sidecar subtitles come with #27.
-        val http = DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)
+        // The Stream's headers (a token, a Referer) go with every request, its subtitles' included.
+        val http = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setDefaultRequestProperties(stream.headers)
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, http)))
             .build()
@@ -61,4 +64,20 @@ private fun Stream.toMediaItem(): MediaItem = MediaItem.Builder()
             else -> null
         },
     )
+    .setSubtitleConfigurations(subtitles.map { it.toConfiguration() })
     .build()
+
+private fun Stream.Subtitle.toConfiguration(): MediaItem.SubtitleConfiguration =
+    MediaItem.SubtitleConfiguration.Builder(Uri.parse(url))
+        .setMimeType(subtitleMimeType(url))
+        .setLanguage(language)
+        .setLabel(label)
+        .build()
+
+/** Sidecar subtitles are known by their file extension; WebVTT when there is none to go by. */
+private fun subtitleMimeType(url: String): String = when (Uri.parse(url).lastPathSegment.orEmpty().substringAfterLast('.', "").lowercase()) {
+    "srt" -> MimeTypes.APPLICATION_SUBRIP
+    "ass", "ssa" -> MimeTypes.TEXT_SSA
+    "ttml", "dfxp", "xml" -> MimeTypes.APPLICATION_TTML
+    else -> MimeTypes.TEXT_VTT
+}

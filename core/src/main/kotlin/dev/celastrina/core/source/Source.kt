@@ -2,6 +2,8 @@ package dev.celastrina.core.source
 
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 /** One configured instance of a [SourceKind] that, given a Title, can offer Streams for it. */
 interface Source {
@@ -25,6 +27,8 @@ data class SourceKind(
     val titleKinds: Set<Title.Kind>,
     /** Stable, for the agent and for storage, such as `internet-archive`. */
     val id: String = slugOf(name),
+    /** How long a Lookup waits for a Source of this Kind before counting it unreachable. */
+    val lookupTimeout: Duration = 8.seconds,
 ) {
     fun canMatch(title: TitleReference): Boolean =
         title.kind in titleKinds && idSchemes.any { it.isKnownFor(title) }

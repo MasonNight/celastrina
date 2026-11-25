@@ -1,5 +1,6 @@
 package dev.celastrina.app
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,7 +34,7 @@ import coil.request.ImageRequest
 import dev.celastrina.core.catalogue.Catalogue
 import dev.celastrina.core.catalogue.CatalogueUnavailable
 import dev.celastrina.core.catalogue.MovieDetails
-import dev.celastrina.core.source.LookupOutcome
+import dev.celastrina.core.source.Lookup
 import dev.celastrina.core.source.Stream
 import dev.celastrina.core.source.StreamLookup
 
@@ -43,7 +44,10 @@ private sealed interface DetailState {
     data class Failed(val reason: CatalogueUnavailable.Reason) : DetailState
 }
 
-/** A Movie's detail screen. Its Sources are asked as it opens, and Play is enabled by the first Stream to arrive. */
+/**
+ * A Movie's detail screen. Its Sources are asked as it opens: Play is enabled by the first Stream to arrive, and Choose
+ * Stream lists them all as they come.
+ */
 @Composable
 fun DetailScreen(tmdbId: Int, catalogue: Catalogue, streamLookup: StreamLookup, onPlay: (Stream) -> Unit) {
     var state by remember(tmdbId) { mutableStateOf<DetailState>(DetailState.Loading) }
@@ -63,15 +67,17 @@ fun DetailScreen(tmdbId: Int, catalogue: Catalogue, streamLookup: StreamLookup, 
 
 @Composable
 private fun MovieDetail(details: MovieDetails, streamLookup: StreamLookup, onPlay: (Stream) -> Unit) {
-    var streams by remember(details) { mutableStateOf(emptyList<Stream>()) }
-    var lookupFinished by remember(details) { mutableStateOf(false) }
+    var lookup by remember(details) { mutableStateOf<Lookup?>(null) }
+    var choosing by remember(details) { mutableStateOf(false) }
     LaunchedEffect(details) {
-        streamLookup.lookUp(details.reference).collect { answer ->
-            (answer.outcome as? LookupOutcome.Streams)?.let { streams = streams + it.streams }
-        }
-        lookupFinished = true
+        streamLookup.watch(details.reference).collect { lookup = it }
     }
 
+    if (choosing) {
+        BackHandler { choosing = false }
+        ChooseStreamScreen(details.title.name, lookup, onPick = onPlay)
+        return
+    }
     Box(Modifier.fillMaxSize()) {
         AsyncImage(
             // The backdrop is decoded at about 960×540, which is plenty on a TV and keeps memory down.
@@ -92,26 +98,23 @@ private fun MovieDetail(details: MovieDetails, streamLookup: StreamLookup, onPla
             Text(details.title.name, style = MaterialTheme.typography.displaySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(details.metadataLine(), style = MaterialTheme.typography.titleSmall, color = Color.White.copy(alpha = 0.8f))
             Text(details.synopsis, style = MaterialTheme.typography.bodyLarge, maxLines = 5, overflow = TextOverflow.Ellipsis)
-            PlayRow(streams, lookupFinished, onPlay)
+            PlayRow(lookup, onPlay, onChoose = { choosing = true })
         }
     }
 }
 
+/** Play, Choose Stream, and the one-line summary of the Lookup. Play takes the first Stream in the Household's order. */
 @Composable
-private fun PlayRow(streams: List<Stream>, lookupFinished: Boolean, onPlay: (Stream) -> Unit) {
+fun PlayRow(lookup: Lookup?, onPlay: (Stream) -> Unit, onChoose: () -> Unit, label: String? = null) {
     val play = remember { FocusRequester() }
-    val playable = streams.isNotEmpty()
-    LaunchedEffect(playable) { if (playable) play.requestFocus() }
+    val choose = remember { FocusRequester() }
+    val best = lookup?.streams?.firstOrNull()
+    LaunchedEffect(best != null) { (if (best != null) play else choose).requestFocus() }
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Button(onClick = { onPlay(streams.first()) }, enabled = playable, modifier = Modifier.focusRequester(play)) {
-            Text("Play")
-        }
-        // Stopgap until the lookup status line (#27): just enough to explain a disabled Play.
-        when {
-            playable -> Unit
-            !lookupFinished -> Text("Looking for Streams…", style = MaterialTheme.typography.bodyMedium)
-            else -> Text("None of your Sources can play this.", style = MaterialTheme.typography.bodyMedium)
-        }
+        label?.let { Text(it, style = MaterialTheme.typography.titleSmall) }
+        Button(onClick = { best?.let(onPlay) }, enabled = best != null, modifier = Modifier.focusRequester(play)) { Text("Play") }
+        Button(onClick = onChoose, modifier = Modifier.focusRequester(choose)) { Text("Choose Stream") }
+        Text(lookup?.statusLine ?: "Asking your Sources…", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.8f))
     }
 }
 
