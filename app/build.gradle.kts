@@ -64,10 +64,12 @@ android {
 
 /**
  * Checks a built APK against the platform rules every Celastrina build must keep: no native code, minSdk 25,
- * a LEANBACK_LAUNCHER activity, and leanback and touchscreen declared not required. `check` runs it on the
+ * a LEANBACK_LAUNCHER activity, and leanback and touchscreen declared not required. A release APK must also carry
+ * a baseline profile, without which home janks on the AFTTI43 until the app is AOT-compiled. `check` runs it on the
  * debug APK; the release pipeline runs `verifyReleaseApk`.
  */
 abstract class VerifyApk : DefaultTask() {
+    @get:Input abstract val needsBaselineProfile: Property<Boolean>
     @get:InputFiles abstract val apkFolder: DirectoryProperty
     @get:Internal abstract val artifactsLoader: Property<BuiltArtifactsLoader>
     @get:InputFile abstract val aapt2: RegularFileProperty
@@ -81,9 +83,8 @@ abstract class VerifyApk : DefaultTask() {
     }
 
     private fun problemsIn(apk: File): List<String> {
-        val nativeCode = ZipFile(apk).use { zip ->
-            zip.entries().asSequence().map { it.name }.filter { it.startsWith("lib/") }.toList()
-        }
+        val entries = ZipFile(apk).use { zip -> zip.entries().asSequence().map { it.name }.toList() }
+        val nativeCode = entries.filter { it.startsWith("lib/") }
         val badging = ByteArrayOutputStream().also { out ->
             val process = ProcessBuilder(aapt2.get().asFile.path, "dump", "badging", apk.path).redirectErrorStream(true).start()
             process.inputStream.copyTo(out)
@@ -97,6 +98,7 @@ abstract class VerifyApk : DefaultTask() {
             if ("leanback-launchable-activity:" !in badging) add("no LEANBACK_LAUNCHER activity")
             if ("uses-feature-not-required: name='android.software.leanback'" !in badging) add("leanback is not declared not-required")
             if ("uses-feature-not-required: name='android.hardware.touchscreen'" !in badging) add("touchscreen is not declared not-required")
+            if (needsBaselineProfile.get() && "assets/dexopt/baseline.prof" !in entries) add("no baseline profile (assets/dexopt/baseline.prof)")
         }
     }
 }
@@ -108,6 +110,7 @@ androidComponents {
         tasks.register<VerifyApk>("verify${variant.name.replaceFirstChar(Char::uppercase)}Apk") {
             group = "verification"
             description = "Checks the ${variant.name} APK against Celastrina's platform rules."
+            needsBaselineProfile.set(variant.buildType == "release")
             apkFolder.set(variant.artifacts.get(SingleArtifact.APK))
             artifactsLoader.set(variant.artifacts.getBuiltArtifactsLoader())
             aapt2.set(
@@ -134,6 +137,8 @@ dependencies {
     implementation(libs.tv.material)
     implementation(libs.activity.compose)
     implementation(libs.coil.compose)
+    // Installs the baseline profile (src/main/baseline-prof.txt merged with the libraries' own) on first launch.
+    implementation(libs.profileinstaller)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.exoplayer.hls)
     implementation(libs.media3.exoplayer.dash)

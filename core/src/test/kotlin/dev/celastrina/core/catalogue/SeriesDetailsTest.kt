@@ -3,6 +3,7 @@ package dev.celastrina.core.catalogue
 import dev.celastrina.core.port.JdkHttpClient
 import dev.celastrina.core.testing.RecordedTmdb
 import kotlinx.coroutines.test.runTest
+import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -11,7 +12,7 @@ class SeriesDetailsTest {
     @Test
     fun `a Series' season tabs end with Specials when TMDB has a season 0`() = runTest {
         RecordedTmdb(apiKey = "project-token").use { tmdb ->
-            val sherlock = Catalogue(JdkHttpClient(), tmdb.settings).seriesDetails(tmdbId = 19885)
+            val sherlock = Catalogue(JdkHttpClient(), tmdb.settings, Locale.US).seriesDetails(tmdbId = 19885)
 
             assertEquals(
                 listOf("Series 1", "Series 2", "Series 3", "Series 4", "Specials"),
@@ -24,7 +25,7 @@ class SeriesDetailsTest {
     @Test
     fun `a Series without a season 0 has no Specials tab`() = runTest {
         RecordedTmdb(apiKey = "project-token").use { tmdb ->
-            val fawltyTowers = Catalogue(JdkHttpClient(), tmdb.settings).seriesDetails(tmdbId = 2207)
+            val fawltyTowers = Catalogue(JdkHttpClient(), tmdb.settings, Locale.US).seriesDetails(tmdbId = 2207)
 
             assertEquals(listOf("Series 1", "Series 2"), fawltyTowers.seasons.map { it.name })
         }
@@ -33,7 +34,7 @@ class SeriesDetailsTest {
     @Test
     fun `a season's episode cards show each episode's still, number, name and runtime`() = runTest {
         RecordedTmdb(apiKey = "project-token").use { tmdb ->
-            val catalogue = Catalogue(JdkHttpClient(), tmdb.settings)
+            val catalogue = Catalogue(JdkHttpClient(), tmdb.settings, Locale.US)
             val sherlock = catalogue.seriesDetails(tmdbId = 19885)
 
             val episodes = catalogue.episodes(sherlock, sherlock.seasons.single { it.number == 2 })
@@ -52,7 +53,7 @@ class SeriesDetailsTest {
     @Test
     fun `an episode's Title reference carries the Series' IDs and names, its TMDB numbering, absolute number and air date`() = runTest {
         RecordedTmdb(apiKey = "project-token").use { tmdb ->
-            val catalogue = Catalogue(JdkHttpClient(), tmdb.settings)
+            val catalogue = Catalogue(JdkHttpClient(), tmdb.settings, Locale.US)
             val sherlock = catalogue.seriesDetails(tmdbId = 19885)
 
             val reference = catalogue.episodes(sherlock, sherlock.seasons.single { it.number == 2 })
@@ -82,7 +83,7 @@ class SeriesDetailsTest {
     @Test
     fun `a special has no absolute episode number`() = runTest {
         RecordedTmdb(apiKey = "project-token").use { tmdb ->
-            val catalogue = Catalogue(JdkHttpClient(), tmdb.settings)
+            val catalogue = Catalogue(JdkHttpClient(), tmdb.settings, Locale.US)
             val sherlock = catalogue.seriesDetails(tmdbId = 19885)
 
             val specials = catalogue.episodes(sherlock, sherlock.seasons.single { it.isSpecials })

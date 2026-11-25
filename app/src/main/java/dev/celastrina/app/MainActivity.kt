@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
@@ -36,7 +37,7 @@ class MainActivity : ComponentActivity() {
             }
             // Extension updates are checked at launch, at most once a day; the Household updates by hand.
             LaunchedEffect(Unit) { withContext(Dispatchers.IO) { app.configuration.checkForUpdates() } }
-            val catalogue = remember(tmdb) { Catalogue(app.http, tmdb) }
+            val catalogue = remember(tmdb) { Catalogue(app.http, tmdb, Locale.getDefault()) }
             val tmdbKey = remember(tmdb) { app.configuration.status().tmdbKey }
             CelastrinaApp(
                 catalogue,

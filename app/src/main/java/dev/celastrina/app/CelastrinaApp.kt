@@ -70,20 +70,12 @@ fun CelastrinaApp(
     openMovie: Int? = null,
     openSeries: Int? = null,
 ) {
-    // Home's row and the last Title opened live here, so coming back from a detail screen keeps both.
-    var home by remember { mutableStateOf<HomeState>(HomeState.Loading) }
+    // Home lives here, so coming back from a detail screen finds its rows, hero and focus as they were.
+    val scope = rememberCoroutineScope()
+    val home = remember(catalogue) { HomeModel(catalogue, scope) }
     val lookupScope = rememberCoroutineScope()
-    var lastOpened by remember { mutableStateOf<Title?>(null) }
     var screen by remember {
         mutableStateOf(openMovie?.let(Screen::MovieDetail) ?: openSeries?.let { Screen.SeriesDetail(it) } ?: Screen.Home)
-    }
-
-    LaunchedEffect(catalogue) {
-        home = try {
-            HomeState.Loaded(catalogue.moviesRow())
-        } catch (e: CatalogueUnavailable) {
-            HomeState.Failed(e.reason)
-        }
     }
 
     LaunchedEffect(menuPresses) {
@@ -99,8 +91,8 @@ fun CelastrinaApp(
     MaterialTheme(colorScheme = darkColorScheme()) {
         Surface(modifier = Modifier.fillMaxSize(), colors = SurfaceDefaults.colors(containerColor = Color.Black, contentColor = Color.White)) {
             when (val s = screen) {
-                Screen.Home -> HomeScreen(home, focusedTitle = lastOpened) { title ->
-                    lastOpened = title
+                Screen.Home -> HomeScreen(home) { homeRow, title ->
+                    home.focusTarget = homeRow to title
                     screen = when (title.kind) {
                         Title.Kind.Movie -> Screen.MovieDetail(title.tmdbId)
                         Title.Kind.Series -> Screen.SeriesDetail(title.tmdbId)
