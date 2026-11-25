@@ -3,6 +3,7 @@ package dev.celastrina.core.catalogue
 import dev.celastrina.core.port.JdkHttpClient
 import dev.celastrina.core.testing.RecordedTmdb
 import kotlinx.coroutines.test.runTest
+import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -12,7 +13,7 @@ class MovieDetailsTest {
     @Test
     fun `opening a Movie shows its backdrop, metadata and synopsis`() = runTest {
         RecordedTmdb(apiKey = "project-token").use { tmdb ->
-            val details = Catalogue(JdkHttpClient(), tmdb.settings).movieDetails(tmdbId = 10331)
+            val details = Catalogue(JdkHttpClient(), tmdb.settings, Locale.US).movieDetails(tmdbId = 10331)
 
             assertEquals("Night of the Living Dead", details.title.name)
             assertEquals(Title.Kind.Movie, details.title.kind)
@@ -31,7 +32,7 @@ class MovieDetailsTest {
     @Test
     fun `a Movie's Title reference carries every ID and name the Sources can match on`() = runTest {
         RecordedTmdb(apiKey = "project-token").use { tmdb ->
-            val reference = Catalogue(JdkHttpClient(), tmdb.settings).movieDetails(tmdbId = 10331).reference
+            val reference = Catalogue(JdkHttpClient(), tmdb.settings, Locale.US).movieDetails(tmdbId = 10331).reference
 
             assertEquals(
                 TitleReference(
@@ -64,7 +65,7 @@ class MovieDetailsTest {
     fun `a Movie TMDB doesn't know makes the Catalogue unavailable with a reason`() = runTest {
         RecordedTmdb(apiKey = "project-token").use { tmdb ->
             val failure = assertFailsWith<CatalogueUnavailable> {
-                Catalogue(JdkHttpClient(), tmdb.settings).movieDetails(tmdbId = 999_999_999)
+                Catalogue(JdkHttpClient(), tmdb.settings, Locale.US).movieDetails(tmdbId = 999_999_999)
             }
 
             assertEquals(CatalogueUnavailable.Reason.ServiceError, failure.reason)

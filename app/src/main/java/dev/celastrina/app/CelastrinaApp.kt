@@ -3,10 +3,10 @@ package dev.celastrina.app
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -23,6 +23,7 @@ import dev.celastrina.core.source.StreamLookup
 private sealed interface Screen {
     data object Home : Screen
     data class Detail(val tmdbId: Int) : Screen
+    data object SeriesDetail : Screen
     data class Player(val tmdbId: Int, val stream: Stream) : Screen
 }
 
@@ -32,25 +33,25 @@ private sealed interface Screen {
  */
 @Composable
 fun CelastrinaApp(catalogue: Catalogue, streamLookup: StreamLookup, openMovie: Int? = null) {
-    // Home's row and the last Title opened live here, so coming back from a detail screen keeps both.
-    var home by remember { mutableStateOf<HomeState>(HomeState.Loading) }
-    var lastOpened by remember { mutableStateOf<Title?>(null) }
+    // Home lives here, so coming back from a detail screen finds its rows, hero and focus as they were.
+    val scope = rememberCoroutineScope()
+    val home = remember(catalogue) { HomeModel(catalogue, scope) }
     var screen by remember { mutableStateOf<Screen>(openMovie?.let(Screen::Detail) ?: Screen.Home) }
-
-    LaunchedEffect(catalogue) {
-        home = try {
-            HomeState.Loaded(catalogue.moviesRow())
-        } catch (e: CatalogueUnavailable) {
-            HomeState.Failed(e.reason)
-        }
-    }
 
     MaterialTheme(colorScheme = darkColorScheme()) {
         Surface(modifier = Modifier.fillMaxSize(), colors = SurfaceDefaults.colors(containerColor = Color.Black, contentColor = Color.White)) {
             when (val s = screen) {
-                Screen.Home -> HomeScreen(home, focusedTitle = lastOpened) { title ->
-                    lastOpened = title
-                    screen = Screen.Detail(title.tmdbId)
+                Screen.Home -> HomeScreen(home) { homeRow, title ->
+                    home.focusTarget = homeRow to title
+                    screen = when (title.kind) {
+                        Title.Kind.Movie -> Screen.Detail(title.tmdbId)
+                        Title.Kind.Series -> Screen.SeriesDetail
+                    }
+                }
+                Screen.SeriesDetail -> {
+                    BackHandler { screen = Screen.Home }
+                    // Stopgap until the Series detail screen (#25).
+                    Message("Series detail screens are coming soon.")
                 }
                 is Screen.Detail -> {
                     BackHandler { screen = Screen.Home }

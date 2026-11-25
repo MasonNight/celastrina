@@ -10,11 +10,12 @@ import dev.celastrina.core.port.JdkHttpClient
 import dev.celastrina.core.port.Logger
 import dev.celastrina.core.source.StreamLookup
 import dev.celastrina.core.source.preinstalledSources
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
     private val http by lazy { JdkHttpClient() }
-    private val catalogue by lazy { Catalogue(http, TmdbSettings(apiKey = BuildConfig.TMDB_API_KEY)) }
+    private val catalogue by lazy { Catalogue(http, TmdbSettings(apiKey = BuildConfig.TMDB_API_KEY), Locale.getDefault()) }
 
     // Stopgap until the configuration service (#26) stores the Household's Sources: the preinstalled ones only.
     private val streamLookup by lazy { StreamLookup(preinstalledSources(http), Logger { Log.i("Celastrina", it) }) }
