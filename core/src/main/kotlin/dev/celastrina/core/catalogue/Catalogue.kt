@@ -1,6 +1,8 @@
 package dev.celastrina.core.catalogue
 
 import dev.celastrina.core.port.HttpClient
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -109,12 +111,31 @@ class Catalogue(
     }
 
     /**
-     * The Movies and Series TMDB finds for [query], in its relevance order: its first page, without people or adult
-     * Titles. Search asks only TMDB, never the Sources.
+     * The Movies and Series TMDB finds for [query]: the first page of its Movie search and of its TV search, without adult
+     * Titles, and never people. Each keeps TMDB's relevance order, and the two are mixed by taking the more popular of
+     * their next results each time. Search asks only TMDB, never the Sources.
      */
-    suspend fun search(query: String): List<Title> =
+    suspend fun search(query: String): List<Title> = coroutineScope {
         // Never cached: what's searched for stays off the TV, so search leaves no history.
-        getJson<TmdbMixedPage>("/search/multi", "include_adult" to "false", "language" to language, "query" to query, cached = false).titles()
+        fun searchOf(kind: Title.Kind, path: String) = async {
+            getJson<TmdbListPage>(path, "include_adult" to "false", "language" to language, "query" to query, cached = false)
+                .results.filterNot { it.adult }.map { Listed(it.toTitle(kind), it.popularity) }
+        }
+        val movies = searchOf(Title.Kind.Movie, "/search/movie")
+        val series = searchOf(Title.Kind.Series, "/search/tv")
+        mergedByPopularity(movies.await(), series.await()).map { it.title }
+    }
+
+    /** [a] and [b] in one list, each in its own order, taking the more popular of their next Titles each time. */
+    private fun mergedByPopularity(a: List<Listed>, b: List<Listed>): List<Listed> {
+        val merged = ArrayList<Listed>(a.size + b.size)
+        var i = 0
+        var j = 0
+        while (i < a.size || j < b.size) {
+            merged += if (j >= b.size || (i < a.size && a[i].popularity >= b[j].popularity)) a[i++] else b[j++]
+        }
+        return merged
+    }
 
     /** This week's trending Movies and Series, mixed in TMDB's order: what search shows before anything is typed. */
     suspend fun trending(): List<Title> =
@@ -292,7 +313,7 @@ private class TmdbListPage(
     @SerialName("total_pages") val totalPages: Int = 1,
 )
 
-/** A page of TMDB results that mixes Movies, Series and people, each item saying which in its `media_type`. */
+/** A page of TMDB results that mixes Movies, Series and people, each item saying which in its `media_type`: trending. */
 @Serializable
 private class TmdbMixedPage(val results: List<TmdbListItem>)
 
