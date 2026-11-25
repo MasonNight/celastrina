@@ -17,6 +17,7 @@ class Catalogue(
     private val http: HttpClient,
     private val tmdb: TmdbSettings,
     private val locale: Locale,
+    private val cache: CatalogueCache? = null,
 ) {
     private val homeRows = HomeRows(::listPage)
 
@@ -97,7 +98,7 @@ class Catalogue(
     }
 
     private suspend fun listPage(source: ListSource, page: Int): HomeRows.ListPage {
-        val list = getJson<TmdbListPage>(source.path, *source.query.toTypedArray(), "language" to language, "page" to "$page")
+        val list = getJson<TmdbListPage>(source.path, *source.query.toTypedArray(), "language" to language, "page" to "$page", freshForMillis = ROW_FRESH_FOR_MILLIS)
         return HomeRows.ListPage(
             titles = list.results.map { Listed(it.toTitle(source.kind), it.popularity) },
             nextPage = (page + 1).takeIf { it <= minOf(list.totalPages, TMDB_LAST_PAGE) },
@@ -163,28 +164,44 @@ class Catalogue(
         }
     }
 
-    private suspend inline fun <reified T> getJson(path: String, vararg query: Pair<String, String>): T {
+    /** TMDB's answer at [path], from the cache while it's younger than [freshForMillis]. */
+    private suspend inline fun <reified T> getJson(path: String, vararg query: Pair<String, String>, freshForMillis: Long = TITLE_FRESH_FOR_MILLIS): T {
         if (tmdb.apiKey.isBlank()) throw CatalogueUnavailable(CatalogueUnavailable.Reason.NoKey)
+        val request = url(path, query.toList(), withKey = false)
+        cache?.fresh(request, freshForMillis)?.let { fresh -> decodeOrNull<T>(fresh)?.let { return it } }
         val response = try {
             http.get(url(path, query.toList()), authHeaders())
         } catch (e: IOException) {
+            // Offline, what's cached is better than nothing, however old.
+            cache?.kept(request)?.let { kept -> decodeOrNull<T>(kept)?.let { return it } }
             throw CatalogueUnavailable(CatalogueUnavailable.Reason.Unreachable, e)
         }
         when {
             response.status == 401 -> throw CatalogueUnavailable(CatalogueUnavailable.Reason.KeyRejected)
             !response.isSuccessful -> throw CatalogueUnavailable(CatalogueUnavailable.Reason.ServiceError)
         }
-        return try {
-            json.decodeFromString<T>(response.bodyText())
+        val body = response.bodyText()
+        val decoded = try {
+            json.decodeFromString<T>(body)
         } catch (e: SerializationException) {
             throw CatalogueUnavailable(CatalogueUnavailable.Reason.ServiceError, e)
         }
+        cache?.store(request, body)
+        return decoded
     }
+
+    /** A cached answer, or null when it no longer reads (if what the Catalogue reads has changed shape since). */
+    private inline fun <reified T> decodeOrNull(cached: String): T? =
+        try {
+            json.decodeFromString<T>(cached)
+        } catch (_: SerializationException) {
+            null
+        }
 
     private val usesBearerToken get() = tmdb.apiKey.startsWith("eyJ")
 
-    private fun url(path: String, query: List<Pair<String, String>>): String {
-        val parameters = if (usesBearerToken) query else query + ("api_key" to tmdb.apiKey)
+    private fun url(path: String, query: List<Pair<String, String>>, withKey: Boolean = true): String {
+        val parameters = if (usesBearerToken || !withKey) query else query + ("api_key" to tmdb.apiKey)
         val queryString = parameters.joinToString("&") { (name, value) -> name + "=" + URLEncoder.encode(value, "UTF-8") }
         return tmdb.apiBaseUrl + path + if (queryString.isEmpty()) "" else "?$queryString"
     }
@@ -215,6 +232,12 @@ class Catalogue(
         /** TMDB serves no list page past 500, whatever its `total_pages` says. */
         const val TMDB_LAST_PAGE = 500
         const val STILL_SIZE = "w300"
+
+        /** Title metadata is kept for 7 days. */
+        const val TITLE_FRESH_FOR_MILLIS = 7 * 24 * 60 * 60 * 1000L
+
+        /** Row lists are kept for a day, as TMDB's trending lists change daily. */
+        const val ROW_FRESH_FOR_MILLIS = 24 * 60 * 60 * 1000L
         val json = Json { ignoreUnknownKeys = true }
     }
 }
