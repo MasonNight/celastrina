@@ -21,11 +21,13 @@ import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.configuration.ConfigurationChange
 import dev.celastrina.core.configuration.ConfigurationService
 import dev.celastrina.core.configuration.TmdbKeyInUse
+import dev.celastrina.core.failover.FailoverMemory
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.port.Logger
 import dev.celastrina.core.source.Lookup
 import dev.celastrina.core.source.StreamLookup
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -48,7 +50,8 @@ private sealed interface Screen {
  * The whole app: home, a Movie's or a Series' detail screen, and the player, with Back going one step up.
  * [openMovie] or [openSeries] starts on that Title's detail screen instead of home. Each detail screen asks the
  * Sources [newStreamLookup] has when it opens; the Lookup outlives the detail screen, so Failover in the player still gets
- * Streams that arrive late. [configurationChanges] made from a computer show as notices over any screen.
+ * Streams that arrive late, and can ask the Sources again when its Stream list may have expired. [failoverMemory] orders
+ * Play's choice and Failover's candidates. [configurationChanges] made from a computer show as notices over any screen.
  * The remote's Menu button ([menuPresses]) opens Settings from anywhere but the player; Settings shows [tmdbKey] and
  * leads to the Sources (where [configuration] adds and changes them) and About.
  */
@@ -57,6 +60,7 @@ fun CelastrinaApp(
     catalogue: Catalogue,
     newStreamLookup: () -> StreamLookup,
     logger: Logger,
+    failoverMemory: FailoverMemory,
     configurationChanges: Flow<ConfigurationChange>,
     configuration: ConfigurationService,
     tmdbKey: TmdbKeyInUse,
@@ -104,19 +108,19 @@ fun CelastrinaApp(
                 is Screen.MovieDetail -> {
                     BackHandler { screen = Screen.Home }
                     val lookUp = remember(s) { lookUpIn(lookupScope, newStreamLookup()) }
-                    DetailScreen(s.tmdbId, catalogue, lookUp) { request -> screen = Screen.Player(request, back = s) }
+                    DetailScreen(s.tmdbId, catalogue, lookUp, failoverMemory) { request -> screen = Screen.Player(request, back = s) }
                 }
                 is Screen.SeriesDetail -> {
                     BackHandler { screen = Screen.Home }
                     val lookUp = remember(s) { lookUpIn(lookupScope, newStreamLookup()) }
-                    SeriesDetailScreen(s.tmdbId, s.season, catalogue, lookUp) { season, request ->
+                    SeriesDetailScreen(s.tmdbId, s.season, catalogue, lookUp, failoverMemory) { season, request ->
                         screen = Screen.Player(request, back = s.copy(season = season))
                     }
                 }
                 is Screen.Player -> {
                     // Back leaves the player, which also cancels a Failover in progress.
                     BackHandler { screen = s.back }
-                    PlayerScreen(s.request, logger)
+                    PlayerScreen(s.request, failoverMemory, logger)
                 }
                 is Screen.Settings -> {
                     BackHandler { screen = s.back }
@@ -140,12 +144,25 @@ fun CelastrinaApp(
     }
 }
 
+/** One Title's Lookup as it goes ([lookups]), which the player can [askAgain] when its Stream list may have expired. */
+class TitleLookup(val lookups: StateFlow<Lookup?>, val askAgain: () -> Unit)
+
 /**
  * Starts each Lookup in [scope], which outlives the detail screen that asked, so the player keeps getting Streams that
- * arrive late. A Lookup ends by itself once every Source has answered or timed out.
+ * arrive late. A Lookup ends by itself once every Source has answered or timed out. Asking again keeps the Streams
+ * already found listed until each Source answers again.
  */
-private fun lookUpIn(scope: CoroutineScope, streamLookup: StreamLookup): (TitleReference) -> StateFlow<Lookup?> = { title ->
-    MutableStateFlow<Lookup?>(null).also { lookups -> scope.launch { streamLookup.watch(title).collect { lookups.value = it } } }
+private fun lookUpIn(scope: CoroutineScope, streamLookup: StreamLookup): (TitleReference) -> TitleLookup = { title ->
+    val lookups = MutableStateFlow<Lookup?>(null)
+    fun ask(): Job {
+        val previous = lookups.value
+        return scope.launch { streamLookup.watch(title, previous).collect { lookups.value = it } }
+    }
+    var asking = ask()
+    TitleLookup(lookups) {
+        asking.cancel()
+        asking = ask()
+    }
 }
 
 fun CatalogueUnavailable.Reason.message() = when (this) {

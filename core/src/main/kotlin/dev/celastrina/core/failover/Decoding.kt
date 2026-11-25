@@ -28,6 +28,10 @@ private val VIDEO_MIME_TYPES = mapOf(
 
 /**
  * The Streams Failover tries, in order: those this TV can decode, in the Household's Source order and then each
- * Source's own ranking. Play's automatic choice is the first of them.
+ * Source's own ranking, with those that failed on this TV in the last 24 hours ([memory]) moved to the end. Play's
+ * automatic choice is the first of them.
  */
-fun Lookup.candidates(decoders: Decoders): List<Stream> = streams.filter { it.isDecodableBy(decoders) }
+fun Lookup.candidates(decoders: Decoders, memory: FailoverMemory): List<Stream> {
+    val (fresh, demoted) = streams.filter { it.isDecodableBy(decoders) }.partition { !memory.isDemoted(it) }
+    return fresh + demoted
+}
