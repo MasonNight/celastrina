@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +51,9 @@ import dev.celastrina.core.catalogue.CatalogueUnavailable
 import dev.celastrina.core.catalogue.Hero
 import dev.celastrina.core.catalogue.HomeRow
 import dev.celastrina.core.catalogue.Title
+import dev.celastrina.core.household.ContinueWatching
+import dev.celastrina.core.household.Watched
+import dev.celastrina.core.household.Watchlist
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -68,10 +72,13 @@ private const val LOAD_MORE_WITHIN = 8
 
 /**
  * Home, Variant A "Hero + stacked rows": the focused Title's backdrop, logo, metadata and blurb fill the top, above
- * the Movies, Series, Anime and Cartoons rows.
+ * the Continue watching, Watchlist, Movies, Series, Anime and Cartoons rows. [onOpen] gets the row (a [HomeRow] or
+ * [HouseholdRow]) and the Title; a Continue watching card goes to [onResume] instead.
  */
 @Composable
-fun HomeScreen(model: HomeModel, onOpen: (HomeRow, Title) -> Unit) {
+fun HomeScreen(model: HomeModel, continueWatching: ContinueWatching, watchlist: Watchlist, onResume: (Watched) -> Unit, onOpen: (Any, Title) -> Unit) {
+    val watched by continueWatching.row.collectAsState()
+    val listed by watchlist.titles.collectAsState()
     val allFailed by remember { derivedStateOf { model.rows.values.all { it is RowState.Failed } } }
     val offline by remember {
         derivedStateOf { model.rows.values.any { it == RowState.Failed(CatalogueUnavailable.Reason.Unreachable) } }
@@ -83,7 +90,8 @@ fun HomeScreen(model: HomeModel, onOpen: (HomeRow, Title) -> Unit) {
             model.retryFailed()
         }
     }
-    if (allFailed) {
+    // Continue watching and the Watchlist are kept on the TV, so home shows them offline, each failed row saying why.
+    if (allFailed && (watched.isEmpty() && listed.isEmpty() || !offline)) {
         val reason = (model.rows.values.first() as RowState.Failed).reason
         if (reason == CatalogueUnavailable.Reason.Unreachable) {
             Message("You're offline", "Nothing is saved on this TV to show yet. Home fills in when the TV is back online.")
@@ -111,6 +119,7 @@ fun HomeScreen(model: HomeModel, onOpen: (HomeRow, Title) -> Unit) {
                 contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
+                householdRows(watched, listed, model, onFocus = { focused.value = it }, onOpen = onOpen, onResume = onResume)
                 items(HomeRow.entries, key = { it }) { homeRow ->
                     TitleRow(
                         homeRow = homeRow,
@@ -194,7 +203,7 @@ private fun TitleRow(
     homeRow: HomeRow,
     state: RowState,
     listState: LazyListState,
-    focusTarget: Pair<HomeRow, Title>?,
+    focusTarget: Pair<Any, Title>?,
     onLoadMore: () -> Unit,
     onFocus: (Title) -> Unit,
     onOpen: (Title) -> Unit,
@@ -245,7 +254,7 @@ private fun RowMessage(text: String) {
 }
 
 @Composable
-private fun PosterCard(title: Title, modifier: Modifier, onFocus: () -> Unit, onClick: () -> Unit) {
+fun PosterCard(title: Title, modifier: Modifier, onFocus: () -> Unit, onClick: () -> Unit) {
     Card(onClick = onClick, modifier = modifier.width(130.dp).aspectRatio(2f / 3f).onFocusChanged { if (it.isFocused) onFocus() }) {
         Box(Modifier.fillMaxSize()) {
             Text(
@@ -261,6 +270,7 @@ private fun PosterCard(title: Title, modifier: Modifier, onFocus: () -> Unit, on
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
+            NotPlayableBadge(title, Modifier.align(Alignment.BottomStart).padding(6.dp))
         }
     }
 }

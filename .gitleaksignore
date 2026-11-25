@@ -1,0 +1,16 @@
+# Findings reviewed and confirmed fake: test-only placeholders (a made-up TMDB v4 JWT, the 0123…cdef
+# stand-in access token) and Jellyfin item keys from the public demo server. Listed by exact fingerprint
+# so a real secret in the same files is still caught.
+0d38958dbea319c654523bd28dc331ba9e8acfca:core/src/test/kotlin/dev/celastrina/core/catalogue/MoviesRowTest.kt:jwt:40
+23ffbbc2374e9d2e6c0820a3213f2b9a651c9576:core/src/testFixtures/kotlin/dev/celastrina/core/testing/RecordedJellyfin.kt:generic-api-key:129
+23ffbbc2374e9d2e6c0820a3213f2b9a651c9576:core/src/testFixtures/resources/recorded/jellyfin/authenticate-by-name.json:generic-api-key:1
+23ffbbc2374e9d2e6c0820a3213f2b9a651c9576:core/src/testFixtures/resources/recorded/jellyfin/items-movie-caminandes-llama-drama.json:generic-api-key:1
+23ffbbc2374e9d2e6c0820a3213f2b9a651c9576:core/src/testFixtures/resources/recorded/jellyfin/items-movie-dracula.json:generic-api-key:1
+23ffbbc2374e9d2e6c0820a3213f2b9a651c9576:core/src/testFixtures/resources/recorded/jellyfin/items-series-pioneer-one.json:generic-api-key:1
+23ffbbc2374e9d2e6c0820a3213f2b9a651c9576:core/src/testFixtures/resources/recorded/jellyfin/shows-9bd5926326d651153928e0d11c6ee7cb-episodes-season-1.json:generic-api-key:1
+23ffbbc2374e9d2e6c0820a3213f2b9a651c9576:core/src/testFixtures/resources/recorded/jellyfin/shows-9bd5926326d651153928e0d11c6ee7cb-episodes-season-1.json:generic-api-key:1
+661adb4501ef9dfc3116595c090d37518ff7217c:core/src/test/kotlin/dev/celastrina/core/catalogue/MoviesRowTest.kt:jwt:40
+a2849d2061746201e78b3f1ee9214675f51fac5e:core/src/test/kotlin/dev/celastrina/core/catalogue/MoviesRowTest.kt:jwt:40
+b98227d75b0bdca1ad5f41a5ada01615cf5ff7f7:core/src/test/kotlin/dev/celastrina/core/catalogue/MoviesRowTest.kt:jwt:40
+eb8bff2f5be64958b5b4c9a36b97d3069f11a6da:core/src/test/kotlin/dev/celastrina/core/catalogue/MoviesRowTest.kt:jwt:40
+ef188f468ca66123bd4279f474ce6b29d2e09c43:core/src/testFixtures/resources/recorded/jellyfin/authenticate-with-quick-connect.json:generic-api-key:1

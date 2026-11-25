@@ -1,6 +1,12 @@
 package dev.celastrina.core.configuration
 
+import dev.celastrina.core.catalogue.Title
+import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.failover.FailoverMemory
+import dev.celastrina.core.household.ContinueWatching
+import dev.celastrina.core.household.Watching
+import dev.celastrina.core.household.Watchlist
+import dev.celastrina.core.household.WorkedStream
 import dev.celastrina.core.port.FileStorage
 import dev.celastrina.core.source.Stream
 import dev.celastrina.core.port.HttpClient
@@ -238,6 +244,24 @@ class ConfigurationServiceTest {
         assertFalse(memory.isDemoted(archive))
         assertTrue(FailoverMemory(FileStorage(dir), clock).isDemoted(other))
         assertFalse(FailoverMemory(FileStorage(dir), clock).isDemoted(archive))
+    }
+
+    @Test
+    fun `removing a Source leaves Continue watching and the Watchlist as they were`() {
+        val continueWatching = ContinueWatching(FileStorage(dir), clock)
+        val watchlist = Watchlist(FileStorage(dir))
+        val theMatrix = Title(603, Title.Kind.Movie, "The Matrix", 1999, posterUrl = null, category = null)
+        val watching = Watching(theMatrix, TitleReference(Title.Kind.Movie, 603, "tt0133093", null, "The Matrix", "The Matrix", emptyList(), 1999), null, null)
+        val archive = Stream(sourceId = "internet-archive", id = "a", url = "https://archive.org/a.mp4", delivery = Stream.Delivery.Progressive)
+        continueWatching.save(watching, archive, positionMillis = 600_000, durationMillis = 8_160_000)
+        watchlist.add(theMatrix)
+
+        service().remove("internet-archive", ChangedFrom.Tv)
+
+        val afterRestart = ContinueWatching(FileStorage(dir), clock)
+        assertEquals(listOf(watching), afterRestart.row.value.map { it.watching })
+        assertEquals(WorkedStream("internet-archive", "a"), afterRestart.of(watching.reference)?.lastWorked)
+        assertEquals(listOf(theMatrix), Watchlist(FileStorage(dir)).titles.value)
     }
 
     @Test

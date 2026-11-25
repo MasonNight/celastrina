@@ -8,8 +8,11 @@ import coil.disk.DiskCache
 import com.lagradost.api.setContext
 import dev.celastrina.core.catalogue.ArtworkCache
 import dev.celastrina.core.catalogue.CatalogueCache
+import dev.celastrina.core.catalogue.NotPlayableMemory
 import dev.celastrina.core.configuration.ConfigurationService
 import dev.celastrina.core.failover.FailoverMemory
+import dev.celastrina.core.household.ContinueWatching
+import dev.celastrina.core.household.Watchlist
 import dev.celastrina.core.port.Clock
 import dev.celastrina.core.port.FileStorage
 import dev.celastrina.core.port.JdkHttpClient
@@ -36,6 +39,7 @@ class CelastrinaApplication : Application(), ImageLoaderFactory {
             extensionLoader = DexExtensionLoader(applicationContext),
             logger = logger,
             failoverMemory = failoverMemory,
+            notPlayable = notPlayable,
         )
     }
 
@@ -60,6 +64,14 @@ class CelastrinaApplication : Application(), ImageLoaderFactory {
 
     /** The Streams that failed on this TV in the last 24 hours, shared by Play's choice and every playback session. */
     val failoverMemory by lazy { FailoverMemory(storage, Clock.System) }
+
+    /** The Titles whose latest Lookup found every Source Not available, badged wherever they appear. */
+    val notPlayable by lazy { NotPlayableMemory(storage, Clock.System) }
+
+    /** Where playback got to in each Title and episode, and the Stream that last worked for it. */
+    val continueWatching by lazy { ContinueWatching(storage, Clock.System) }
+
+    val watchlist by lazy { Watchlist(storage) }
 
     private companion object {
         const val ARTWORK_CACHE_BYTES = 250L * 1024 * 1024

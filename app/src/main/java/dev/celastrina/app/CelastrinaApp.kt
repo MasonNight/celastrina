@@ -22,6 +22,9 @@ import dev.celastrina.core.configuration.ConfigurationChange
 import dev.celastrina.core.configuration.ConfigurationService
 import dev.celastrina.core.configuration.TmdbKeyInUse
 import dev.celastrina.core.failover.FailoverMemory
+import dev.celastrina.core.household.ContinueWatching
+import dev.celastrina.core.household.Watched
+import dev.celastrina.core.household.Watchlist
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.port.Logger
 import dev.celastrina.core.source.Lookup
@@ -36,6 +39,9 @@ import kotlinx.coroutines.launch
 private sealed interface Screen {
     data object Home : Screen
     data class MovieDetail(val tmdbId: Int) : Screen
+
+    /** A Continue watching card, resuming. */
+    data class Resume(val watched: Watched) : Screen
 
     /** [season] is the season tab it opens on; null opens on the first. */
     data class SeriesDetail(val tmdbId: Int, val season: Int? = null) : Screen
@@ -52,7 +58,8 @@ private sealed interface Screen {
  * [openMovie] or [openSeries] starts on that Title's detail screen instead of home. Each detail screen asks the
  * Sources [newStreamLookup] has when it opens; the Lookup outlives the detail screen, so Failover in the player still gets
  * Streams that arrive late, and can ask the Sources again when its Stream list may have expired. [failoverMemory] orders
- * Play's choice and Failover's candidates. [configurationChanges] made from a computer show as notices over any screen.
+ * Play's choice and Failover's candidates. [continueWatching] and [watchlist] are home's first two rows; a Continue
+ * watching card resumes playback in one press. [configurationChanges] made from a computer show as notices over any screen.
  * The remote's Menu button ([menuPresses]) opens Settings from anywhere but the player; Settings shows [tmdbKey] and
  * leads to the Sources (where [configuration] adds and changes them), the Extensions and About.
  */
@@ -62,6 +69,8 @@ fun CelastrinaApp(
     newStreamLookup: () -> StreamLookup,
     logger: Logger,
     failoverMemory: FailoverMemory,
+    continueWatching: ContinueWatching,
+    watchlist: Watchlist,
     configurationChanges: Flow<ConfigurationChange>,
     configuration: ConfigurationService,
     tmdbKey: TmdbKeyInUse,
@@ -91,7 +100,10 @@ fun CelastrinaApp(
     MaterialTheme(colorScheme = darkColorScheme()) {
         Surface(modifier = Modifier.fillMaxSize(), colors = SurfaceDefaults.colors(containerColor = Color.Black, contentColor = Color.White)) {
             when (val s = screen) {
-                Screen.Home -> HomeScreen(home) { homeRow, title ->
+                Screen.Home -> HomeScreen(home, continueWatching, watchlist, onResume = { watched ->
+                    home.focusTarget = HouseholdRow.ContinueWatching to watched.watching.title
+                    screen = Screen.Resume(watched)
+                }) { homeRow, title ->
                     home.focusTarget = homeRow to title
                     screen = when (title.kind) {
                         Title.Kind.Movie -> Screen.MovieDetail(title.tmdbId)
@@ -101,19 +113,30 @@ fun CelastrinaApp(
                 is Screen.MovieDetail -> {
                     BackHandler { screen = Screen.Home }
                     val lookUp = remember(s) { lookUpIn(lookupScope, newStreamLookup()) }
-                    DetailScreen(s.tmdbId, catalogue, lookUp, failoverMemory) { request -> screen = Screen.Player(request, back = s) }
+                    DetailScreen(s.tmdbId, catalogue, lookUp, failoverMemory, continueWatching, watchlist) { request -> screen = Screen.Player(request, back = s) }
+                }
+                is Screen.Resume -> {
+                    BackHandler { screen = Screen.Home }
+                    val lookUp = remember(s) { lookUpIn(lookupScope, newStreamLookup()) }
+                    ResumeScreen(s.watched, lookUp, failoverMemory, onPlay = { screen = Screen.Player(it, back = Screen.Home) }) {
+                        val title = s.watched.watching.title
+                        screen = when (title.kind) {
+                            Title.Kind.Movie -> Screen.MovieDetail(title.tmdbId)
+                            Title.Kind.Series -> Screen.SeriesDetail(title.tmdbId, s.watched.watching.reference.episode?.season)
+                        }
+                    }
                 }
                 is Screen.SeriesDetail -> {
                     BackHandler { screen = Screen.Home }
                     val lookUp = remember(s) { lookUpIn(lookupScope, newStreamLookup()) }
-                    SeriesDetailScreen(s.tmdbId, s.season, catalogue, lookUp, failoverMemory) { season, request ->
+                    SeriesDetailScreen(s.tmdbId, s.season, catalogue, lookUp, failoverMemory, continueWatching, watchlist) { season, request ->
                         screen = Screen.Player(request, back = s.copy(season = season))
                     }
                 }
                 is Screen.Player -> {
                     // Back leaves the player, which also cancels a Failover in progress.
                     BackHandler { screen = s.back }
-                    PlayerScreen(s.request, failoverMemory, logger)
+                    PlayerScreen(s.request, failoverMemory, continueWatching, logger)
                 }
                 is Screen.Settings -> {
                     BackHandler { screen = s.back }

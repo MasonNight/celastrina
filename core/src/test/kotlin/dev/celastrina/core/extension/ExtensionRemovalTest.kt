@@ -1,5 +1,8 @@
 package dev.celastrina.core.extension
 
+import dev.celastrina.core.catalogue.NotPlayableMemory
+import dev.celastrina.core.catalogue.Title
+import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.configuration.ChangedFrom
 import dev.celastrina.core.configuration.ConfigurationChange
 import dev.celastrina.core.configuration.ConfigurationService
@@ -9,11 +12,17 @@ import dev.celastrina.core.configuration.WriteOutcome
 import dev.celastrina.core.failover.FailoverMemory
 import dev.celastrina.core.port.FileStorage
 import dev.celastrina.core.port.JdkHttpClient
+import dev.celastrina.core.source.IdScheme
+import dev.celastrina.core.source.LookupOutcome
+import dev.celastrina.core.source.Source
+import dev.celastrina.core.source.SourceKind
 import dev.celastrina.core.source.Stream
+import dev.celastrina.core.source.StreamLookup
 import dev.celastrina.core.testing.JvmExtensionLoader
 import dev.celastrina.core.testing.RecordedExtensionSites
 import dev.celastrina.core.testing.RecordingLogger
 import dev.celastrina.core.testing.VirtualClock
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -37,6 +46,7 @@ class ExtensionRemovalTest {
     private val clock = VirtualClock()
     private val storage by lazy { FileStorage(File(dir, "storage")) }
     private val failoverMemory by lazy { FailoverMemory(storage, clock) }
+    private val notPlayable by lazy { NotPlayableMemory(storage, clock) }
 
     @AfterEach
     fun stopServer() = sites.close()
@@ -50,6 +60,7 @@ class ExtensionRemovalTest {
         extensionLoader = JvmExtensionLoader(File(dir, "code")),
         logger = RecordingLogger(),
         failoverMemory = failoverMemory,
+        notPlayable = notPlayable,
     )
 
     private suspend fun installed(): ConfigurationService = service().apply {
@@ -100,6 +111,25 @@ class ExtensionRemovalTest {
         service.removeExtension("InternetArchive", ChangedFrom.Tv)
 
         assertFalse(failoverMemory.isDemoted(stream))
+    }
+
+    @Test
+    fun `removing an Extension forgets every Not playable Title`() = runTest {
+        val service = installed()
+        val nothingHere = object : Source {
+            override val id = EXTENSION_SOURCE
+            override val name = "Internet Archive (test)"
+            override val kind = SourceKind("Extension", setOf(IdScheme.Name), setOf(Title.Kind.Movie))
+            override suspend fun lookUp(title: TitleReference) = LookupOutcome.NotAvailable
+        }
+        val reference = TitleReference(Title.Kind.Movie, 10331, null, null, "Night of the Living Dead", "Night of the Living Dead", emptyList(), 1968)
+        StreamLookup(listOf(nothingHere), RecordingLogger(), clock, notPlayable).watch(reference).collect()
+        val title = Title(10331, Title.Kind.Movie, "Night of the Living Dead", 1968, posterUrl = null, category = null)
+        assertTrue(notPlayable.isNotPlayable(title))
+
+        service.removeExtension("InternetArchive", ChangedFrom.Tv)
+
+        assertFalse(notPlayable.isNotPlayable(title))
     }
 
     @Test

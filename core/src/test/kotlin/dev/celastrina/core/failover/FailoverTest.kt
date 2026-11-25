@@ -2,6 +2,7 @@ package dev.celastrina.core.failover
 
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
+import dev.celastrina.core.household.WorkedStream
 import dev.celastrina.core.port.Decoders
 import dev.celastrina.core.port.FileStorage
 import dev.celastrina.core.source.IdScheme
@@ -96,6 +97,31 @@ class FailoverTest {
     }
 
     @Test
+    fun `the Stream that last worked for the Title or episode goes first, ahead of the Source order`() {
+        val lookup = lookup(movieNight to listOf(nightly1080, nightly720), archive to listOf(archiveMp4, archiveOgv))
+
+        assertEquals(
+            listOf(archiveMp4, nightly1080, nightly720, archiveOgv),
+            lookup.candidates(everythingDecodes, memory, lastWorked = WorkedStream("internet-archive", "mp4")),
+        )
+    }
+
+    @Test
+    fun `the Stream that last worked doesn't go first once it has failed since`() {
+        val lookup = lookup(movieNight to listOf(nightly1080), archive to listOf(archiveMp4))
+        playing(archiveMp4, lookup).fail()
+
+        assertEquals(listOf(nightly1080, archiveMp4), lookup.candidates(everythingDecodes, memory, lastWorked = WorkedStream("internet-archive", "mp4")))
+    }
+
+    @Test
+    fun `the Stream that last worked must be one the TV can decode`() {
+        val lookup = lookup(movieNight to listOf(nightly1080), friends to listOf(friendsHevc))
+
+        assertEquals(listOf(nightly1080), lookup.candidates(Decoders { it != "video/hevc" }, memory, lastWorked = WorkedStream("friends", "hevc")))
+    }
+
+    @Test
     fun `codec names are understood however a Source spells them`() {
         val spellings = mapOf(
             "video/avc" to listOf("h264", "AVC", "avc1", "x264"),
@@ -131,6 +157,55 @@ class FailoverTest {
         assertIs<FailoverStep.GaveUp>(step)
         assertEquals(GiveUpReason.NothingLeftToTry, step.because)
         assertNull(failover.playing)
+    }
+
+    @Test
+    fun `the Stream that worked is the last one to show a picture`() {
+        val failover = playing(nightly1080, lookup(movieNight to listOf(nightly1080), archive to listOf(archiveMp4)), started = false)
+        assertNull(failover.worked)
+
+        failover.on(PlayerEvent.FirstFrame)
+        assertEquals(nightly1080, failover.worked)
+
+        failover.failUnstarted()
+        assertEquals(nightly1080, failover.worked)
+
+        failover.on(PlayerEvent.FirstFrame)
+        assertEquals(archiveMp4, failover.worked)
+    }
+
+    // Resuming from Continue watching
+
+    @Test
+    fun `resuming waits for the Source of the Stream that last worked, then plays that Stream`() {
+        val lastWorked = WorkedStream("internet-archive", "mp4")
+
+        assertEquals(ResumeChoice.Waiting, lookup(movieNight to listOf(nightly1080), archive to null).resumeChoice(everythingDecodes, memory, lastWorked))
+        assertEquals(
+            ResumeChoice.Play(archiveMp4),
+            lookup(movieNight to listOf(nightly1080), archive to listOf(archiveOgv, archiveMp4)).resumeChoice(everythingDecodes, memory, lastWorked),
+        )
+    }
+
+    @Test
+    fun `when the Stream that last worked is gone, resuming plays Play's choice`() {
+        val lastWorked = WorkedStream("internet-archive", "mp4")
+
+        assertEquals(
+            ResumeChoice.Play(nightly1080),
+            lookup(movieNight to listOf(nightly1080), archive to LookupOutcome.NotAvailable, friends to null).resumeChoice(everythingDecodes, memory, lastWorked),
+        )
+        // Its Source was removed.
+        assertEquals(ResumeChoice.Play(nightly1080), lookup(movieNight to listOf(nightly1080)).resumeChoice(everythingDecodes, memory, lastWorked))
+    }
+
+    @Test
+    fun `resuming with nothing to play waits for the Sources still being asked, then says so`() {
+        assertEquals(ResumeChoice.Waiting, lookup(movieNight to LookupOutcome.NotAvailable, archive to null).resumeChoice(everythingDecodes, memory, null))
+        assertEquals(
+            ResumeChoice.NothingToPlay,
+            lookup(movieNight to LookupOutcome.NotAvailable, archive to LookupOutcome.NotAvailable).resumeChoice(everythingDecodes, memory, null),
+        )
     }
 
     // When a Stream counts as not working

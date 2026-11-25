@@ -45,6 +45,10 @@ import dev.celastrina.core.catalogue.Season
 import dev.celastrina.core.catalogue.SeriesDetails
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.failover.FailoverMemory
+import dev.celastrina.core.household.ContinueWatching
+import dev.celastrina.core.household.Watched
+import dev.celastrina.core.household.Watching
+import dev.celastrina.core.household.Watchlist
 import dev.celastrina.core.source.Lookup
 import dev.celastrina.core.source.Stream
 
@@ -63,7 +67,8 @@ private sealed interface EpisodesState {
 /**
  * A Series' detail screen: season tabs (Specials last) over a row of episode cards. Picking an episode asks
  * the Sources for it. It opens on [seasonNumber] when that season exists, otherwise on the first tab.
- * [onPlay] gets the season the episode is in, so Back from the player can return to it.
+ * [onPlay] gets the season the episode is in, so Back from the player can return to it. Play resumes an episode where
+ * [continueWatching] says playback got to, and + Watchlist adds the Series to [watchlist] or takes it off.
  */
 @Composable
 fun SeriesDetailScreen(
@@ -72,6 +77,8 @@ fun SeriesDetailScreen(
     catalogue: Catalogue,
     lookUp: (TitleReference) -> TitleLookup,
     failoverMemory: FailoverMemory,
+    continueWatching: ContinueWatching,
+    watchlist: Watchlist,
     onPlay: (season: Int, request: PlayRequest) -> Unit,
 ) {
     var state by remember(tmdbId) { mutableStateOf<SeriesState>(SeriesState.Loading) }
@@ -85,7 +92,7 @@ fun SeriesDetailScreen(
     when (val s = state) {
         SeriesState.Loading -> Message("Loading…")
         is SeriesState.Failed -> Message(s.reason.message())
-        is SeriesState.Loaded -> SeriesDetail(s.details, seasonNumber, catalogue, lookUp, failoverMemory, onPlay)
+        is SeriesState.Loaded -> SeriesDetail(s.details, seasonNumber, catalogue, lookUp, failoverMemory, continueWatching, watchlist, onPlay)
     }
 }
 
@@ -96,6 +103,8 @@ private fun SeriesDetail(
     catalogue: Catalogue,
     lookUp: (TitleReference) -> TitleLookup,
     failoverMemory: FailoverMemory,
+    continueWatching: ContinueWatching,
+    watchlist: Watchlist,
     onPlay: (season: Int, request: PlayRequest) -> Unit,
 ) {
     var seasonIndex by remember(details) { mutableStateOf(details.seasons.indexOfFirst { it.number == seasonNumber }.coerceAtLeast(0)) }
@@ -103,10 +112,16 @@ private fun SeriesDetail(
     val titleLookup = remember(picked) { picked?.let { lookUp(it.reference) } }
     val lookup = titleLookup?.lookups?.collectAsState()?.value
     var choosing by remember(picked) { mutableStateOf(false) }
+    val watched = remember(picked) { picked?.let { continueWatching.of(it.reference) } }
     val season = details.seasons.getOrNull(seasonIndex)
     fun play(stream: Stream, handPicked: Boolean) {
         val episode = picked ?: return
-        onPlay(episode.reference.episode!!.season, PlayRequest(stream, handPicked, titleLookup ?: return, "${details.title.name} · ${episode.label()}"))
+        val request = PlayRequest(
+            stream, handPicked, titleLookup ?: return, "${details.title.name} · ${episode.label()}",
+            startAtMillis = watched?.resumeAtMillis ?: 0,
+            watching = Watching(details.title, episode.reference, episode.label(), imageUrl = episode.stillUrl ?: details.backdropUrl),
+        )
+        onPlay(episode.reference.episode!!.season, request)
     }
 
     if (choosing) {
@@ -135,6 +150,7 @@ private fun SeriesDetail(
                 Text(details.title.name, style = MaterialTheme.typography.displaySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(details.metadataLine(), style = MaterialTheme.typography.titleSmall, color = Color.White.copy(alpha = 0.8f))
                 Text(details.synopsis, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                WatchlistButton(details.title, watchlist)
             }
             if (details.seasons.isEmpty()) {
                 Text("TMDB lists no episodes for this Series.", modifier = Modifier.padding(start = 48.dp))
@@ -144,7 +160,7 @@ private fun SeriesDetail(
             if (season != null) {
                 EpisodeRow(details, season, catalogue) { picked = it }
             }
-            PickedEpisode(picked, lookup, failoverMemory, onPlay = { play(it, handPicked = false) }, onChoose = { choosing = true })
+            PickedEpisode(picked, lookup, failoverMemory, watched, onPlay = { play(it, handPicked = false) }, onChoose = { choosing = true })
         }
     }
 }
@@ -224,12 +240,12 @@ private fun EpisodeCard(episode: Episode, onClick: () -> Unit) {
 
 /** The picked episode, with Play, Choose Stream and its Lookup's status line. Picking an episode is what asks the Sources for it. */
 @Composable
-private fun PickedEpisode(episode: Episode?, lookup: Lookup?, failoverMemory: FailoverMemory, onPlay: (Stream) -> Unit, onChoose: () -> Unit) {
+private fun PickedEpisode(episode: Episode?, lookup: Lookup?, failoverMemory: FailoverMemory, watched: Watched?, onPlay: (Stream) -> Unit, onChoose: () -> Unit) {
     Box(Modifier.fillMaxWidth().height(48.dp).padding(start = 48.dp), contentAlignment = Alignment.CenterStart) {
         if (episode == null) {
             Text("Pick an episode to find Streams for it.", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.7f))
         } else {
-            PlayRow(lookup, failoverMemory, onPlay, onChoose, label = episode.label())
+            PlayRow(lookup, failoverMemory, onPlay, onChoose, label = episode.label(), watched = watched)
         }
     }
 }
