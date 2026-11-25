@@ -38,10 +38,13 @@ enum class IdScheme {
     Tmdb,
     Imdb,
     Wikidata,
+
+    /** Not an ID: the Title's name, which every Title has. Extensions match by name. */
+    Name,
     ;
 
     fun isKnownFor(title: TitleReference): Boolean = when (this) {
-        Tmdb -> true
+        Tmdb, Name -> true
         Imdb -> title.imdbId != null
         Wikidata -> title.wikidataId != null
     }

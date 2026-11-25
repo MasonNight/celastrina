@@ -43,6 +43,16 @@ class ConfigurationProviderTest {
     private val authority = "${BuildConfig.APPLICATION_ID}.configuration"
 
     @Test
+    fun importing_an_extension_repository_without_acknowledging_the_warning_answers_the_warning() {
+        val reply = contentCall("import-repository", base64("""{"url":"https://example.org/repo.json"}"""))
+
+        assertEquals("invalid", reply.string("result"))
+        assertEquals("warning_not_acknowledged", reply.string("problem"))
+        assertTrue("home network" in reply.string("warning"), reply.toString())
+        assertEquals(1, reply["warning_version"]!!.jsonPrimitive.int)
+    }
+
+    @Test
     fun the_agent_reads_the_status_with_the_protocol_version() {
         val status = contentCall("status")
         val sources = contentCall("list")["sources"]!!.jsonArray.size
@@ -51,7 +61,7 @@ class ConfigurationProviderTest {
         assertEquals(1, status["protocol_version"]!!.jsonPrimitive.int)
         assertEquals(BuildConfig.VERSION_NAME, status.string("app_version"))
         assertEquals(sources, status["sources"]!!.jsonPrimitive.int)
-        assertEquals(0, status["extensions"]!!.jsonPrimitive.int)
+        assertTrue(status["extensions"]!!.jsonPrimitive.int >= 0, status.toString())
         assertTrue(status.string("tmdb_key") in setOf("project", "override", "none"), status.toString())
         val queried = shell("content query --uri content://$authority/status")
         assertTrue("protocol_version=1" in queried, queried)

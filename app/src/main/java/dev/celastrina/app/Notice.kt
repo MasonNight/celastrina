@@ -72,4 +72,5 @@ fun ConfigurationChange.notice(): String = when (action) {
     ConfigurationChange.Action.Removed -> "Source removed from a computer: $sourceName"
     ConfigurationChange.Action.TmdbKeySet -> "TMDB key set from a computer"
     ConfigurationChange.Action.TmdbKeyCleared -> "TMDB key cleared from a computer: back to the project key"
+    ConfigurationChange.Action.RepositoryImported -> "Extension Repository imported from a computer: $sourceName"
 }

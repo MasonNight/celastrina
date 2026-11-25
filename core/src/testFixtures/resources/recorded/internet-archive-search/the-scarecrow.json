@@ -1,0 +1,111 @@
+{
+ "responseHeader": {
+  "status": 0,
+  "QTime": 89,
+  "params": {
+   "query": "title:&quot;The Scarecrow&quot; AND mediatype:movies",
+   "qin": "title:(&quot;The Scarecrow&quot;) AND mediatype:(movies)",
+   "fields": "identifier,title,year",
+   "wt": "json",
+   "rows": 20,
+   "start": 0
+  }
+ },
+ "response": {
+  "numFound": 59,
+  "start": 0,
+  "docs": [
+   {
+    "identifier": "the-scarecrow-12",
+    "title": "The Scarecrow \u0e2b\u0e38\u0e48\u0e19\u0e25\u0e27\u0e07\u0e40\u0e0a\u0e37\u0e2d\u0e14"
+   },
+   {
+    "identifier": "the-scarecrow_202507",
+    "title": "The Scarecrow, Buster Keaton"
+   },
+   {
+    "identifier": "dark-night-of-the-scarecrow-1981-slasher-horror-film-directed-by-frank-de-felitta",
+    "title": "Dark Night Of The Scarecrow (1981)",
+    "year": 1981
+   },
+   {
+    "identifier": "funny_or_die_video_9b0938ff1d",
+    "title": "Funny or Die Video 9b0938ff1d: The Scarecrow...",
+    "year": 2007
+   },
+   {
+    "identifier": "monster-movie-night-halloween-spooktacular-dark-night-of-the-scarecrow-season-12",
+    "title": "Monster Movie Night Halloween Spooktacular Dark Night Of The Scarecrow Season 12 Finale Episode 22 Ep 267"
+   },
+   {
+    "identifier": "the-scarecrow-1920",
+    "title": "The Scarecrow (1920)"
+   },
+   {
+    "identifier": "brnisdtx-Rose_Longoria_Read_out_Loud_the_Scarecrow",
+    "title": "Rose Longoria Read out Loud the Scarecrow",
+    "year": 2020
+   },
+   {
+    "identifier": "the-scarecrow-1920-tmdb51357",
+    "title": "The Scarecrow",
+    "year": 1920
+   },
+   {
+    "identifier": "alvin-loves-books-with-microsoft-anna-season-4-episode-74-hopefully-the-scarecrow",
+    "title": "Alvin Loves Books! With Microsoft Anna - Season 4, Episode 74 - Hopefully The Scarecrow",
+    "year": 2026
+   },
+   {
+    "identifier": "hey-duggee-s-01-e-09-the-scarecrow-badge",
+    "title": "Hey Duggee S01 E09 The Scarecrow Badge @cartoonito",
+    "year": 2022
+   },
+   {
+    "identifier": "night-of-the-scarecrow-1995",
+    "title": "Night Of The Scarecrow 1995",
+    "year": 1995
+   },
+   {
+    "identifier": "funny_or_die_video_5662",
+    "title": "Funny or Die Video 5662: The Farm Boy and The Scarecrow",
+    "year": 2007
+   },
+   {
+    "identifier": "dark-night-of-the-scarecrow-tbs-10-29-91_202301",
+    "title": "Dark Night of the Scarecrow (TBS TV Recording w/ Commercials)"
+   },
+   {
+    "identifier": "buster-keaton-the-scarecrow-1920",
+    "title": "Buster Keaton The Scarecrow ( 1920)"
+   },
+   {
+    "identifier": "max0rTheScarecrowIncident",
+    "title": "Arma 3 | The Scarecrow Incident",
+    "year": 2022
+   },
+   {
+    "identifier": "youtube-kUb_xHsl01g",
+    "title": "The Scarecrow",
+    "year": 2025
+   },
+   {
+    "identifier": "the-legend-of-the-scarecrow-2-cyutilu-0hk-720p-1655910492073",
+    "title": "The Legend Of The Scarecrow 2 CYUTILU 0hk 720p 1655910492073"
+   },
+   {
+    "identifier": "dr.-syn-alias-the-scarecrow",
+    "title": "Dr. Syn, Alias the Scarecrow"
+   },
+   {
+    "identifier": "matarsak-the-scarecrow-1984-360p-clip",
+    "title": "Matarsak - The Scarecrow (1984) 360p Clip"
+   },
+   {
+    "identifier": "his-majesty-the-scarecrow-of-oz-1914",
+    "title": "His Majesty, The Scarecrow Of Oz (1914)Directed by J. Farrell MacDonald",
+    "year": 1914
+   }
+  ]
+ }
+}

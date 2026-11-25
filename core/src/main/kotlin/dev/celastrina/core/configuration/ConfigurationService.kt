@@ -1,8 +1,21 @@
 package dev.celastrina.core.configuration
 
+import com.lagradost.cloudstream3.syncproviders.SyncIdName
+import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TmdbSettings
+import dev.celastrina.core.extension.AvailableExtension
+import dev.celastrina.core.extension.ExtensionFailure
+import dev.celastrina.core.extension.ExtensionHost
+import dev.celastrina.core.extension.ExtensionRepository
+import dev.celastrina.core.extension.ExtensionSource
+import dev.celastrina.core.extension.ExtensionWarning
+import dev.celastrina.core.extension.ListedExtension
+import dev.celastrina.core.extension.RepositoryReader
+import dev.celastrina.core.extension.RepositoryUnreadable
+import dev.celastrina.core.port.ExtensionLoader
 import dev.celastrina.core.port.Clock
 import dev.celastrina.core.port.HttpClient
+import dev.celastrina.core.port.Logger
 import dev.celastrina.core.port.Storage
 import dev.celastrina.core.source.LookupOutcome.Failure.Reason
 import dev.celastrina.core.source.Source
@@ -25,6 +38,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.net.URI
 import java.net.URISyntaxException
+import java.security.MessageDigest
 import java.util.UUID
 
 /**
@@ -40,17 +54,27 @@ class ConfigurationService(
     private val appVersion: String,
     /** The TMDB key built into the app; blank in a build made without one. */
     private val projectTmdbKey: String,
+    extensionLoader: ExtensionLoader = ExtensionLoader.None,
+    logger: Logger = Logger.StandardOut,
     /** Dates the marks on Sources added or changed from a computer. */
     private val clock: Clock = Clock.System,
 ) {
     private val lock = Any()
+    private val extensionHost = ExtensionHost(extensionLoader, logger)
+    private val repositories = RepositoryReader(http)
     private val announcements = MutableSharedFlow<ConfigurationChange>(extraBufferCapacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
     /** Each change as it is saved, for the on-screen notices. A command that changes nothing announces nothing. */
     val changes: SharedFlow<ConfigurationChange> = announcements.asSharedFlow()
 
     fun status(): Status = synchronized(lock) {
-        Status(appVersion = appVersion, tmdbKey = tmdbKeyInUse(), sources = load().size, extensions = 0, protocolVersion = PROTOCOL_VERSION)
+        Status(
+            appVersion = appVersion,
+            tmdbKey = tmdbKeyInUse(),
+            sources = load().size,
+            extensions = loadExtensions().installed.size,
+            protocolVersion = PROTOCOL_VERSION,
+        )
     }
 
     /** How the Catalogue reaches TMDB: with the Household's own key when it has set one, else the project key. */
@@ -93,6 +117,7 @@ class ConfigurationService(
 
     /** Every Source in the Household's order. Never includes a secret, only whether there is a login. */
     fun list(): List<SourceSummary> = synchronized(lock) {
+        val needingNewer = loadExtensions().installed.filter { it.needsNewerCelastrina }.map { it.name }
         load().mapIndexed { index, it ->
             SourceSummary(
                 id = it.id,
@@ -102,6 +127,7 @@ class ConfigurationService(
                 position = index + 1,
                 testState = it.testState,
                 hasLogin = login(it.id) != null,
+                problem = NEEDS_NEWER_CELASTRINA.takeIf { _ -> it.extension in needingNewer },
                 addedFromComputerAt = it.addedFromComputerAt,
                 changedFromComputerAt = it.changedFromComputerAt,
             )
@@ -110,7 +136,8 @@ class ConfigurationService(
 
     /** The enabled Sources, in the order a Lookup asks them. */
     fun sources(): List<Source> = synchronized(lock) {
-        load().filter { it.enabled }.map { stored ->
+        load().filter { it.enabled }.mapNotNull { stored ->
+            if (stored.extension != null) return@mapNotNull extensionSource(stored)
             when (val kind = kindOf(stored.kind)) {
                 InternetArchiveSource.Kind -> InternetArchiveSource(http, id = stored.id, name = stored.name)
                 in MediaServerKinds.all -> server(stored).source(stored.id, stored.name, kind!!, login(stored.id))
@@ -314,6 +341,169 @@ class ConfigurationService(
     }
 
     /**
+     * Imports the Extension Repository at [url] and answers the Extensions it lists. The Household must first have seen
+     * [ExtensionWarning]: without [warningAcknowledged] set to its current version this refuses, answering the warning
+     * to show. Importing again refreshes the list.
+     */
+    suspend fun importRepository(url: String, warningAcknowledged: Int?, from: ChangedFrom): ImportOutcome {
+        if (warningAcknowledged != ExtensionWarning.VERSION) {
+            return ImportOutcome.WarningNotAcknowledged(ExtensionWarning.TEXT, ExtensionWarning.VERSION)
+        }
+        val address = webAddress(url) ?: return ImportOutcome.Invalid(
+            WriteOutcome.Problem.BadUrl,
+            "An Extension Repository's address starts http:// or https://, such as https://example.org/repo.json.",
+        )
+        synchronized(lock) { storage.write(WARNING_ACKNOWLEDGED, ExtensionWarning.VERSION.toString().encodeToByteArray()) }
+        val fetched = try {
+            repositories.read(address)
+        } catch (e: RepositoryUnreadable) {
+            return ImportOutcome.Failed(e.reason, e.message)
+        }
+        val isNew = synchronized(lock) {
+            val extensions = loadExtensions()
+            val isNew = extensions.repositories.none { it.url == address }
+            val repository = StoredRepository(address, fetched.name, fetched.extensions)
+            saveExtensions(extensions.copy(repositories = extensions.repositories.filter { it.url != address } + repository))
+            isNew
+        }
+        if (isNew) announcements.tryEmit(ConfigurationChange(ConfigurationChange.Action.RepositoryImported, fetched.name, from))
+        return ImportOutcome.Imported(checkNotNull(repository(address)))
+    }
+
+    /** The Extension Repository imported from [url], with the Extensions it lists, or null when there's none. */
+    fun repository(url: String): ExtensionRepository? = synchronized(lock) {
+        val extensions = loadExtensions()
+        extensions.repositories.find { it.url == url }?.let { repository ->
+            ExtensionRepository(
+                url = repository.url,
+                name = repository.name,
+                extensions = repository.extensions.map { listed ->
+                    AvailableExtension(
+                        name = listed.name,
+                        displayName = listed.displayName,
+                        version = listed.version,
+                        description = listed.description,
+                        authors = listed.authors,
+                        languages = listOfNotNull(listed.language),
+                        installed = extensions.installed.any { it.name == listed.name && it.repositoryUrl == url },
+                    )
+                },
+            )
+        }
+    }
+
+    /**
+     * Installs the Extension [name] from the imported Extension Repository [repositoryUrl]. Its download must match the
+     * list's SHA-256, and the Extension stays pinned to that Repository: one with the same name from another is refused.
+     * Each of its providers becomes a Source at the end of the order, enabled. Installing it again is harmless.
+     */
+    suspend fun installExtension(repositoryUrl: String, name: String, from: ChangedFrom): InstallOutcome {
+        val (repository, listed) = synchronized(lock) {
+            val extensions = loadExtensions()
+            val repository = extensions.repositories.find { it.url == repositoryUrl } ?: return InstallOutcome.Invalid(
+                WriteOutcome.Problem.UnknownRepository,
+                "There's no Extension Repository $repositoryUrl. Import it first.",
+            )
+            val listed = repository.extensions.find { it.name == name } ?: return InstallOutcome.Invalid(
+                WriteOutcome.Problem.UnknownExtension,
+                "${repository.name} lists no Extension $name. It lists: ${repository.extensions.joinToString { it.name }}.",
+            )
+            extensions.installed.find { it.name == name }?.let { installed ->
+                if (installed.repositoryUrl != repositoryUrl) {
+                    return InstallOutcome.Invalid(
+                        WriteOutcome.Problem.PinnedToOtherRepository,
+                        "An Extension called $name is already installed from ${installed.repositoryUrl}, and stays pinned to it. " +
+                            "Remove that one before installing $name from $repositoryUrl.",
+                    )
+                }
+                return InstallOutcome.Installed(load().filter { it.extension == name }.map { it.id })
+            }
+            repository to listed
+        }
+        val sha256 = listed.sha256 ?: return InstallOutcome.Invalid(
+            WriteOutcome.Problem.MissingHash,
+            "${repository.name} gives no SHA-256 for $name, so it can't be checked and wasn't installed.",
+        )
+        val code = try {
+            repositories.download(listed.url)
+        } catch (e: RepositoryUnreadable) {
+            return InstallOutcome.Failed(e.reason, e.message)
+        }
+        if (sha256Of(code) != sha256) {
+            return InstallOutcome.Invalid(
+                WriteOutcome.Problem.HashMismatch,
+                "$name's download doesn't match the SHA-256 ${repository.name} lists for it, so it wasn't installed.",
+            )
+        }
+        val providers = try {
+            extensionHost.providers(name, sha256) { code }
+        } catch (e: ExtensionFailure) {
+            if (!e.needsNewerCelastrina) return InstallOutcome.Failed(e.reason, "${listed.displayName} didn't load.")
+            null
+        }
+        val installed = InstalledExtension(name, listed.displayName, repositoryUrl, listed.version, sha256, needsNewerCelastrina = providers == null)
+        val added = synchronized(lock) {
+            storage.write(codeKey(sha256), code)
+            val extensions = loadExtensions()
+            saveExtensions(extensions.copy(installed = extensions.installed.filter { it.name != name } + installed))
+            var sources = load()
+            providers.orEmpty().map { provider ->
+                val source = StoredSource(
+                    id = uniqueId(slugOf("$name ${provider.name}"), sources),
+                    name = uniqueName(provider.name, sources),
+                    kind = EXTENSION_KIND,
+                    extension = name,
+                    provider = provider.name,
+                    titleKinds = ExtensionSource.titleKindsOf(provider),
+                    imdb = SyncIdName.Imdb in provider.supportedSyncNames,
+                    addedFromComputerAt = clock.nowMillis().takeIf { from == ChangedFrom.Computer },
+                )
+                sources = sources + source
+                source
+            }.also { save(sources) }
+        }
+        added.forEach { announcements.tryEmit(ConfigurationChange(ConfigurationChange.Action.Added, it.name, from)) }
+        if (providers == null) return InstallOutcome.Failed(Reason.SourceError, "${listed.displayName}: $NEEDS_NEWER_CELASTRINA.")
+        return InstallOutcome.Installed(added.map { it.id })
+    }
+
+    private fun extensionSource(stored: StoredSource): Source? {
+        val installed = loadExtensions().installed.find { it.name == stored.extension }
+        if (installed == null || installed.needsNewerCelastrina) return null
+        return ExtensionSource(
+            id = stored.id,
+            name = stored.name,
+            kind = ExtensionSource.kind(stored.titleKinds, stored.imdb),
+            extension = installed.name,
+            providerName = checkNotNull(stored.provider) { "Source ${stored.id} names no provider" },
+            host = extensionHost,
+            providers = {
+                extensionHost.providers(installed.name, installed.sha256) {
+                    checkNotNull(storage.read(codeKey(installed.sha256))) { "Extension ${installed.name}'s code is missing" }
+                }
+            },
+            needsNewerCelastrina = { markNeedsNewerCelastrina(installed.name) },
+        )
+    }
+
+    /** Stops Lookups asking the Extension [name]'s Sources: it links against code this Celastrina lacks. */
+    private fun markNeedsNewerCelastrina(name: String) = synchronized(lock) {
+        val extensions = loadExtensions()
+        saveExtensions(extensions.copy(installed = extensions.installed.map { if (it.name == name) it.copy(needsNewerCelastrina = true) else it }))
+    }
+
+    private fun loadExtensions(): StoredExtensions =
+        storage.read(EXTENSIONS)?.let { json.decodeFromString<StoredExtensions>(it.decodeToString()) } ?: StoredExtensions()
+
+    private fun saveExtensions(extensions: StoredExtensions) {
+        storage.write(EXTENSIONS, json.encodeToString(StoredExtensions.serializer(), extensions).encodeToByteArray())
+    }
+
+    /** The first of [name], `name 2`, `name 3`… that no Source is called. */
+    private fun uniqueName(name: String, sources: List<StoredSource>): String =
+        generateSequence(1) { it + 1 }.map { if (it == 1) name else "$name $it" }.first { n -> sources.none { it.name.equals(n, ignoreCase = true) } }
+
+    /**
      * Tests the Source [id]'s connection and saves how it went: a Jellyfin or Emby server logs in again with
      * [logInWith] when given, and otherwise checks the saved login. The Internet Archive has nothing to test.
      */
@@ -444,8 +634,33 @@ class ConfigurationService(
         /** A Jellyfin or Emby server's address, without a trailing '/', or an add-on's manifest URL. */
         val url: String? = null,
         val username: String? = null,
+        /** For a Source from an Extension: the Extension's name, its provider's name, and what the provider plays. */
+        val extension: String? = null,
+        val provider: String? = null,
+        val titleKinds: Set<Title.Kind> = emptySet(),
+        val imdb: Boolean = false,
         val addedFromComputerAt: Long? = null,
         val changedFromComputerAt: Long? = null,
+    )
+
+    @Serializable
+    private data class StoredExtensions(
+        val repositories: List<StoredRepository> = emptyList(),
+        val installed: List<InstalledExtension> = emptyList(),
+    )
+
+    @Serializable
+    private data class StoredRepository(val url: String, val name: String, val extensions: List<ListedExtension>)
+
+    /** An installed Extension, pinned to the Extension Repository it came from. Its code is kept under its SHA-256. */
+    @Serializable
+    private data class InstalledExtension(
+        val name: String,
+        val displayName: String,
+        val repositoryUrl: String,
+        val version: Int,
+        val sha256: String,
+        val needsNewerCelastrina: Boolean = false,
     )
 
     companion object {
@@ -456,6 +671,28 @@ class ConfigurationService(
         private const val TMDB_KEY = "tmdb-key"
         private const val DEVICE_ID = "device-id"
         private const val INTERNET_ARCHIVE = "Internet Archive"
+        private const val EXTENSIONS = "extensions.json"
+        private const val WARNING_ACKNOWLEDGED = "extension-warning-acknowledged"
+        private const val EXTENSION_KIND = "extension"
+
+        /** What an Extension that links against code this Celastrina lacks says, wherever it is listed. */
+        const val NEEDS_NEWER_CELASTRINA = "Needs a newer Celastrina"
+
+        private fun codeKey(sha256: String) = "extension-$sha256.cs3"
+
+        private fun sha256Of(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+
+        /** [text] as an http(s) URL with a host, or null when it isn't one. */
+        private fun webAddress(text: String): String? {
+            val trimmed = text.trim()
+            val uri = try {
+                URI(trimmed)
+            } catch (e: URISyntaxException) {
+                return null
+            }
+            return trimmed.takeIf { uri.scheme?.lowercase() in setOf("http", "https") && !uri.host.isNullOrEmpty() }
+        }
+
         private val KINDS = listOf(InternetArchiveSource.Kind) + MediaServerKinds.all + StremioAddonKind
         private val json = Json { ignoreUnknownKeys = true }
 
@@ -545,6 +782,8 @@ data class SourceSummary(
     val addedFromComputerAt: Long?,
     /** When the agent last changed it from a computer, in epoch milliseconds; null when it never has. */
     val changedFromComputerAt: Long?,
+    /** Why Lookups don't ask this Source though it is enabled, such as "Needs a newer Celastrina"; null when they do. */
+    val problem: String? = null,
 )
 
 /** How the Source's latest connection test went. */
@@ -564,6 +803,7 @@ sealed interface WriteOutcome {
 
     enum class Problem {
         UnknownSource, BlankName, UnknownKind, BadUrl, MissingLogin, NameTaken, RepeatedSource, UnneededSetting, BlankTmdbKey, QuickConnectUnsupported,
+        UnknownRepository, UnknownExtension, PinnedToOtherRepository, MissingHash, HashMismatch,
     }
 }
 
@@ -590,11 +830,39 @@ enum class ChangedFrom { Tv, Computer }
 /** A saved change to the configuration, as the on-screen notice tells it. */
 data class ConfigurationChange(
     val action: Action,
-    /** The Source's name after the change; for a new order, the Source now first; null for a change that isn't to a Source. */
+    /**
+     * The Source's name after the change; for a new order, the Source now first; for an imported Extension Repository,
+     * its name; null for any other change that isn't to a Source.
+     */
     val sourceName: String?,
     val from: ChangedFrom,
     /** For a rename, the name it had before. */
     val previousName: String? = null,
 ) {
-    enum class Action { Added, Renamed, Changed, Enabled, Disabled, Removed, Reordered, TmdbKeySet, TmdbKeyCleared }
+    enum class Action { Added, Renamed, Changed, Enabled, Disabled, Removed, Reordered, TmdbKeySet, TmdbKeyCleared, RepositoryImported }
+}
+
+/** What importing an Extension Repository answers. */
+sealed interface ImportOutcome {
+    /** Imported: the Repository and the Extensions it lists, ready to choose from. */
+    data class Imported(val repository: ExtensionRepository) : ImportOutcome
+
+    /** Refused until the Household has seen [warning] and agreed: import again acknowledging [warningVersion]. */
+    data class WarningNotAcknowledged(val warning: String, val warningVersion: Int) : ImportOutcome
+
+    data class Invalid(val problem: WriteOutcome.Problem, val message: String) : ImportOutcome
+
+    /** The Repository couldn't be read, for [reason]. */
+    data class Failed(val reason: Reason, val message: String) : ImportOutcome
+}
+
+/** What installing an Extension answers. */
+sealed interface InstallOutcome {
+    /** Installed (or already was): the IDs of the Sources its providers became. */
+    data class Installed(val sourceIds: List<String>) : InstallOutcome
+
+    data class Invalid(val problem: WriteOutcome.Problem, val message: String) : InstallOutcome
+
+    /** Not usable, for [reason]: it couldn't be downloaded, didn't load, or needs a newer Celastrina. */
+    data class Failed(val reason: Reason, val message: String) : InstallOutcome
 }

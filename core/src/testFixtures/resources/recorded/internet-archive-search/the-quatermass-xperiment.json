@@ -1,0 +1,56 @@
+{
+ "responseHeader": {
+  "status": 0,
+  "QTime": 158,
+  "params": {
+   "query": "title:&quot;The Quatermass Xperiment&quot; AND mediatype:movies",
+   "qin": "title:(&quot;The Quatermass Xperiment&quot;) AND mediatype:(movies)",
+   "fields": "identifier,title,year",
+   "wt": "json",
+   "rows": 20,
+   "start": 0
+  }
+ },
+ "response": {
+  "numFound": 8,
+  "start": 0,
+  "docs": [
+   {
+    "identifier": "the-quatermass-xperiment-colorized-576p-sd",
+    "title": "The Quatermass Xperiment (restored, colorized) (1955, sci-fi, imdb score: 6.6)"
+   },
+   {
+    "identifier": "double-feature-drive-in-the-quatermass-xperiment-the-night-america-trembled",
+    "title": "Double Feature Drive In The Quatermass Xperiment & The Night America Trembled"
+   },
+   {
+    "identifier": "quatermass-hammer-double-feature",
+    "title": "The Quatermass Xperiment (1955) & Quatermass 2 (1957) in HD",
+    "year": 1957
+   },
+   {
+    "identifier": "sinema-trailer_the-quatermass-xperiment",
+    "title": "The Quatermass Xperiment [1956] - Trailer",
+    "year": 1956
+   },
+   {
+    "identifier": "the-quatermass-xperiment_202403",
+    "title": "The Quatermass Xperiment"
+   },
+   {
+    "identifier": "thequatermassxperiment",
+    "title": "Quatermass 1: The Quatermass Xperiment",
+    "year": 2019
+   },
+   {
+    "identifier": "the-quatermass-xperiment",
+    "title": "The Quatermass Xperiment",
+    "year": 1955
+   },
+   {
+    "identifier": "the-quatermass-xperiment_20240323",
+    "title": "The Quatermass Xperiment"
+   }
+  ]
+ }
+}

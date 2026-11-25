@@ -11,6 +11,8 @@ import android.os.Process
 import android.util.Base64
 import dev.celastrina.core.configuration.ChangedFrom
 import dev.celastrina.core.configuration.ConfigurationService
+import dev.celastrina.core.configuration.ImportOutcome
+import dev.celastrina.core.configuration.InstallOutcome
 import dev.celastrina.core.configuration.NewSource
 import dev.celastrina.core.configuration.SourceChanges
 import dev.celastrina.core.configuration.SourceSummary
@@ -24,6 +26,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 
@@ -35,7 +38,14 @@ import kotlinx.serialization.json.put
  *
  * Commands: `status`, `list`, `add` ({"kind", "name", and for `jellyfin` or `emby` "url", "username", "password", for
  * `stremio` the add-on's manifest URL as "url"}), `update` ({"id"} and any of "name", "url", "username", "password"), `set-order` ({"ids": [...]}, the Sources to
- * put first), `enable`, `disable` and `remove` ({"id"}), `set-tmdb-key` ({"key"}) and `clear-tmdb-key`. `status` says
+ * put first), `enable`, `disable` and `remove` ({"id"}), `set-tmdb-key` ({"key"}) and `clear-tmdb-key`.
+ *
+ * Extensions: `import-repository` ({"url", "warning_acknowledged": <warning version>}) answers the Extension
+ * Repository's `repository` with its `extensions`; without the current warning version it answers `invalid` with
+ * problem `warning_not_acknowledged`, the `warning` to show the person word for word, and its `warning_version`.
+ * `install-extension` ({"repository": <its URL>, "name"}) answers the `ids` of the Sources its providers became.
+ *
+ * `status` says
  * which TMDB key is in use (`project`, `override` or `none`), never the key. Every reply is one JSON object in the returned Bundle's
  * `reply`, with `result` set to `ok`, `invalid` (with `problem` and `message`) or `failure` (with `id`, `reason` and
  * `message`: saved, but failing its connection test). `add` replies the Source's `id` either way. Writes that test a
@@ -108,6 +118,19 @@ class ConfigurationProvider : ContentProvider() {
                 configuration.setTmdbKey(key, ChangedFrom.Computer).toJson()
             }
             "clear-tmdb-key" -> args.onlyFields() ?: configuration.clearTmdbKey(ChangedFrom.Computer).toJson()
+            "import-repository" -> args.onlyFields("url", "warning_acknowledged") ?: run {
+                val url = args.string("url") ?: return args.missing("url")
+                val acknowledged = args.int("warning_acknowledged")
+                if (args.wrongType("warning_acknowledged") && acknowledged == null) {
+                    return invalid("bad_argument", "warning_acknowledged must be the warning's version, a number.")
+                }
+                runBlocking { configuration.importRepository(url, acknowledged, ChangedFrom.Computer) }.toJson(url)
+            }
+            "install-extension" -> args.onlyFields("repository", "name") ?: run {
+                val repository = args.string("repository") ?: return args.missing("repository")
+                val name = args.string("name") ?: return args.missing("name")
+                runBlocking { configuration.installExtension(repository, name, ChangedFrom.Computer) }.toJson(repository, name)
+            }
             else -> invalid("unknown_command", "There's no command $method. Commands: ${COMMANDS.joinToString()}.")
         }
     }
@@ -142,6 +165,9 @@ class ConfigurationProvider : ContentProvider() {
 
         /** The string argument [name], or null when it's missing or not a string. */
         fun string(name: String): String? = (fields[name] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+
+        /** The whole-number argument [name], or null when it's missing or not one. */
+        fun int(name: String): Int? = (fields[name] as? JsonPrimitive)?.takeIf { !it.isString }?.intOrNull
 
         /** True when any of [names] is given but isn't a string. */
         fun wrongType(vararg names: String): Boolean = names.any { fields[it] != null && string(it) == null }
@@ -204,9 +230,67 @@ class ConfigurationProvider : ContentProvider() {
             put("position", position)
             put("test_state", testState.wire())
             put("has_login", hasLogin)
+            problem?.let { put("problem", it) }
         }
 
-        val COMMANDS = listOf("status", "list", "add", "update", "set-order", "enable", "disable", "remove", "set-tmdb-key", "clear-tmdb-key")
+        val COMMANDS = listOf(
+            "status", "list", "add", "update", "set-order", "enable", "disable", "remove", "set-tmdb-key", "clear-tmdb-key",
+            "import-repository", "install-extension",
+        )
+
+        fun ImportOutcome.toJson(url: String) = when (this) {
+            is ImportOutcome.Imported -> ok {
+                put(
+                    "repository",
+                    buildJsonObject {
+                        put("url", repository.url)
+                        put("name", repository.name)
+                        put(
+                            "extensions",
+                            JsonArray(
+                                repository.extensions.map {
+                                    buildJsonObject {
+                                        put("name", it.name)
+                                        put("display_name", it.displayName)
+                                        put("version", it.version)
+                                        put("description", it.description)
+                                        put("authors", JsonArray(it.authors.map(::JsonPrimitive)))
+                                        put("languages", JsonArray(it.languages.map(::JsonPrimitive)))
+                                        put("installed", it.installed)
+                                    }
+                                },
+                            ),
+                        )
+                    },
+                )
+            }
+            is ImportOutcome.WarningNotAcknowledged -> buildJsonObject {
+                put("result", "invalid")
+                put("problem", "warning_not_acknowledged")
+                put("message", "Show the person this warning word for word, and import again with warning_acknowledged $warningVersion only if they say yes.")
+                put("warning", warning)
+                put("warning_version", warningVersion)
+            }
+            is ImportOutcome.Invalid -> invalid(problem.wire(), message)
+            is ImportOutcome.Failed -> buildJsonObject {
+                put("result", "failure")
+                put("url", url)
+                put("reason", reason.wire())
+                put("message", message)
+            }
+        }
+
+        fun InstallOutcome.toJson(repository: String, name: String) = when (this) {
+            is InstallOutcome.Installed -> ok { put("ids", JsonArray(sourceIds.map(::JsonPrimitive))) }
+            is InstallOutcome.Invalid -> invalid(problem.wire(), message)
+            is InstallOutcome.Failed -> buildJsonObject {
+                put("result", "failure")
+                put("repository", repository)
+                put("name", name)
+                put("reason", reason.wire())
+                put("message", message)
+            }
+        }
 
         fun WriteOutcome.toJson() = when (this) {
             WriteOutcome.Ok -> ok()
