@@ -23,6 +23,8 @@ data class SourceKind(
     /** The IDs a Source of this Kind can match a Title on; a Title needs at least one of them. */
     val idSchemes: Set<IdScheme>,
     val titleKinds: Set<Title.Kind>,
+    /** Stable, for the agent and for storage, such as `internet-archive`. */
+    val id: String = slugOf(name),
 ) {
     fun canMatch(title: TitleReference): Boolean =
         title.kind in titleKinds && idSchemes.any { it.isKnownFor(title) }

@@ -17,8 +17,10 @@ import androidx.tv.material3.darkColorScheme
 import dev.celastrina.core.catalogue.Catalogue
 import dev.celastrina.core.catalogue.CatalogueUnavailable
 import dev.celastrina.core.catalogue.Title
+import dev.celastrina.core.configuration.ConfigurationChange
 import dev.celastrina.core.source.Stream
 import dev.celastrina.core.source.StreamLookup
+import kotlinx.coroutines.flow.Flow
 
 private sealed interface Screen {
     data object Home : Screen
@@ -28,10 +30,16 @@ private sealed interface Screen {
 
 /**
  * The whole app: home, a Movie's detail screen, and the player, with Back going one step up.
- * [openMovie] starts on that Movie's detail screen instead of home.
+ * [openMovie] starts on that Movie's detail screen instead of home. Each detail screen asks the Sources
+ * [newStreamLookup] has when it opens. [configurationChanges] made from a computer show as notices over any screen.
  */
 @Composable
-fun CelastrinaApp(catalogue: Catalogue, streamLookup: StreamLookup, openMovie: Int? = null) {
+fun CelastrinaApp(
+    catalogue: Catalogue,
+    newStreamLookup: () -> StreamLookup,
+    configurationChanges: Flow<ConfigurationChange>,
+    openMovie: Int? = null,
+) {
     // Home's row and the last Title opened live here, so coming back from a detail screen keeps both.
     var home by remember { mutableStateOf<HomeState>(HomeState.Loading) }
     var lastOpened by remember { mutableStateOf<Title?>(null) }
@@ -54,6 +62,7 @@ fun CelastrinaApp(catalogue: Catalogue, streamLookup: StreamLookup, openMovie: I
                 }
                 is Screen.Detail -> {
                     BackHandler { screen = Screen.Home }
+                    val streamLookup = remember(s) { newStreamLookup() }
                     DetailScreen(s.tmdbId, catalogue, streamLookup) { stream -> screen = Screen.Player(s.tmdbId, stream) }
                 }
                 is Screen.Player -> {
@@ -61,6 +70,7 @@ fun CelastrinaApp(catalogue: Catalogue, streamLookup: StreamLookup, openMovie: I
                     PlayerScreen(s.stream)
                 }
             }
+            ChangedFromComputerNotices(configurationChanges)
         }
     }
 }
