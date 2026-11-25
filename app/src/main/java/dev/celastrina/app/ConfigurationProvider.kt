@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Process
 import android.util.Base64
 import dev.celastrina.core.configuration.ChangedFrom
+import dev.celastrina.core.configuration.ConfigurationCommands
 import dev.celastrina.core.configuration.ConfigurationService
 import dev.celastrina.core.configuration.ImportOutcome
 import dev.celastrina.core.configuration.InstallOutcome
@@ -92,27 +93,30 @@ class ConfigurationProvider : ContentProvider() {
         } catch (e: BadArgument) {
             return invalid("bad_argument", e.message!!)
         }
+        val takes = ConfigurationCommands.fields[method]
+            ?: return invalid("unknown_command", "There's no command $method. Commands: ${ConfigurationCommands.fields.keys.joinToString()}.")
+        args.onlyFields(takes)?.let { return it }
         return when (method) {
             "status" -> configuration.status().toJson()
             "list" -> ok { put("sources", JsonArray(configuration.list().map { it.toJson() })) }
-            "add" -> args.onlyFields("kind", "name", "url", "username", "password") ?: run {
+            "add" -> run {
                 val kind = args.string("kind") ?: return args.missing("kind")
                 val name = args.string("name") ?: return args.missing("name")
                 if (args.wrongType("url", "username", "password")) return invalid("bad_argument", "url, username and password must be strings.")
                 val source = NewSource(kind, name, args.string("url"), args.string("username"), args.string("password"))
                 runBlocking { configuration.add(source, ChangedFrom.Computer) }.toJson()
             }
-            "update" -> args.onlyFields("id", "name", "url", "username", "password") ?: run {
+            "update" -> run {
                 val id = args.string("id") ?: return args.missing("id")
                 if (args.wrongType("name", "url", "username", "password")) return invalid("bad_argument", "name, url, username and password must be strings.")
                 val changes = SourceChanges(args.string("name"), args.string("url"), args.string("username"), args.string("password"))
                 runBlocking { configuration.update(id, changes, ChangedFrom.Computer) }.toJson()
             }
-            "set-order" -> args.onlyFields("ids") ?: run {
+            "set-order" -> run {
                 val ids = args.strings("ids") ?: return invalid("bad_argument", "--arg needs \"ids\", a list of Source IDs.")
                 configuration.setOrder(ids, ChangedFrom.Computer).toJson()
             }
-            "enable", "disable", "remove" -> args.onlyFields("id") ?: run {
+            "enable", "disable", "remove" -> run {
                 val id = args.string("id") ?: return args.missing("id")
                 when (method) {
                     "enable" -> runBlocking { configuration.enable(id, ChangedFrom.Computer) }
@@ -120,12 +124,12 @@ class ConfigurationProvider : ContentProvider() {
                     else -> configuration.remove(id, ChangedFrom.Computer)
                 }.toJson()
             }
-            "set-tmdb-key" -> args.onlyFields("key") ?: run {
+            "set-tmdb-key" -> run {
                 val key = args.string("key") ?: return args.missing("key")
                 configuration.setTmdbKey(key, ChangedFrom.Computer).toJson()
             }
-            "clear-tmdb-key" -> args.onlyFields() ?: configuration.clearTmdbKey(ChangedFrom.Computer).toJson()
-            "import-repository" -> args.onlyFields("url", "warning_acknowledged") ?: run {
+            "clear-tmdb-key" -> configuration.clearTmdbKey(ChangedFrom.Computer).toJson()
+            "import-repository" -> run {
                 val url = args.string("url") ?: return args.missing("url")
                 val acknowledged = args.int("warning_acknowledged")
                 if (args.wrongType("warning_acknowledged") && acknowledged == null) {
@@ -133,33 +137,33 @@ class ConfigurationProvider : ContentProvider() {
                 }
                 runBlocking { configuration.importRepository(url, acknowledged, ChangedFrom.Computer) }.toJson(url)
             }
-            "install-extension" -> args.onlyFields("repository", "name") ?: run {
+            "install-extension" -> run {
                 val repository = args.string("repository") ?: return args.missing("repository")
                 val name = args.string("name") ?: return args.missing("name")
                 runBlocking { configuration.installExtension(repository, name, ChangedFrom.Computer) }.toJson(repository, name)
             }
-            "extensions" -> args.onlyFields() ?: extensionsReply()
-            "check-updates" -> args.onlyFields() ?: run {
+            "extensions" -> extensionsReply()
+            "check-updates" -> run {
                 runBlocking { configuration.checkForUpdates(now = true) }
                 extensionsReply()
             }
-            "update-extension" -> args.onlyFields("name") ?: run {
+            "update-extension" -> run {
                 val name = args.string("name") ?: return args.missing("name")
                 runBlocking { configuration.updateExtension(name, ChangedFrom.Computer) }.toJson(repository = null, name)
             }
-            "update-extensions" -> args.onlyFields() ?: run {
+            "update-extensions" -> run {
                 val outcomes = runBlocking { configuration.updateAllExtensions(ChangedFrom.Computer) }
                 ok { put("extensions", JsonArray(outcomes.map { (name, outcome) -> JsonObject(mapOf("name" to JsonPrimitive(name)) + outcome.toJson(repository = null, name)) })) }
             }
-            "remove-extension" -> args.onlyFields("name") ?: run {
+            "remove-extension" -> run {
                 val name = args.string("name") ?: return args.missing("name")
                 configuration.removeExtension(name, ChangedFrom.Computer).toJson()
             }
-            "remove-repository" -> args.onlyFields("url") ?: run {
+            "remove-repository" -> run {
                 val url = args.string("url") ?: return args.missing("url")
                 configuration.removeRepository(url, ChangedFrom.Computer).toJson()
             }
-            else -> invalid("unknown_command", "There's no command $method. Commands: ${COMMANDS.joinToString()}.")
+            else -> error("$method is in ConfigurationCommands but has no branch here")
         }
     }
 
@@ -213,8 +217,8 @@ class ConfigurationProvider : ContentProvider() {
         fun missing(name: String) = invalid("bad_argument", "--arg needs \"$name\", a string.")
 
         /** A refusal when the arguments carry a field this command doesn't take, or null when they don't. */
-        fun onlyFields(vararg names: String): JsonObject? =
-            (fields.keys - names.toSet()).takeIf { it.isNotEmpty() }?.let {
+        fun onlyFields(names: Set<String>): JsonObject? =
+            (fields.keys - names).takeIf { it.isNotEmpty() }?.let {
                 val takes = if (names.isEmpty()) "no arguments" else names.joinToString()
                 invalid("bad_argument", "Unexpected arguments: ${it.joinToString()}. This command takes $takes.")
             }
@@ -266,12 +270,6 @@ class ConfigurationProvider : ContentProvider() {
             problem?.let { put("problem", it) }
             if (updateAvailable) put("update_available", true)
         }
-
-        val COMMANDS = listOf(
-            "status", "list", "add", "update", "set-order", "enable", "disable", "remove", "set-tmdb-key", "clear-tmdb-key",
-            "import-repository", "install-extension", "extensions", "check-updates", "update-extension", "update-extensions",
-            "remove-extension", "remove-repository",
-        )
 
         fun ExtensionRepository.toJson() = buildJsonObject {
             put("url", url)
