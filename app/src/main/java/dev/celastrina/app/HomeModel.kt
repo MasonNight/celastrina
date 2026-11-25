@@ -50,14 +50,21 @@ class HomeModel(private val catalogue: Catalogue, private val scope: CoroutineSc
     }
 
     init {
-        HomeRow.entries.forEach { homeRow ->
-            rows[homeRow] = RowState.Loading
-            scope.launch {
-                rows[homeRow] = try {
-                    RowState.Loaded(offMain { catalogue.row(homeRow) })
-                } catch (e: CatalogueUnavailable) {
-                    RowState.Failed(e.reason)
-                }
+        HomeRow.entries.forEach(::load)
+    }
+
+    /** Loads again each row that couldn't load, as when the TV comes back online. */
+    fun retryFailed() {
+        rows.filterValues { it is RowState.Failed }.keys.forEach(::load)
+    }
+
+    private fun load(homeRow: HomeRow) {
+        rows[homeRow] = RowState.Loading
+        scope.launch {
+            rows[homeRow] = try {
+                RowState.Loaded(offMain { catalogue.row(homeRow) })
+            } catch (e: CatalogueUnavailable) {
+                RowState.Failed(e.reason)
             }
         }
     }

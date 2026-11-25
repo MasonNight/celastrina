@@ -109,18 +109,21 @@ class RecordedExtensionSites : AutoCloseable {
         exchange.send(200, bytes, if (name.endsWith(".json")) "application/json" else "application/octet-stream")
     }
 
-    /** The `.cs3` [file] with one more file in it. */
+    /**
+     * The `.cs3` [file] with one more file in it. Every entry gets a fixed time, so each request builds the same bytes
+     * and the SHA-256 listed in `plugins.json` matches the download, whenever the two are asked for.
+     */
     private fun newerCode(file: File): ByteArray {
         val out = ByteArrayOutputStream()
         ZipOutputStream(out).use { zip ->
             ZipInputStream(file.inputStream()).use { original ->
                 generateSequence { original.nextEntry }.forEach { entry ->
-                    zip.putNextEntry(ZipEntry(entry.name))
+                    zip.putNextEntry(ZipEntry(entry.name).apply { time = NEWER_CODE_TIME })
                     original.copyTo(zip)
                     zip.closeEntry()
                 }
             }
-            zip.putNextEntry(ZipEntry("version-2.txt"))
+            zip.putNextEntry(ZipEntry("version-2.txt").apply { time = NEWER_CODE_TIME })
             zip.write("2".encodeToByteArray())
             zip.closeEntry()
         }
@@ -171,6 +174,8 @@ class RecordedExtensionSites : AutoCloseable {
     }
 
     private companion object {
+        /** 2026-01-01, the time stamped on every entry of the newer `.cs3`. */
+        const val NEWER_CODE_TIME = 1_767_225_600_000L
         val SITES = setOf("archive.org", "query.wikidata.org")
         val SEARCHED_TITLE = Regex("""title:\("(.*)"\)""")
         val IMDB_ID = Regex("""wdt:P345 "(tt\d+)"""")

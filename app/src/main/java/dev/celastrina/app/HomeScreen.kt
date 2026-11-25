@@ -51,6 +51,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
+import dev.celastrina.core.catalogue.CatalogueUnavailable
 import dev.celastrina.core.catalogue.Hero
 import dev.celastrina.core.catalogue.HomeRow
 import dev.celastrina.core.catalogue.Title
@@ -66,6 +67,9 @@ private val Dim = Color(0xFF9AA0AA)
 
 /** How long focus must rest on a card before the hero follows it, so flicking along a row stays smooth. */
 private const val HERO_REST_MILLIS = 300L
+
+/** How often rows that couldn't reach TMDB try again. */
+private const val OFFLINE_RETRY_MILLIS = 15_000L
 
 /** How close to a row's end focus may get before the row loads more. */
 private const val LOAD_MORE_WITHIN = 8
@@ -91,9 +95,24 @@ fun HomeScreen(
     val watched by continueWatching.row.collectAsState()
     val listed by watchlist.titles.collectAsState()
     val allFailed by remember { derivedStateOf { model.rows.values.all { it is RowState.Failed } } }
-    if (allFailed) {
-        // Stopgap until the offline message (#24): say why home is empty.
-        Message((model.rows.values.first() as RowState.Failed).reason.message())
+    val offline by remember {
+        derivedStateOf { model.rows.values.any { it == RowState.Failed(CatalogueUnavailable.Reason.Unreachable) } }
+    }
+    // Rows that couldn't reach TMDB, and had nothing cached, load once the TV is back online.
+    LaunchedEffect(offline) {
+        while (offline) {
+            delay(OFFLINE_RETRY_MILLIS)
+            model.retryFailed()
+        }
+    }
+    // Continue watching and the Watchlist are kept on the TV, so home shows them offline, each failed row saying why.
+    if (allFailed && (watched.isEmpty() && listed.isEmpty() || !offline)) {
+        val reason = (model.rows.values.first() as RowState.Failed).reason
+        if (reason == CatalogueUnavailable.Reason.Unreachable) {
+            Message("You're offline", "Nothing is saved on this TV to show yet. Home fills in when the TV is back online.")
+        } else {
+            Message(reason.message())
+        }
         return
     }
     // A flow rather than state, so moving focus doesn't recompose home; only a rested focus reaches the hero.
@@ -303,8 +322,11 @@ fun PosterCard(title: Title, modifier: Modifier, onFocus: () -> Unit, onClick: (
 }
 
 @Composable
-fun Message(text: String) {
+fun Message(text: String, detail: String? = null) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text, style = MaterialTheme.typography.titleMedium)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(text, style = MaterialTheme.typography.titleMedium)
+            if (detail != null) Text(detail, style = MaterialTheme.typography.bodyMedium, color = Dim, modifier = Modifier.padding(top = 8.dp))
+        }
     }
 }
