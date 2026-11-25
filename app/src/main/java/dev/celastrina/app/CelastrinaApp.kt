@@ -2,6 +2,7 @@ package dev.celastrina.app
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -17,6 +18,7 @@ import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.darkColorScheme
 import dev.celastrina.core.catalogue.Catalogue
 import dev.celastrina.core.catalogue.CatalogueUnavailable
+import dev.celastrina.core.catalogue.Search
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.configuration.ConfigurationChange
 import dev.celastrina.core.configuration.ConfigurationService
@@ -27,6 +29,7 @@ import dev.celastrina.core.port.Logger
 import dev.celastrina.core.source.Lookup
 import dev.celastrina.core.source.StreamLookup
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,10 +38,13 @@ import kotlinx.coroutines.launch
 
 private sealed interface Screen {
     data object Home : Screen
-    data class MovieDetail(val tmdbId: Int) : Screen
+    data object Search : Screen
+
+    /** [back] is where Back goes: home, or search when it was opened from there. */
+    data class MovieDetail(val tmdbId: Int, val back: Screen = Home) : Screen
 
     /** [season] is the season tab it opens on; null opens on the first. */
-    data class SeriesDetail(val tmdbId: Int, val season: Int? = null) : Screen
+    data class SeriesDetail(val tmdbId: Int, val season: Int? = null, val back: Screen = Home) : Screen
     data class Player(val request: PlayRequest, val back: Screen) : Screen
     data class Settings(val back: Screen) : Screen
     data class About(val back: Settings) : Screen
@@ -48,7 +54,7 @@ private sealed interface Screen {
 }
 
 /**
- * The whole app: home, a Movie's or a Series' detail screen, and the player, with Back going one step up.
+ * The whole app: home, search, a Movie's or a Series' detail screen, and the player, with Back going one step up.
  * [openMovie] or [openSeries] starts on that Title's detail screen instead of home. Each detail screen asks the
  * Sources [newStreamLookup] has when it opens; the Lookup outlives the detail screen, so Failover in the player still gets
  * Streams that arrive late, and can ask the Sources again when its Stream list may have expired. [failoverMemory] orders
@@ -73,6 +79,11 @@ fun CelastrinaApp(
     // Home lives here, so coming back from a detail screen finds its rows, hero and focus as they were.
     val scope = rememberCoroutineScope()
     val home = remember(catalogue) { HomeModel(catalogue, scope) }
+    // Search lives from opening the search screen until Back takes it home, so a Title opened from it comes back to
+    // the same query and results. Nothing of it is kept after that.
+    var search by remember { mutableStateOf<Search?>(null) }
+    var openedFromSearch by remember { mutableStateOf<Title?>(null) }
+    var searchGrid by remember { mutableStateOf(LazyGridState()) }
     val lookupScope = rememberCoroutineScope()
     var screen by remember {
         mutableStateOf(openMovie?.let(Screen::MovieDetail) ?: openSeries?.let { Screen.SeriesDetail(it) } ?: Screen.Home)
@@ -91,20 +102,39 @@ fun CelastrinaApp(
     MaterialTheme(colorScheme = darkColorScheme()) {
         Surface(modifier = Modifier.fillMaxSize(), colors = SurfaceDefaults.colors(containerColor = Color.Black, contentColor = Color.White)) {
             when (val s = screen) {
-                Screen.Home -> HomeScreen(home) { homeRow, title ->
+                Screen.Home -> HomeScreen(
+                    home,
+                    onSearch = {
+                        home.focusSearch = true
+                        search = Search(catalogue, CoroutineScope(scope.coroutineContext + Dispatchers.Default))
+                        openedFromSearch = null
+                        searchGrid = LazyGridState()
+                        screen = Screen.Search
+                    },
+                ) { homeRow, title ->
                     home.focusTarget = homeRow to title
-                    screen = when (title.kind) {
-                        Title.Kind.Movie -> Screen.MovieDetail(title.tmdbId)
-                        Title.Kind.Series -> Screen.SeriesDetail(title.tmdbId)
+                    home.focusSearch = false
+                    screen = detailOf(title, back = Screen.Home)
+                }
+                Screen.Search -> {
+                    val current = search ?: Search(catalogue, CoroutineScope(scope.coroutineContext + Dispatchers.Default)).also { search = it }
+                    BackHandler {
+                        current.close()
+                        search = null
+                        screen = Screen.Home
+                    }
+                    SearchScreen(current, searchGrid, openedFromSearch) { title ->
+                        openedFromSearch = title
+                        screen = detailOf(title, back = Screen.Search)
                     }
                 }
                 is Screen.MovieDetail -> {
-                    BackHandler { screen = Screen.Home }
+                    BackHandler { screen = s.back }
                     val lookUp = remember(s) { lookUpIn(lookupScope, newStreamLookup()) }
                     DetailScreen(s.tmdbId, catalogue, lookUp, failoverMemory) { request -> screen = Screen.Player(request, back = s) }
                 }
                 is Screen.SeriesDetail -> {
-                    BackHandler { screen = Screen.Home }
+                    BackHandler { screen = s.back }
                     val lookUp = remember(s) { lookUpIn(lookupScope, newStreamLookup()) }
                     SeriesDetailScreen(s.tmdbId, s.season, catalogue, lookUp, failoverMemory) { season, request ->
                         screen = Screen.Player(request, back = s.copy(season = season))
@@ -144,6 +174,11 @@ fun CelastrinaApp(
             ChangedFromComputerNotices(configurationChanges)
         }
     }
+}
+
+private fun detailOf(title: Title, back: Screen): Screen = when (title.kind) {
+    Title.Kind.Movie -> Screen.MovieDetail(title.tmdbId, back)
+    Title.Kind.Series -> Screen.SeriesDetail(title.tmdbId, back = back)
 }
 
 /** One Title's Lookup as it goes ([lookups]), which the player can [askAgain] when its Stream list may have expired. */

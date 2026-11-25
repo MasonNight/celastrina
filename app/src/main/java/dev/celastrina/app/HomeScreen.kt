@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -41,7 +42,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Card
+import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
@@ -64,10 +67,11 @@ private const val LOAD_MORE_WITHIN = 8
 
 /**
  * Home, Variant A "Hero + stacked rows": the focused Title's backdrop, logo, metadata and blurb fill the top, above
- * the Movies, Series, Anime and Cartoons rows.
+ * the Movies, Series, Anime and Cartoons rows. The Search button in the hero's top-left, reached by pressing Up,
+ * calls [onSearch].
  */
 @Composable
-fun HomeScreen(model: HomeModel, onOpen: (HomeRow, Title) -> Unit) {
+fun HomeScreen(model: HomeModel, onSearch: () -> Unit, onOpen: (HomeRow, Title) -> Unit) {
     val allFailed by remember { derivedStateOf { model.rows.values.all { it is RowState.Failed } } }
     if (allFailed) {
         // Stopgap until the offline message (#24): say why home is empty.
@@ -87,7 +91,8 @@ fun HomeScreen(model: HomeModel, onOpen: (HomeRow, Title) -> Unit) {
     Box(Modifier.fillMaxSize().background(Background)) {
         HeroBackdrop(model.hero?.second, Modifier.align(Alignment.TopEnd).fillMaxWidth().fillMaxHeight(0.62f))
         Column(Modifier.fillMaxSize()) {
-            HeroText(model.hero, Modifier.padding(start = 48.dp, top = 32.dp, end = 48.dp).fillMaxWidth(0.45f).height(200.dp))
+            SearchButton(model.focusSearch, Modifier.padding(start = 48.dp, top = 20.dp), onSearch)
+            HeroText(model.hero, Modifier.padding(start = 48.dp, top = 4.dp, end = 48.dp).fillMaxWidth(0.45f).height(176.dp))
             LazyColumn(
                 state = model.columnState,
                 contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp),
@@ -98,7 +103,7 @@ fun HomeScreen(model: HomeModel, onOpen: (HomeRow, Title) -> Unit) {
                         homeRow = homeRow,
                         state = model.rows[homeRow] ?: RowState.Loading,
                         listState = model.rowStates.getValue(homeRow),
-                        focusTarget = model.focusTarget,
+                        focusTarget = model.focusTarget.takeUnless { model.focusSearch },
                         onLoadMore = { model.loadMore(homeRow) },
                         onFocus = { focused.value = it },
                         onOpen = { onOpen(homeRow, it) },
@@ -107,6 +112,25 @@ fun HomeScreen(model: HomeModel, onOpen: (HomeRow, Title) -> Unit) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SearchButton(focused: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val requester = remember { FocusRequester() }
+    LaunchedEffect(focused) { if (focused) runCatching { requester.requestFocus() } }
+    Surface(
+        onClick = onClick,
+        modifier = modifier.focusRequester(requester),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color(0x66000000),
+            contentColor = Color.White,
+            focusedContainerColor = Color.White,
+            focusedContentColor = Color.Black,
+        ),
+    ) {
+        Text("\uD83D\uDD0D  Search", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
     }
 }
 

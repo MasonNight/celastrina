@@ -96,6 +96,24 @@ class Catalogue(
         )
     }
 
+    /**
+     * The Movies and Series TMDB finds for [query], in its relevance order: its first page, without people or adult
+     * Titles. Search asks only TMDB, never the Sources.
+     */
+    suspend fun search(query: String): List<Title> =
+        getJson<TmdbMixedPage>("/search/multi", "include_adult" to "false", "language" to language, "query" to query).titles()
+
+    /** This week's trending Movies and Series, mixed in TMDB's order: what search shows before anything is typed. */
+    suspend fun trending(): List<Title> = getJson<TmdbMixedPage>("/trending/all/week", "language" to language).titles()
+
+    private fun TmdbMixedPage.titles(): List<Title> = results.filterNot { it.adult }.mapNotNull { item ->
+        when (item.mediaType) {
+            "movie" -> item.toTitle(Title.Kind.Movie)
+            "tv" -> item.toTitle(Title.Kind.Series)
+            else -> null
+        }
+    }
+
     private suspend fun listPage(source: ListSource, page: Int): HomeRows.ListPage {
         val list = getJson<TmdbListPage>(source.path, *source.query.toTypedArray(), "language" to language, "page" to "$page")
         return HomeRows.ListPage(
@@ -226,9 +244,15 @@ private class TmdbListPage(
     @SerialName("total_pages") val totalPages: Int = 1,
 )
 
+/** A page of TMDB results that mixes Movies, Series and people, each item saying which in its `media_type`. */
+@Serializable
+private class TmdbMixedPage(val results: List<TmdbListItem>)
+
 @Serializable
 private class TmdbListItem(
     val id: Int,
+    @SerialName("media_type") val mediaType: String? = null,
+    val adult: Boolean = false,
     val title: String? = null,
     val name: String? = null,
     @SerialName("release_date") val releaseDate: String? = null,
