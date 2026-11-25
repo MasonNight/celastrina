@@ -91,11 +91,12 @@ fun HomeScreen(
 ) {
     val watched by continueWatching.row.collectAsState()
     val listed by watchlist.titles.collectAsState()
-    val allFailed by remember { derivedStateOf { model.rows.values.all { it is RowState.Failed } } }
-    val offline by remember {
+    // Keyed on the model: a new TMDB key brings a new HomeModel, and these must read its rows, not the last one's.
+    val allFailed by remember(model) { derivedStateOf { model.rows.values.all { it is RowState.Failed } } }
+    val offline by remember(model) {
         derivedStateOf { model.rows.values.any { it == RowState.Failed(CatalogueUnreadable.Reason.Unreachable) } }
     }
-    val fromOfflineCache by remember { derivedStateOf { model.rows.values.any { it is RowState.Loaded && it.row.fromOfflineCache } } }
+    val fromOfflineCache by remember(model) { derivedStateOf { model.rows.values.any { it is RowState.Loaded && it.row.fromOfflineCache } } }
     // Rows that couldn't reach TMDB, or showed what the cache kept, load afresh once the TV is back online.
     LaunchedEffect(offline || fromOfflineCache) {
         while (offline || fromOfflineCache) {
@@ -114,7 +115,7 @@ fun HomeScreen(
         return
     }
     // A flow rather than state, so moving focus doesn't recompose home; only a rested focus reaches the hero.
-    val focused = remember { MutableStateFlow<Title?>(null) }
+    val focused = remember(model) { MutableStateFlow<Title?>(null) }
     LaunchedEffect(focused) {
         focused.collectLatest { title ->
             if (title == null) return@collectLatest
