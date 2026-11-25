@@ -33,6 +33,7 @@ import dev.celastrina.core.household.Watching
 import dev.celastrina.core.port.Clock
 import dev.celastrina.core.port.Logger
 import dev.celastrina.core.source.Stream
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterNotNull
 
@@ -116,23 +117,37 @@ private fun PlaybackSession(
         return
     }
 
-    // A new player for each Stream tried, since each sends its own headers.
-    val player = remember(playback) { newPlayer(context, playback) }
-    DisposableEffect(player) {
-        val events = Media3FailoverEvents(player) { take(failover.on(it)) }
-        player.addListener(events)
-        onDispose {
-            saveProgress()
-            player.removeListener(events)
-            player.release()
+    // A new player for each Stream tried, since each sends its own headers. Making one may first ask the Stream's
+    // server what it serves (see playbackAddress). The player is released as soon as another Stream is chosen or the
+    // player is left, even before a recomposition shows it.
+    var player by remember { mutableStateOf<ExoPlayer?>(null) }
+    LaunchedEffect(playback) {
+        player = null
+        val made = newPlayer(context, playback.stream, playback.startAtMillis)
+        player = made
+        try {
+            awaitCancellation()
+        } finally {
+            made.release()
         }
     }
-    LaunchedEffect(player) {
+    DisposableEffect(player) {
+        val current = player ?: return@DisposableEffect onDispose {}
+        val events = Media3FailoverEvents(current) { take(failover.on(it)) }
+        current.addListener(events)
+        onDispose {
+            saveProgress()
+            current.removeListener(events)
+        }
+    }
+    // Failover's clock runs from the moment a Stream is chosen, so it hears the time while the player is being made too.
+    LaunchedEffect(playback) {
         var seconds = 0
         while (true) {
             delay(1_000)
-            player.duration.takeIf { it != C.TIME_UNSET && it > 0 }?.let { durationMillis = it }
-            take(failover.on(PlayerEvent.Position(player.currentPosition)))
+            val current = player
+            current?.duration?.takeIf { it != C.TIME_UNSET && it > 0 }?.let { durationMillis = it }
+            take(failover.on(PlayerEvent.Position(current?.currentPosition ?: playback.startAtMillis)))
             if (++seconds % SAVE_EVERY_SECONDS == 0) saveProgress()
         }
     }
@@ -174,31 +189,30 @@ private data class Playback(val stream: Stream, val startAtMillis: Long)
 /** How often Continue watching saves where playback has got to. */
 private const val SAVE_EVERY_SECONDS = 10
 
+/**
+ * A player already playing [stream] from [startAtMillis]. It first finds the Stream's [PlaybackAddress], which may ask
+ * its server, so call it from the main thread's coroutines: the player belongs to the thread it is made on.
+ */
 @OptIn(UnstableApi::class)
-private fun newPlayer(context: android.content.Context, playback: Playback): ExoPlayer {
+internal suspend fun newPlayer(context: android.content.Context, stream: Stream, startAtMillis: Long): ExoPlayer {
     // The Stream's headers (a token, a Referer) go with every request, its subtitles' included.
     val http = DefaultHttpDataSource.Factory()
         .setAllowCrossProtocolRedirects(true)
-        .setDefaultRequestProperties(playback.stream.headers)
+        .setDefaultRequestProperties(stream.headers)
+    val address = stream.playbackAddress(http)
     return ExoPlayer.Builder(context)
         .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, http)))
         .build()
         .apply {
-            setMediaItem(playback.stream.toMediaItem(), playback.startAtMillis)
+            setMediaItem(stream.toMediaItem(address), startAtMillis)
             prepare()
             playWhenReady = true
         }
 }
 
-private fun Stream.toMediaItem(): MediaItem = MediaItem.Builder()
-    .setUri(url)
-    .setMimeType(
-        when (delivery) {
-            Stream.Delivery.Hls -> MimeTypes.APPLICATION_M3U8
-            Stream.Delivery.Dash -> MimeTypes.APPLICATION_MPD
-            else -> null
-        },
-    )
+private fun Stream.toMediaItem(address: PlaybackAddress): MediaItem = MediaItem.Builder()
+    .setUri(address.url)
+    .setMimeType(address.mimeType)
     .setSubtitleConfigurations(subtitles.map { it.toConfiguration() })
     .build()
 
