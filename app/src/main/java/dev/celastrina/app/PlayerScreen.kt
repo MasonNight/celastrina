@@ -15,6 +15,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
@@ -27,6 +28,8 @@ import dev.celastrina.core.failover.Failover
 import dev.celastrina.core.failover.FailoverMemory
 import dev.celastrina.core.failover.FailoverStep
 import dev.celastrina.core.failover.PlayerEvent
+import dev.celastrina.core.household.ContinueWatching
+import dev.celastrina.core.household.Watching
 import dev.celastrina.core.port.Clock
 import dev.celastrina.core.port.Logger
 import dev.celastrina.core.source.Stream
@@ -36,7 +39,8 @@ import kotlinx.coroutines.flow.filterNotNull
 /**
  * What Play or Choose Stream asks the player for: [stream] of [title], from [lookup], which may still be running so
  * Streams that arrive late can still be failed over to, and which Failover can ask again when it gets old.
- * [handPicked] when the Household chose it in Choose Stream. Playback starts [startAtMillis] into the Title.
+ * [handPicked] when the Household chose it in Choose Stream. Playback starts [startAtMillis] into the Title. Continue
+ * watching remembers how far playback gets in [watching], and on which Stream.
  */
 data class PlayRequest(
     val stream: Stream,
@@ -44,19 +48,20 @@ data class PlayRequest(
     val lookup: TitleLookup,
     val title: String,
     val startAtMillis: Long = 0,
+    val watching: Watching? = null,
 )
 
 /**
  * Plays the requested Stream full screen, with Media3's own controls on the remote's D-pad. When a Stream stops
  * working, Failover moves playback to the next one and a notice says so; Back leaves the player, which cancels it.
  * When Failover gives up, the error screen's Retry and Choose Stream start a new playback session here, from where
- * playback had got to.
+ * playback had got to. Every 10 s, and on leaving, [continueWatching] saves the position and the Stream that worked.
  */
 @Composable
-fun PlayerScreen(request: PlayRequest, failoverMemory: FailoverMemory, logger: Logger) {
+fun PlayerScreen(request: PlayRequest, failoverMemory: FailoverMemory, continueWatching: ContinueWatching, logger: Logger) {
     var session by remember(request) { mutableStateOf(Session(request, number = 0)) }
     key(session) {
-        PlaybackSession(session.request, failoverMemory, logger) { session = Session(it, session.number + 1) }
+        PlaybackSession(session.request, failoverMemory, continueWatching, logger) { session = Session(it, session.number + 1) }
     }
 }
 
@@ -65,7 +70,13 @@ private data class Session(val request: PlayRequest, val number: Int)
 
 @OptIn(UnstableApi::class)
 @Composable
-private fun PlaybackSession(request: PlayRequest, failoverMemory: FailoverMemory, logger: Logger, playAgain: (PlayRequest) -> Unit) {
+private fun PlaybackSession(
+    request: PlayRequest,
+    failoverMemory: FailoverMemory,
+    continueWatching: ContinueWatching,
+    logger: Logger,
+    playAgain: (PlayRequest) -> Unit,
+) {
     val context = LocalContext.current
     val failover = remember {
         Failover(
@@ -82,6 +93,12 @@ private fun PlaybackSession(request: PlayRequest, failoverMemory: FailoverMemory
     }
     var playback by remember { mutableStateOf(Playback(request.stream, request.startAtMillis)) }
     var step by remember { mutableStateOf<FailoverStep?>(null) }
+    var durationMillis by remember { mutableStateOf<Long?>(null) }
+    fun saveProgress() {
+        val watching = request.watching ?: return
+        val worked = failover.worked ?: return
+        continueWatching.save(watching, worked, failover.positionMillis, durationMillis)
+    }
     fun take(next: FailoverStep?) {
         next ?: return
         step = next
@@ -94,7 +111,7 @@ private fun PlaybackSession(request: PlayRequest, failoverMemory: FailoverMemory
     if (gaveUp != null) {
         // Leaving the player here releases it.
         GiveUpScreen(request.title, gaveUp, request.lookup, failoverMemory) { stream, handPicked ->
-            playAgain(PlayRequest(stream, handPicked, request.lookup, request.title, failover.positionMillis))
+            playAgain(request.copy(stream = stream, handPicked = handPicked, startAtMillis = failover.positionMillis))
         }
         return
     }
@@ -105,14 +122,18 @@ private fun PlaybackSession(request: PlayRequest, failoverMemory: FailoverMemory
         val events = Media3FailoverEvents(player) { take(failover.on(it)) }
         player.addListener(events)
         onDispose {
+            saveProgress()
             player.removeListener(events)
             player.release()
         }
     }
     LaunchedEffect(player) {
+        var seconds = 0
         while (true) {
             delay(1_000)
+            player.duration.takeIf { it != C.TIME_UNSET && it > 0 }?.let { durationMillis = it }
             take(failover.on(PlayerEvent.Position(player.currentPosition)))
+            if (++seconds % SAVE_EVERY_SECONDS == 0) saveProgress()
         }
     }
 
@@ -149,6 +170,9 @@ private fun FailoverNotice(step: FailoverStep, onGone: () -> Unit) {
 }
 
 private data class Playback(val stream: Stream, val startAtMillis: Long)
+
+/** How often Continue watching saves where playback has got to. */
+private const val SAVE_EVERY_SECONDS = 10
 
 @OptIn(UnstableApi::class)
 private fun newPlayer(context: android.content.Context, playback: Playback): ExoPlayer {

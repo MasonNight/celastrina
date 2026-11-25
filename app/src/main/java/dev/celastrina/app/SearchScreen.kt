@@ -153,7 +153,10 @@ private fun Key(label: String, modifier: Modifier, onClick: () -> Unit) {
     }
 }
 
-/** A result's poster, with its name on it until the poster loads, and a Movie or Series label beneath. */
+/**
+ * A result's poster, with its name on it until the poster loads and the Not playable badge where one is remembered,
+ * and a Movie or Series label beneath.
+ */
 @Composable
 private fun ResultCard(title: Title, modifier: Modifier, onClick: () -> Unit) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -167,6 +170,7 @@ private fun ResultCard(title: Title, modifier: Modifier, onClick: () -> Unit) {
                     modifier = Modifier.align(Alignment.Center).padding(8.dp),
                 )
                 AsyncImage(model = title.posterUrl, contentDescription = title.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                NotPlayableBadge(title, Modifier.align(Alignment.BottomStart).padding(6.dp))
             }
         }
         Text(

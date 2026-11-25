@@ -32,13 +32,14 @@ class HomeModel(private val catalogue: Catalogue, private val scope: CoroutineSc
     val rows = mutableStateMapOf<HomeRow, RowState>()
     val columnState = LazyListState()
     val rowStates = HomeRow.entries.associateWith { LazyListState() }
+    val householdRowStates = HouseholdRow.entries.associateWith { LazyListState() }
 
     /** The hero on screen. It changes only once focus has rested on a card (see HomeScreen). */
     var hero by mutableStateOf<Pair<Title, Hero>?>(null)
         private set
 
-    /** The card to focus when home shows: the last Title opened, or the first card. */
-    var focusTarget by mutableStateOf<Pair<HomeRow, Title>?>(null)
+    /** The card to focus when home shows: the last Title opened, or the first card, by its [HomeRow] or [HouseholdRow]. */
+    var focusTarget by mutableStateOf<Pair<Any, Title>?>(null)
 
     /** Whether home shows with focus on the Search button instead, as it does coming back from search. */
     var focusSearch by mutableStateOf(false)

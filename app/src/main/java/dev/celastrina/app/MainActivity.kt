@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,19 +40,23 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) { withContext(Dispatchers.IO) { app.configuration.checkForUpdates() } }
             val catalogue = remember(tmdb) { Catalogue(app.http, tmdb, Locale.getDefault()) }
             val tmdbKey = remember(tmdb) { app.configuration.status().tmdbKey }
-            CelastrinaApp(
-                catalogue,
-                newStreamLookup = { StreamLookup(app.configuration.sources(), app.logger) },
-                logger = app.logger,
-                failoverMemory = app.failoverMemory,
-                configurationChanges = app.configuration.changes,
-                configuration = app.configuration,
-                tmdbKey = tmdbKey,
-                appVersion = BuildConfig.VERSION_NAME,
-                menuPresses = menuPresses,
-                openMovie = openMovie,
-                openSeries = openSeries,
-            )
+            CompositionLocalProvider(LocalNotPlayable provides app.notPlayable) {
+                CelastrinaApp(
+                    catalogue,
+                    newStreamLookup = { StreamLookup(app.configuration.sources(), app.logger, notPlayable = app.notPlayable) },
+                    logger = app.logger,
+                    failoverMemory = app.failoverMemory,
+                    continueWatching = app.continueWatching,
+                    watchlist = app.watchlist,
+                    configurationChanges = app.configuration.changes,
+                    configuration = app.configuration,
+                    tmdbKey = tmdbKey,
+                    appVersion = BuildConfig.VERSION_NAME,
+                    menuPresses = menuPresses,
+                    openMovie = openMovie,
+                    openSeries = openSeries,
+                )
+            }
         }
     }
 
