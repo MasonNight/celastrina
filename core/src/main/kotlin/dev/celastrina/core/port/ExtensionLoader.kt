@@ -1,6 +1,7 @@
 package dev.celastrina.core.port
 
 import com.lagradost.cloudstream3.plugins.BasePlugin
+import java.io.File
 
 /**
  * How Celastrina's platform loads an Extension's code into its own process (ADR 0001): a DEX class loader on Android,
@@ -25,6 +26,20 @@ interface ExtensionLoader {
     fun start(plugin: BasePlugin) = plugin.load()
 
     companion object {
+        /**
+         * For a loader that keeps code in [dir] as `<key>.cs3`: deletes all but [keys]' code, with everything else
+         * named after a key that's gone, at any depth. Android compiles loaded code beside it, as
+         * `oat/<isa>/<key>.odex` and `.vdex` with a profile `oat/<key>.cs3.cur.prof`. Folders left empty go too.
+         */
+        fun deleteCodeExcept(dir: File, keys: Set<String>) {
+            dir.walkBottomUp().filter { it != dir }.forEach { file ->
+                when {
+                    file.isDirectory -> if (file.list().isNullOrEmpty()) file.delete()
+                    file.name.substringBefore('.') !in keys -> file.delete()
+                }
+            }
+        }
+
         /** For a Celastrina that can't load Extensions; installing one fails. */
         val None = object : ExtensionLoader {
             override fun classLoaderFor(key: String, code: ByteArray): ClassLoader =

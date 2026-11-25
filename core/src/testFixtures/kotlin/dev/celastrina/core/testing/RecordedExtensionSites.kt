@@ -27,7 +27,8 @@ import java.util.zip.ZipOutputStream
  *
  * Creating one routes CloudStream's shared HTTP client, which Extensions use, to this server for `archive.org` and
  * `query.wikidata.org`. A search gets the recording for its title (`internet-archive-search/<slug>.json`), metadata the
- * recording for its item, and a SPARQL query the recording for its IMDb ID; anything unrecorded gets HTTP 500.
+ * recording for its item, and a SPARQL query the recording for its IMDb ID; anything unrecorded gets HTTP 500. A SPARQL
+ * query without a descriptive User-Agent gets HTTP 403, as Wikimedia's [policy][WikimediaUserAgentPolicy] has it.
  */
 class RecordedExtensionSites : AutoCloseable {
 
@@ -156,6 +157,9 @@ class RecordedExtensionSites : AutoCloseable {
     }
 
     private fun answerSparql(exchange: HttpExchange) {
+        if (!WikimediaUserAgentPolicy.allows(exchange.requestHeaders.getFirst("User-Agent"))) {
+            return exchange.send(403, WikimediaUserAgentPolicy.REFUSAL.toByteArray(), "text/html; charset=utf-8")
+        }
         val query = exchange.queryParameter("query").orEmpty()
         val imdbId = IMDB_ID.find(query)?.groupValues?.get(1)
         val recording = imdbId?.let { resource("recorded/wikidata/imdb-$it.json") } ?: resource("recorded/wikidata/no-match.json")!!

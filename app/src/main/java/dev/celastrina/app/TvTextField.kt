@@ -66,8 +66,11 @@ fun TvTextField(
         }
         wasEditing = editing
     }
+    // The field reports itself unfocused as soon as it appears, before it takes focus; only losing focus it had ends editing.
+    var fieldHadFocus by remember { mutableStateOf(false) }
     fun finish() {
         editing = false
+        fieldHadFocus = false
     }
 
     Column(modifier.widthIn(max = 800.dp)) {
@@ -89,7 +92,12 @@ fun TvTextField(
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(field)
-                    .onFocusChanged { if (!it.isFocused && editing) editing = false }
+                    .onFocusChanged {
+                        when {
+                            it.isFocused -> fieldHadFocus = true
+                            fieldHadFocus && editing -> finish()
+                        }
+                    }
                     .border(2.dp, Color.White, RoundedCornerShape(8.dp))
                     .background(Color(0xFF202020), RoundedCornerShape(8.dp))
                     .padding(horizontal = 16.dp, vertical = 12.dp),

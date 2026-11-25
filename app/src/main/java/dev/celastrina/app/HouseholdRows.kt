@@ -19,7 +19,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -92,8 +95,8 @@ private fun <T : Any> HouseholdRowOf(
 ) {
     val target = model.focusTarget?.takeIf { it.first == row && !model.focusSearch }?.second
     val targetRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { if (model.focusTarget == null) model.focusTarget = row to titleOf(items.first()) }
-    LaunchedEffect(target) { if (target != null) runCatching { targetRequester.requestFocusOnceShown() } }
+    var targetFocused by remember { mutableStateOf(false) }
+    LaunchedEffect(target) { if (target != null) targetRequester.requestFocusUntil { targetFocused } }
     Column {
         Text(row.label, style = MaterialTheme.typography.titleMedium, color = Color.White, modifier = Modifier.padding(start = 48.dp, bottom = 8.dp))
         LazyRow(
@@ -104,7 +107,7 @@ private fun <T : Any> HouseholdRowOf(
         ) {
             items(items, key = key) { item ->
                 val title = titleOf(item)
-                card(item, if (title == target) Modifier.focusRequester(targetRequester) else Modifier)
+                card(item, if (title == target) Modifier.focusRequester(targetRequester).onFocusChanged { targetFocused = it.isFocused } else Modifier)
             }
         }
     }

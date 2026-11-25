@@ -45,6 +45,7 @@
 # The instrumented tests run against this APK (-PtestBuildType=release), and AGP 8.7 doesn't apply the app's mapping to
 # the test APK, so the classes they use keep their names: Celastrina's own (small, and it keeps the stack traces in the
 # TV's log readable without a mapping file), and androidx.tracing, which AndroidJUnitRunner calls and the app carries
-# for OkHttp's startup initializer.
+# for OkHttp's startup initializer. A test may use another library the app carries only if this file keeps it whole;
+# kotlinx.serialization isn't kept, so the tests read JSON with Android's org.json.
 -keep class dev.celastrina.** { *; }
 -keep class androidx.tracing.Trace { *; }

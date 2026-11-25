@@ -120,3 +120,15 @@ class HomeModel(private val catalogue: Catalogue, private val scope: CoroutineSc
         const val HEROES_KEPT = 60
     }
 }
+
+/**
+ * The card home focuses when it first shows: the first card of the first row that has any, top to bottom, once every
+ * row above it has loaded or failed. Each row is its [HomeRow] or [HouseholdRow] and its Titles, null while it loads.
+ */
+fun firstCard(rows: List<Pair<Any, List<Title>?>>): Pair<Any, Title>? {
+    for ((row, titles) in rows) {
+        if (titles == null) return null
+        titles.firstOrNull()?.let { return row to it }
+    }
+    return null
+}
