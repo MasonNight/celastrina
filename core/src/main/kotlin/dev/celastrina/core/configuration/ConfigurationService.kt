@@ -1,5 +1,6 @@
 package dev.celastrina.core.configuration
 
+import dev.celastrina.core.catalogue.TmdbSettings
 import dev.celastrina.core.port.HttpClient
 import dev.celastrina.core.port.Storage
 import dev.celastrina.core.source.LookupOutcome.Failure.Reason
@@ -32,6 +33,8 @@ class ConfigurationService(
     private val storage: Storage,
     private val http: HttpClient,
     private val appVersion: String,
+    /** The TMDB key built into the app; blank in a build made without one. */
+    private val projectTmdbKey: String,
 ) {
     private val lock = Any()
     private val announcements = MutableSharedFlow<ConfigurationChange>(extraBufferCapacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
@@ -40,7 +43,45 @@ class ConfigurationService(
     val changes: SharedFlow<ConfigurationChange> = announcements.asSharedFlow()
 
     fun status(): Status = synchronized(lock) {
-        Status(appVersion = appVersion, sources = load().size, extensions = 0, protocolVersion = PROTOCOL_VERSION)
+        Status(appVersion = appVersion, tmdbKey = tmdbKeyInUse(), sources = load().size, extensions = 0, protocolVersion = PROTOCOL_VERSION)
+    }
+
+    /** How the Catalogue reaches TMDB: with the Household's own key when it has set one, else the project key. */
+    fun tmdbSettings(): TmdbSettings = synchronized(lock) { TmdbSettings(apiKey = tmdbKeyOverride() ?: projectTmdbKey) }
+
+    /** Uses the Household's own TMDB key in place of the project key, from now on. */
+    fun setTmdbKey(key: String, from: ChangedFrom): WriteOutcome {
+        val newKey = key.trim()
+        if (newKey.isEmpty()) {
+            return WriteOutcome.Invalid(
+                WriteOutcome.Problem.BlankTmdbKey,
+                "A TMDB key can't be blank. To go back to the project key, clear the key instead.",
+            )
+        }
+        synchronized(lock) {
+            if (tmdbKeyOverride() == newKey) return WriteOutcome.Ok
+            storage.write(TMDB_KEY, newKey.encodeToByteArray())
+        }
+        announcements.tryEmit(ConfigurationChange(ConfigurationChange.Action.TmdbKeySet, sourceName = null, from))
+        return WriteOutcome.Ok
+    }
+
+    /** Goes back to the project key. Clearing when the Household has no key of its own is harmless. */
+    fun clearTmdbKey(from: ChangedFrom): WriteOutcome {
+        synchronized(lock) {
+            if (tmdbKeyOverride() == null) return WriteOutcome.Ok
+            storage.delete(TMDB_KEY)
+        }
+        announcements.tryEmit(ConfigurationChange(ConfigurationChange.Action.TmdbKeyCleared, sourceName = null, from))
+        return WriteOutcome.Ok
+    }
+
+    private fun tmdbKeyOverride(): String? = storage.read(TMDB_KEY)?.decodeToString()
+
+    private fun tmdbKeyInUse() = when {
+        tmdbKeyOverride() != null -> TmdbKeyInUse.Override
+        projectTmdbKey.isNotBlank() -> TmdbKeyInUse.Project
+        else -> TmdbKeyInUse.None
     }
 
     /** Every Source in the Household's order. Never includes a secret, only whether there is a login. */
@@ -278,6 +319,7 @@ class ConfigurationService(
         const val PROTOCOL_VERSION = 1
 
         private const val SOURCES = "sources.json"
+        private const val TMDB_KEY = "tmdb-key"
         private const val DEVICE_ID = "device-id"
         private const val INTERNET_ARCHIVE = "Internet Archive"
         private val KINDS = listOf(InternetArchiveSource.Kind) + MediaServerKinds.all
@@ -309,7 +351,19 @@ class ConfigurationService(
     }
 }
 
-data class Status(val appVersion: String, val sources: Int, val extensions: Int, val protocolVersion: Int)
+data class Status(val appVersion: String, val tmdbKey: TmdbKeyInUse, val sources: Int, val extensions: Int, val protocolVersion: Int)
+
+/** Which TMDB key the Catalogue uses. Says nothing of the key itself. */
+enum class TmdbKeyInUse {
+    /** The key built into the app. */
+    Project,
+
+    /** The Household's own key. */
+    Override,
+
+    /** No key at all: a build without a project key, and the Household hasn't set one. */
+    None,
+}
 
 /** A Source to add. [kind] is a Source Kind's ID; Jellyfin and Emby need [url], [username] and [password]. */
 data class NewSource(
@@ -358,7 +412,7 @@ sealed interface WriteOutcome {
     /** The write was saved, but the Source [sourceId] failed its connection test for [reason]. */
     data class Failed(val sourceId: String, val reason: Reason, val message: String) : WriteOutcome
 
-    enum class Problem { UnknownSource, BlankName, UnknownKind, BadUrl, MissingLogin, NameTaken, RepeatedSource, UnneededSetting }
+    enum class Problem { UnknownSource, BlankName, UnknownKind, BadUrl, MissingLogin, NameTaken, RepeatedSource, UnneededSetting, BlankTmdbKey }
 }
 
 /** Where a change was made: on the TV, or by the agent over ADB. */
@@ -367,11 +421,11 @@ enum class ChangedFrom { Tv, Computer }
 /** A saved change to the configuration, as the on-screen notice tells it. */
 data class ConfigurationChange(
     val action: Action,
-    /** The Source's name after the change; for a new order, the Source now first. */
-    val sourceName: String,
+    /** The Source's name after the change; for a new order, the Source now first; null for a change that isn't to a Source. */
+    val sourceName: String?,
     val from: ChangedFrom,
     /** For a rename, the name it had before. */
     val previousName: String? = null,
 ) {
-    enum class Action { Added, Renamed, Changed, Enabled, Disabled, Removed, Reordered }
+    enum class Action { Added, Renamed, Changed, Enabled, Disabled, Removed, Reordered, TmdbKeySet, TmdbKeyCleared }
 }

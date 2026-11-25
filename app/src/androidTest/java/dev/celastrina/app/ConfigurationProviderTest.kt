@@ -27,6 +27,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -51,8 +52,32 @@ class ConfigurationProviderTest {
         assertEquals(BuildConfig.VERSION_NAME, status.string("app_version"))
         assertEquals(sources, status["sources"]!!.jsonPrimitive.int)
         assertEquals(0, status["extensions"]!!.jsonPrimitive.int)
+        assertTrue(status.string("tmdb_key") in setOf("project", "override", "none"), status.toString())
         val queried = shell("content query --uri content://$authority/status")
         assertTrue("protocol_version=1" in queried, queried)
+        assertTrue("tmdb_key=${status.string("tmdb_key")}" in queried, queried)
+    }
+
+    @Test
+    fun the_agent_sets_and_clears_the_households_tmdb_key_without_it_being_revealed() {
+        val before = contentCall("status").string("tmdb_key")
+        // The Household's own key can't be read back, so a TV that has one is left alone.
+        assumeTrue("Celastrina Dev already has the Household's own TMDB key", before != "override")
+        val key = "not-a-real-tmdb-key-${System.nanoTime()}"
+
+        val set = contentCall("set-tmdb-key", base64("""{"key": "$key"}"""))
+        val whileSet = contentCall("status")
+        val queriedWhileSet = shell("content query --uri content://$authority/status")
+        val cleared = contentCall("clear-tmdb-key")
+        val clearedAgain = contentCall("clear-tmdb-key")
+
+        assertEquals("ok", set.string("result"))
+        assertEquals("override", whileSet.string("tmdb_key"))
+        listOf(whileSet.toString(), queriedWhileSet, contentCall("list").toString()).forEach { assertFalse(key in it, it) }
+        assertEquals("ok" to "ok", cleared.string("result") to clearedAgain.string("result"))
+        assertEquals(before, contentCall("status").string("tmdb_key"))
+        assertEquals("blank_tmdb_key", contentCall("set-tmdb-key", base64("""{"key": " "}""")).string("problem"))
+        assertEquals("bad_argument", contentCall("clear-tmdb-key", base64("""{"key": "x"}""")).string("problem"))
     }
 
     @Test

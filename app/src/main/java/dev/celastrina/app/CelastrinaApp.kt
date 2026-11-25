@@ -18,6 +18,7 @@ import dev.celastrina.core.catalogue.Catalogue
 import dev.celastrina.core.catalogue.CatalogueUnavailable
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.configuration.ConfigurationChange
+import dev.celastrina.core.configuration.TmdbKeyInUse
 import dev.celastrina.core.source.Stream
 import dev.celastrina.core.source.StreamLookup
 import kotlinx.coroutines.flow.Flow
@@ -29,18 +30,25 @@ private sealed interface Screen {
     /** [season] is the season tab it opens on; null opens on the first. */
     data class SeriesDetail(val tmdbId: Int, val season: Int? = null) : Screen
     data class Player(val stream: Stream, val back: Screen) : Screen
+    data class Settings(val back: Screen) : Screen
+    data class About(val back: Settings) : Screen
 }
 
 /**
  * The whole app: home, a Movie's or a Series' detail screen, and the player, with Back going one step up.
  * [openMovie] or [openSeries] starts on that Title's detail screen instead of home. Each detail screen asks the
  * Sources [newStreamLookup] has when it opens. [configurationChanges] made from a computer show as notices over any screen.
+ * The remote's Menu button ([menuPresses]) opens Settings from anywhere but the player; Settings shows [tmdbKey] and
+ * leads to About.
  */
 @Composable
 fun CelastrinaApp(
     catalogue: Catalogue,
     newStreamLookup: () -> StreamLookup,
     configurationChanges: Flow<ConfigurationChange>,
+    tmdbKey: TmdbKeyInUse,
+    appVersion: String,
+    menuPresses: Flow<Unit>,
     openMovie: Int? = null,
     openSeries: Int? = null,
 ) {
@@ -56,6 +64,16 @@ fun CelastrinaApp(
             HomeState.Loaded(catalogue.moviesRow())
         } catch (e: CatalogueUnavailable) {
             HomeState.Failed(e.reason)
+        }
+    }
+
+    LaunchedEffect(menuPresses) {
+        menuPresses.collect {
+            when (val s = screen) {
+                is Screen.Player, is Screen.Settings -> Unit
+                is Screen.About -> screen = s.back
+                else -> screen = Screen.Settings(back = s)
+            }
         }
     }
 
@@ -85,6 +103,14 @@ fun CelastrinaApp(
                     BackHandler { screen = s.back }
                     PlayerScreen(s.stream)
                 }
+                is Screen.Settings -> {
+                    BackHandler { screen = s.back }
+                    SettingsScreen(tmdbKey) { screen = Screen.About(back = s) }
+                }
+                is Screen.About -> {
+                    BackHandler { screen = s.back }
+                    AboutScreen(appVersion)
+                }
             }
             ChangedFromComputerNotices(configurationChanges)
         }
@@ -92,6 +118,7 @@ fun CelastrinaApp(
 }
 
 fun CatalogueUnavailable.Reason.message() = when (this) {
+    CatalogueUnavailable.Reason.NoKey -> "No TMDB key"
     CatalogueUnavailable.Reason.Unreachable -> "Can't reach TMDB. Check the TV's network connection."
     CatalogueUnavailable.Reason.KeyRejected -> "TMDB rejected the key."
     CatalogueUnavailable.Reason.ServiceError -> "TMDB isn't answering properly right now."

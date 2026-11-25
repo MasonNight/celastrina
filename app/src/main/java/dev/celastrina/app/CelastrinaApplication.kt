@@ -15,5 +15,12 @@ class CelastrinaApplication : Application() {
     val logger = Logger { Log.i("Celastrina", it) }
 
     // ContentProvider.onCreate runs before Application.onCreate, so this is lazy rather than set in onCreate.
-    val configuration by lazy { ConfigurationService(FileStorage(File(filesDir, "core")), http, appVersion = BuildConfig.VERSION_NAME) }
+    val configuration by lazy {
+        ConfigurationService(
+            FileStorage(File(filesDir, "core")),
+            http,
+            appVersion = BuildConfig.VERSION_NAME,
+            projectTmdbKey = BuildConfig.TMDB_API_KEY,
+        )
+    }
 }

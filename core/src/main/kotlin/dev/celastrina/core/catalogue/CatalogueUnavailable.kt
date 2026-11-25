@@ -5,6 +5,9 @@ class CatalogueUnavailable(val reason: Reason, cause: Throwable? = null) :
     Exception("Catalogue unavailable: $reason", cause) {
 
     enum class Reason {
+        /** There's no TMDB key: the build has no project key and the Household hasn't set one. */
+        NoKey,
+
         /** TMDB couldn't be reached at all. */
         Unreachable,
 

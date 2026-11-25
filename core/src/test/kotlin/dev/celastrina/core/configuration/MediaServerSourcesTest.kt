@@ -28,7 +28,7 @@ class MediaServerSourcesTest {
     @AfterEach
     fun stopServer() = jellyfin.close()
 
-    private fun service() = ConfigurationService(FileStorage(dir), JdkHttpClient(), appVersion = "1.2.3")
+    private fun service() = ConfigurationService(FileStorage(dir), JdkHttpClient(), appVersion = "1.2.3", projectTmdbKey = "")
 
     private fun movieNight(password: String = jellyfin.password, url: String = jellyfin.url) =
         NewSource(kind = "jellyfin", name = "Movie Night Jellyfin", url = url, username = jellyfin.username, password = password)

@@ -191,7 +191,7 @@ class JellyfinSourceTest {
 
     @Test
     fun `a Source whose login failed answers login needed without asking the server`() = runTest {
-        val service = ConfigurationService(FileStorage(dir), JdkHttpClient(), appVersion = "1.2.3")
+        val service = ConfigurationService(FileStorage(dir), JdkHttpClient(), appVersion = "1.2.3", projectTmdbKey = "")
         service.add(NewSource("jellyfin", "Movie Night", jellyfin.url, "demo", "wrong password"), ChangedFrom.Computer)
         val asked = jellyfin.requests.size
 
@@ -203,7 +203,7 @@ class JellyfinSourceTest {
 
     @Test
     fun `an Emby server is asked the same way`() = runTest {
-        val service = ConfigurationService(FileStorage(dir), JdkHttpClient(), appVersion = "1.2.3")
+        val service = ConfigurationService(FileStorage(dir), JdkHttpClient(), appVersion = "1.2.3", projectTmdbKey = "")
         service.add(NewSource("emby", "Den Emby", jellyfin.url, jellyfin.username, jellyfin.password), ChangedFrom.Computer)
 
         val outcome = service.sources().single { it.id == "den-emby" }.lookUp(nightOfTheLivingDead)
@@ -213,7 +213,7 @@ class JellyfinSourceTest {
 
     /** The Household's "Movie Night" Jellyfin, added from a computer with the right login. */
     private suspend fun movieNight(): Source {
-        val service = ConfigurationService(FileStorage(dir), JdkHttpClient(), appVersion = "1.2.3")
+        val service = ConfigurationService(FileStorage(dir), JdkHttpClient(), appVersion = "1.2.3", projectTmdbKey = "")
         val added = service.add(NewSource("jellyfin", "Movie Night", jellyfin.url, jellyfin.username, jellyfin.password), ChangedFrom.Computer)
         assertEquals(WriteOutcome.Added("movie-night"), added)
         return service.sources().single { it.id == "movie-night" }
