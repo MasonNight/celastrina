@@ -40,7 +40,7 @@ class InternetArchiveProvider : MainAPI() {
             "OPTIONAL { ?film wdt:P6216 ?copyrightStatus . } }"
         val response = app.get(
             "$WIKIDATA?format=json&query=" + encode(query),
-            headers = mapOf("Accept" to "application/sparql-results+json"),
+            headers = mapOf("Accept" to "application/sparql-results+json", "User-Agent" to USER_AGENT),
         )
         val bindings = mapper.readTree(response.text).path("results").path("bindings")
         val film = bindings.firstOrNull() ?: return null
@@ -155,6 +155,9 @@ class InternetArchiveProvider : MainAPI() {
 
     private companion object {
         const val WIKIDATA = "https://query.wikidata.org/sparql"
+
+        /** Wikimedia refuses a client that doesn't say who it is and where to find out more, such as OkHttp's own. */
+        const val USER_AGENT = "CelastrinaTestExtension/1 (https://github.com/MasonNight/celastrina)"
         const val PUBLIC_DOMAIN = "http://www.wikidata.org/entity/Q19652"
         const val PUBLIC_DOMAIN_MARK = "#public-domain"
         const val EPISODE_MARK = "#episode="

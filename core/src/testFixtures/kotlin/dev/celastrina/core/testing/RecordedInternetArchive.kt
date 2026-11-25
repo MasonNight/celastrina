@@ -43,6 +43,9 @@ class RecordedInternetArchive(
             // Hand-written: the live Query Service only sends this to a client that has exceeded its limits.
             return exchange.send(429, "Too Many Requests", "text/plain")
         }
+        if (!WikimediaUserAgentPolicy.allows(exchange.requestHeaders.getFirst("User-Agent"))) {
+            return exchange.send(403, WikimediaUserAgentPolicy.REFUSAL, "text/html; charset=utf-8")
+        }
         val query = exchange.queryParameter("query").orEmpty()
         val clauses = QUERY.matchEntire(query)?.groupValues?.get(1)?.split(" UNION ")
         val recordings = clauses?.map { clause ->
