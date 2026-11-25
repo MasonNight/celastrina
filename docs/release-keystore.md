@@ -39,8 +39,9 @@ keytool -list -keystore /path/to/backup/celastrina-release.jks
 keytool -list -v -keystore celastrina-release.jks -alias celastrina | grep 'SHA256:'
 ```
 
-Put the fingerprint (the `AB:CD:…` part) in `README.md`, on the line after `<!-- release-certificate-sha256 -->`,
-replacing the placeholder, and merge that to `main`. The release workflow refuses to publish an APK whose certificate
+Put the fingerprint (the `AB:CD:…` part) in `README.md` and `INSTALL.md`, on the line after
+`<!-- release-certificate-sha256 -->` in each, replacing the placeholder, and merge that to `main`. The unit tests fail
+while the two differ. The release workflow refuses to publish an APK whose certificate
 isn't the one recorded there (`scripts/verify-apk-signature.sh --release`), so this has to land before the first
 release.
 

@@ -47,4 +47,7 @@ tasks.test {
     inputs.files(testRepository).withPropertyName("testRepository")
     val repository = testRepository
     doFirst { systemProperty("celastrina.testRepository", repository.singleFile.path) }
+    // InstallRunbookTest checks the runbook against the code.
+    inputs.files(rootProject.file("INSTALL.md"), rootProject.file("README.md")).withPropertyName("runbook")
+    systemProperty("celastrina.repository", rootDir.path)
 }
