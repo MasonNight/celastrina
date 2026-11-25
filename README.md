@@ -2,6 +2,11 @@
 
 An open-source streaming app for Fire TV that lets a household browse movies and series with rich artwork and play them from whichever Source can currently serve them.
 
+## Installing
+
+Point your AI agent at [INSTALL.md](INSTALL.md), the Install Runbook: it installs, updates and uninstalls Celastrina on
+your Fire TV over ADB from macOS, Linux or Windows, and asks you only for what it can't do itself.
+
 ## Building
 
 Celastrina's Catalogue comes from TMDB. A build takes the project's TMDB key from the `TMDB_API_KEY` Gradle property or environment variable. A build without one still runs, and shows "No TMDB key" until a household sets its own key:
