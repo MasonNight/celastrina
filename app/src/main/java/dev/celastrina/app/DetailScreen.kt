@@ -105,6 +105,7 @@ private fun MovieDetail(details: MovieDetails, lookUp: (TitleReference) -> Title
         ) {
             Text(details.title.name, style = MaterialTheme.typography.displaySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(details.metadataLine(), style = MaterialTheme.typography.titleSmall, color = Color.White.copy(alpha = 0.8f))
+            NotPlayableBadge(details.title)
             Text(details.synopsis, style = MaterialTheme.typography.bodyLarge, maxLines = 5, overflow = TextOverflow.Ellipsis)
             PlayRow(lookup, failoverMemory, onPlay = { play(it, handPicked = false) }, onChoose = { choosing = true })
         }

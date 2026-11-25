@@ -2,6 +2,7 @@ package dev.celastrina.core.configuration
 
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.syncproviders.SyncIdName
+import dev.celastrina.core.catalogue.NotPlayableMemory
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TmdbSettings
 import dev.celastrina.core.extension.AvailableExtension
@@ -63,6 +64,8 @@ class ConfigurationService(
     private val clock: Clock = Clock.System,
     /** Forgets the Streams of Sources that are removed. */
     private val failoverMemory: FailoverMemory? = null,
+    /** Forgets every Not playable Title whenever a Source is added, changed or removed. */
+    private val notPlayable: NotPlayableMemory? = null,
 ) {
     private val lock = Any()
     private val extensionHost = ExtensionHost(extensionLoader, logger)
@@ -76,6 +79,15 @@ class ConfigurationService(
 
     /** Each change as it is saved, for the on-screen notices. A command that changes nothing announces nothing. */
     val changes: SharedFlow<ConfigurationChange> = announcements.asSharedFlow()
+
+    /**
+     * Announces [change] once it is saved. A change to what the Sources are, or what they can find, also forgets every
+     * Not playable Title, so each Source gets a fair chance; a new order or TMDB key changes neither.
+     */
+    private fun announce(change: ConfigurationChange) {
+        if (change.action !in LEAVES_NOT_PLAYABLE) notPlayable?.forgetAll()
+        announcements.tryEmit(change)
+    }
 
     fun status(): Status = synchronized(lock) {
         Status(
@@ -103,7 +115,7 @@ class ConfigurationService(
             if (tmdbKeyOverride() == newKey) return WriteOutcome.Ok
             storage.write(TMDB_KEY, newKey.encodeToByteArray())
         }
-        announcements.tryEmit(ConfigurationChange(ConfigurationChange.Action.TmdbKeySet, sourceName = null, from))
+        announce(ConfigurationChange(ConfigurationChange.Action.TmdbKeySet, sourceName = null, from))
         return WriteOutcome.Ok
     }
 
@@ -113,7 +125,7 @@ class ConfigurationService(
             if (tmdbKeyOverride() == null) return WriteOutcome.Ok
             storage.delete(TMDB_KEY)
         }
-        announcements.tryEmit(ConfigurationChange(ConfigurationChange.Action.TmdbKeyCleared, sourceName = null, from))
+        announce(ConfigurationChange(ConfigurationChange.Action.TmdbKeyCleared, sourceName = null, from))
         return WriteOutcome.Ok
     }
 
@@ -275,7 +287,7 @@ class ConfigurationService(
                 else -> return Saved.Refused(nameTaken(name, sources)!!)
             }
         }
-        announcements.tryEmit(ConfigurationChange(ConfigurationChange.Action.Added, name, from))
+        announce(ConfigurationChange(ConfigurationChange.Action.Added, name, from))
         return saved
     }
 
@@ -342,7 +354,7 @@ class ConfigurationService(
             save(ordered)
             ConfigurationChange(ConfigurationChange.Action.Reordered, ordered.first().name, from)
         }
-        announcements.tryEmit(announcement)
+        announce(announcement)
         return WriteOutcome.Ok
     }
 
@@ -380,7 +392,7 @@ class ConfigurationService(
             saveExtensions(extensions.copy(repositories = extensions.repositories.filter { it.url != address } + repository))
             isNew
         }
-        if (isNew) announcements.tryEmit(ConfigurationChange(ConfigurationChange.Action.RepositoryImported, fetched.name, from))
+        if (isNew) announce(ConfigurationChange(ConfigurationChange.Action.RepositoryImported, fetched.name, from))
         return ImportOutcome.Imported(checkNotNull(repository(address)))
     }
 
@@ -468,7 +480,7 @@ class ConfigurationService(
             saveExtensions(extensions.copy(installed = extensions.installed.map { if (it.name == name) updated else it }))
             if (code.sha256 != installed.sha256) storage.delete(codeKey(installed.sha256))
         }
-        announcements.tryEmit(ConfigurationChange(ConfigurationChange.Action.ExtensionUpdated, listed.displayName, from))
+        announce(ConfigurationChange(ConfigurationChange.Action.ExtensionUpdated, listed.displayName, from))
         if (code.providers == null) return InstallOutcome.Failed(Reason.SourceError, "${listed.displayName}: $NEEDS_NEWER_CELASTRINA.")
         return InstallOutcome.Installed(synchronized(lock) { sourceIdsOf(name) })
     }
@@ -493,7 +505,7 @@ class ConfigurationService(
             removed to gone.map { it.id }
         }
         failoverMemory?.forget(sourceIds)
-        announcements.tryEmit(ConfigurationChange(ConfigurationChange.Action.ExtensionRemoved, removed.displayName, from))
+        announce(ConfigurationChange(ConfigurationChange.Action.ExtensionRemoved, removed.displayName, from))
         return WriteOutcome.Ok
     }
 
@@ -507,7 +519,7 @@ class ConfigurationService(
             saveExtensions(extensions.copy(repositories = extensions.repositories - removed))
             removed
         }
-        announcements.tryEmit(ConfigurationChange(ConfigurationChange.Action.RepositoryRemoved, removed.name, from))
+        announce(ConfigurationChange(ConfigurationChange.Action.RepositoryRemoved, removed.name, from))
         return WriteOutcome.Ok
     }
 
@@ -600,7 +612,7 @@ class ConfigurationService(
                 source
             }.also { save(sources) }
         }
-        added.forEach { announcements.tryEmit(ConfigurationChange(ConfigurationChange.Action.Added, it.name, from)) }
+        added.forEach { announce(ConfigurationChange(ConfigurationChange.Action.Added, it.name, from)) }
         if (providers == null) return InstallOutcome.Failed(Reason.SourceError, "${listed.displayName}: $NEEDS_NEWER_CELASTRINA.")
         return InstallOutcome.Installed(added.map { it.id })
     }
@@ -742,7 +754,7 @@ class ConfigurationService(
             if (changed != source) save(sources.mapNotNull { if (it.id == id) changed else it })
             result.announcement
         }
-        announcement?.let(announcements::tryEmit)
+        announcement?.let(::announce)
         return WriteOutcome.Ok
     }
 
@@ -818,6 +830,12 @@ class ConfigurationService(
         private const val TMDB_KEY = "tmdb-key"
         private const val DEVICE_ID = "device-id"
         private const val INTERNET_ARCHIVE = "Internet Archive"
+        private val LEAVES_NOT_PLAYABLE = setOf(
+            ConfigurationChange.Action.Reordered,
+            ConfigurationChange.Action.TmdbKeySet,
+            ConfigurationChange.Action.TmdbKeyCleared,
+            ConfigurationChange.Action.RepositoryImported,
+        )
         private const val EXTENSIONS = "extensions.json"
         private const val WARNING_ACKNOWLEDGED = "extension-warning-acknowledged"
         private const val EXTENSION_KIND = "extension"

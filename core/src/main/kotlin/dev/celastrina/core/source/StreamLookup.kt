@@ -1,5 +1,6 @@
 package dev.celastrina.core.source
 
+import dev.celastrina.core.catalogue.NotPlayableMemory
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.port.Clock
 import dev.celastrina.core.port.Logger
@@ -10,11 +11,15 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** Asks the Household's Sources, given in the Household's order, for Streams of a Title. */
+/**
+ * Asks the Household's Sources, given in the Household's order, for Streams of a Title. Each finished Lookup that
+ * [watch] tells is remembered in [notPlayable].
+ */
 class StreamLookup(
     private val sources: List<Source>,
     private val logger: Logger,
     private val clock: Clock = Clock.System,
+    private val notPlayable: NotPlayableMemory? = null,
 ) {
     /**
      * Asks every Source that can match [title], all at once, and emits each one's answer as it arrives.
@@ -46,6 +51,7 @@ class StreamLookup(
             lookup = lookup.copy(sources = lookup.sources.map { if (it.source === answer.source) SourceLookup(it.source, answer.outcome) else it })
             emit(lookup)
         }
+        notPlayable?.record(title, lookup)
     }
 
     private fun matching(title: TitleReference) = sources.filter { it.kind.canMatch(title) }
