@@ -35,9 +35,15 @@ import coil.request.ImageRequest
 import dev.celastrina.core.catalogue.Catalogue
 import dev.celastrina.core.catalogue.CatalogueUnavailable
 import dev.celastrina.core.catalogue.MovieDetails
+import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.failover.FailoverMemory
 import dev.celastrina.core.failover.candidates
+import dev.celastrina.core.household.ContinueWatching
+import dev.celastrina.core.household.Watched
+import dev.celastrina.core.household.Watching
+import dev.celastrina.core.household.Watchlist
+import dev.celastrina.core.household.WorkedStream
 import dev.celastrina.core.source.Lookup
 import dev.celastrina.core.source.Stream
 
@@ -49,7 +55,8 @@ private sealed interface DetailState {
 
 /**
  * A Movie's detail screen. Its Sources are asked as it opens: Play is enabled by the first Stream to arrive, and Choose
- * Stream lists them all as they come.
+ * Stream lists them all as they come. Play resumes where [continueWatching] says playback got to, and + Watchlist adds
+ * the Movie to [watchlist] or takes it off.
  */
 @Composable
 fun DetailScreen(
@@ -57,6 +64,8 @@ fun DetailScreen(
     catalogue: Catalogue,
     lookUp: (TitleReference) -> TitleLookup,
     failoverMemory: FailoverMemory,
+    continueWatching: ContinueWatching,
+    watchlist: Watchlist,
     onPlay: (PlayRequest) -> Unit,
 ) {
     var state by remember(tmdbId) { mutableStateOf<DetailState>(DetailState.Loading) }
@@ -70,16 +79,30 @@ fun DetailScreen(
     when (val s = state) {
         DetailState.Loading -> Message("Loading…")
         is DetailState.Failed -> Message(s.reason.message())
-        is DetailState.Loaded -> MovieDetail(s.details, lookUp, failoverMemory, onPlay)
+        is DetailState.Loaded -> MovieDetail(s.details, lookUp, failoverMemory, continueWatching, watchlist, onPlay)
     }
 }
 
 @Composable
-private fun MovieDetail(details: MovieDetails, lookUp: (TitleReference) -> TitleLookup, failoverMemory: FailoverMemory, onPlay: (PlayRequest) -> Unit) {
+private fun MovieDetail(
+    details: MovieDetails,
+    lookUp: (TitleReference) -> TitleLookup,
+    failoverMemory: FailoverMemory,
+    continueWatching: ContinueWatching,
+    watchlist: Watchlist,
+    onPlay: (PlayRequest) -> Unit,
+) {
     val titleLookup = remember(details) { lookUp(details.reference) }
     val lookup by titleLookup.lookups.collectAsState()
     var choosing by remember(details) { mutableStateOf(false) }
-    fun play(stream: Stream, handPicked: Boolean) = onPlay(PlayRequest(stream, handPicked, titleLookup, details.title.name))
+    val watched = remember(details) { continueWatching.of(details.reference) }
+    fun play(stream: Stream, handPicked: Boolean) = onPlay(
+        PlayRequest(
+            stream, handPicked, titleLookup, details.title.name,
+            startAtMillis = watched?.resumeAtMillis ?: 0,
+            watching = Watching(details.title, details.reference, episodeLabel = null, imageUrl = details.backdropUrl),
+        ),
+    )
 
     if (choosing) {
         BackHandler { choosing = false }
@@ -107,33 +130,58 @@ private fun MovieDetail(details: MovieDetails, lookUp: (TitleReference) -> Title
             Text(details.metadataLine(), style = MaterialTheme.typography.titleSmall, color = Color.White.copy(alpha = 0.8f))
             NotPlayableBadge(details.title)
             Text(details.synopsis, style = MaterialTheme.typography.bodyLarge, maxLines = 5, overflow = TextOverflow.Ellipsis)
-            PlayRow(lookup, failoverMemory, onPlay = { play(it, handPicked = false) }, onChoose = { choosing = true })
+            PlayRow(lookup, failoverMemory, onPlay = { play(it, handPicked = false) }, onChoose = { choosing = true }, watched = watched) {
+                WatchlistButton(details.title, watchlist)
+            }
         }
     }
 }
 
 /**
- * Play, Choose Stream, and the one-line summary of the Lookup. Play takes Failover's first candidate (see [firstChoice]).
+ * Play, Choose Stream, [more] buttons, and the one-line summary of the Lookup. Play takes Failover's first candidate
+ * (see [firstChoice]), with the Stream that last worked first, and says Resume when playback got partway through.
  */
 @Composable
-fun PlayRow(lookup: Lookup?, failoverMemory: FailoverMemory, onPlay: (Stream) -> Unit, onChoose: () -> Unit, label: String? = null) {
+fun PlayRow(
+    lookup: Lookup?,
+    failoverMemory: FailoverMemory,
+    onPlay: (Stream) -> Unit,
+    onChoose: () -> Unit,
+    label: String? = null,
+    watched: Watched? = null,
+    more: @Composable () -> Unit = {},
+) {
     val play = remember { FocusRequester() }
     val choose = remember { FocusRequester() }
-    val best = lookup?.firstChoice(failoverMemory)
+    val best = lookup?.firstChoice(failoverMemory, watched?.lastWorked)
+    val resumes = watched != null && watched.resumeAtMillis > 0
     LaunchedEffect(best != null) { (if (best != null) play else choose).requestFocus() }
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
         label?.let { Text(it, style = MaterialTheme.typography.titleSmall) }
-        Button(onClick = { best?.let(onPlay) }, enabled = best != null, modifier = Modifier.focusRequester(play)) { Text("Play") }
+        Button(onClick = { best?.let(onPlay) }, enabled = best != null, modifier = Modifier.focusRequester(play)) { Text(if (resumes) "Resume" else "Play") }
         Button(onClick = onChoose, modifier = Modifier.focusRequester(choose)) { Text("Choose Stream") }
+        more()
         Text(lookup?.statusLine ?: "Asking your Sources…", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.8f))
     }
 }
 
 /**
- * The Stream Play starts with: the first in the Household's order that this TV can decode, with Streams that failed here
- * in the last 24 hours last, or the first Stream at all when the TV seems to decode none.
+ * The Stream Play starts with: the one that [lastWorked] for this Title or episode, else the first in the Household's
+ * order that this TV can decode, with Streams that failed here in the last 24 hours last, or the first Stream at all
+ * when the TV seems to decode none.
  */
-fun Lookup.firstChoice(failoverMemory: FailoverMemory): Stream? = candidates(MediaCodecDecoders, failoverMemory).firstOrNull() ?: streams.firstOrNull()
+fun Lookup.firstChoice(failoverMemory: FailoverMemory, lastWorked: WorkedStream? = null): Stream? =
+    candidates(MediaCodecDecoders, failoverMemory, lastWorked).firstOrNull() ?: streams.firstOrNull()
+
+/** + Watchlist, which adds [title] to the Watchlist, or ✓ Watchlist, which takes it off. */
+@Composable
+fun WatchlistButton(title: Title, watchlist: Watchlist, modifier: Modifier = Modifier) {
+    val titles by watchlist.titles.collectAsState()
+    val listed = titles.any { it.kind == title.kind && it.tmdbId == title.tmdbId }
+    Button(onClick = { if (listed) watchlist.remove(title) else watchlist.add(title) }, modifier = modifier) {
+        Text(if (listed) "✓ Watchlist" else "+ Watchlist")
+    }
+}
 
 private fun MovieDetails.metadataLine(): String = listOfNotNull(
     title.year?.toString(),

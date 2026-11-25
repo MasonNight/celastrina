@@ -6,6 +6,8 @@ import com.lagradost.api.setContext
 import dev.celastrina.core.catalogue.NotPlayableMemory
 import dev.celastrina.core.configuration.ConfigurationService
 import dev.celastrina.core.failover.FailoverMemory
+import dev.celastrina.core.household.ContinueWatching
+import dev.celastrina.core.household.Watchlist
 import dev.celastrina.core.port.Clock
 import dev.celastrina.core.port.FileStorage
 import dev.celastrina.core.port.JdkHttpClient
@@ -41,4 +43,9 @@ class CelastrinaApplication : Application() {
 
     /** The Titles whose latest Lookup found every Source Not available, badged wherever they appear. */
     val notPlayable by lazy { NotPlayableMemory(storage, Clock.System) }
+
+    /** Where playback got to in each Title and episode, and the Stream that last worked for it. */
+    val continueWatching by lazy { ContinueWatching(storage, Clock.System) }
+
+    val watchlist by lazy { Watchlist(storage) }
 }
