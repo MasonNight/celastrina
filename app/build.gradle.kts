@@ -26,6 +26,7 @@ android {
         versionCode = 1
         versionName = "0.0.0"
         manifestPlaceholders["appName"] = "Celastrina"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "TMDB_API_KEY", "\"${tmdbApiKey.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
 
@@ -125,6 +126,7 @@ tasks.named("check") { dependsOn("verifyDebugApk") }
 dependencies {
     implementation(project(":core"))
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.serialization.json)
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
@@ -138,4 +140,10 @@ dependencies {
     implementation(libs.media3.exoplayer.hls)
     implementation(libs.media3.exoplayer.dash)
     implementation(libs.media3.ui)
+
+    // Seam 2: drives the configuration ContentProvider on a device the way the agent does. Run on the TV with
+    // `connectedDebugAndroidTest`; there's no emulator in CI.
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(kotlin("test-junit"))
 }

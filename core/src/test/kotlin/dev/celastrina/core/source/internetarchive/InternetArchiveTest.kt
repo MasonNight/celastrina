@@ -2,15 +2,18 @@ package dev.celastrina.core.source.internetarchive
 
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
+import dev.celastrina.core.configuration.ConfigurationService
+import dev.celastrina.core.port.FileStorage
 import dev.celastrina.core.port.JdkHttpClient
 import dev.celastrina.core.source.LookupOutcome
 import dev.celastrina.core.source.Stream
 import dev.celastrina.core.source.StreamLookup
-import dev.celastrina.core.source.preinstalledSources
 import dev.celastrina.core.testing.RecordedInternetArchive
 import dev.celastrina.core.testing.RecordingLogger
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -18,9 +21,12 @@ import kotlin.test.assertTrue
 
 class InternetArchiveTest {
 
+    @TempDir
+    lateinit var dir: File
+
     @Test
     fun `a new Household has the Internet Archive Source, which needs no settings and plays only Movies`() = runTest {
-        val sources = preinstalledSources(JdkHttpClient())
+        val sources = ConfigurationService(FileStorage(dir), JdkHttpClient(), appVersion = "test").sources()
 
         assertEquals(listOf("internet-archive"), sources.map { it.id })
         assertEquals("Internet Archive", sources.single().name)

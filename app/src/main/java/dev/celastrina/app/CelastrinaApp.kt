@@ -17,8 +17,10 @@ import androidx.tv.material3.darkColorScheme
 import dev.celastrina.core.catalogue.Catalogue
 import dev.celastrina.core.catalogue.CatalogueUnavailable
 import dev.celastrina.core.catalogue.Title
+import dev.celastrina.core.configuration.ConfigurationChange
 import dev.celastrina.core.source.Stream
 import dev.celastrina.core.source.StreamLookup
+import kotlinx.coroutines.flow.Flow
 
 private sealed interface Screen {
     data object Home : Screen
@@ -31,10 +33,17 @@ private sealed interface Screen {
 
 /**
  * The whole app: home, a Movie's or a Series' detail screen, and the player, with Back going one step up.
- * [openMovie] or [openSeries] starts on that Title's detail screen instead of home.
+ * [openMovie] or [openSeries] starts on that Title's detail screen instead of home. Each detail screen asks the
+ * Sources [newStreamLookup] has when it opens. [configurationChanges] made from a computer show as notices over any screen.
  */
 @Composable
-fun CelastrinaApp(catalogue: Catalogue, streamLookup: StreamLookup, openMovie: Int? = null, openSeries: Int? = null) {
+fun CelastrinaApp(
+    catalogue: Catalogue,
+    newStreamLookup: () -> StreamLookup,
+    configurationChanges: Flow<ConfigurationChange>,
+    openMovie: Int? = null,
+    openSeries: Int? = null,
+) {
     // Home lives here, so coming back from a detail screen finds its rows, hero and focus as they were.
     val scope = rememberCoroutineScope()
     val home = remember(catalogue) { HomeModel(catalogue, scope) }
@@ -54,10 +63,12 @@ fun CelastrinaApp(catalogue: Catalogue, streamLookup: StreamLookup, openMovie: I
                 }
                 is Screen.MovieDetail -> {
                     BackHandler { screen = Screen.Home }
+                    val streamLookup = remember(s) { newStreamLookup() }
                     DetailScreen(s.tmdbId, catalogue, streamLookup) { stream -> screen = Screen.Player(stream, back = s) }
                 }
                 is Screen.SeriesDetail -> {
                     BackHandler { screen = Screen.Home }
+                    val streamLookup = remember(s) { newStreamLookup() }
                     SeriesDetailScreen(s.tmdbId, s.season, catalogue, streamLookup) { season, stream ->
                         screen = Screen.Player(stream, back = s.copy(season = season))
                     }
@@ -67,6 +78,7 @@ fun CelastrinaApp(catalogue: Catalogue, streamLookup: StreamLookup, openMovie: I
                     PlayerScreen(s.stream)
                 }
             }
+            ChangedFromComputerNotices(configurationChanges)
         }
     }
 }
