@@ -21,7 +21,7 @@ class KeptExtensionCodeTest {
 
         ExtensionLoader.deleteCodeExcept(dir, setOf(kept))
 
-        val left = dir.walk().filter { it.isFile }.map { it.relativeTo(dir).path }.sorted().toList()
+        val left = dir.walk().filter { it.isFile }.map { it.relativeTo(dir).invariantSeparatorsPath }.sorted().toList()
         assertEquals(listOf("$kept.cs3", "oat/$kept.cs3.cur.prof", "oat/arm/$kept.odex", "oat/arm/$kept.vdex"), left)
     }
 
