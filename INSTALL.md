@@ -357,7 +357,9 @@ the Internet Archive, and its connection test passed."). If the reply is `failur
 go to [A failed connection test](#a-failed-connection-test). If it's `invalid`, nothing was saved: see
 [Replies](#replies).
 
-Adding exactly the same Source again is harmless and replies its `id`.
+Adding exactly the same Source again is harmless and replies its `id`. Add each Jellyfin or Emby server only once:
+a second Source logging in to the same server signs the first one out (it then fails with `auth_required`). To use
+another account, change the existing Source's login instead.
 
 ### 4. Change a Source (Do)
 
@@ -479,7 +481,9 @@ The Source shows "Failing its test" on the TV until it's fixed. Offer **one** ro
    | `source_error` | Something answered, but not a Jellyfin or Emby server (often a wrong path: use the address the server's own web page is at, without `/web/…`), or not an add-on manifest. An add-on that offers no Streams, such as a catalogue-only add-on, can't be used at all. |
 
 3. **Ask** for the one thing that would fix it (a corrected address, the password again), then `call update` with just
-   that and check the reply. If it still fails, stop fixing: tell the person the Source is saved but failing, and that
+   that and check the reply. A Jellyfin or Emby Source whose first login failed has no login saved, so a corrected
+   address needs the password in the same call (`{"id":"<id>","url":"<address>","password":"<password>"}`); if
+   you've already forgotten it, ask for it again. If it still fails, stop fixing: tell the person the Source is saved but failing, and that
    it will work once the server's reachable (or the login's right) without being added again. Offer to remove it if
    they'd rather not keep it.
 
