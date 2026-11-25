@@ -7,22 +7,76 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import java.io.IOException
 import java.net.URLEncoder
+import java.util.Locale
 
-/** The Catalogue, backed by TMDB. */
+/**
+ * The Catalogue, backed by TMDB. Names and text follow [locale], the TV's, where TMDB has them in its language, and
+ * fall back to English.
+ */
 class Catalogue(
     private val http: HttpClient,
     private val tmdb: TmdbSettings,
+    private val locale: Locale,
 ) {
-    /** This week's trending Movies, in TMDB's order. */
-    suspend fun moviesRow(): Row {
-        val page = getJson<TmdbPage>("/trending/movie/week")
-        return Row("Movies", page.results.map { it.toTitle() })
+    private val homeRows = HomeRows(::listPage)
+
+    /** The first Titles of [homeRow]. */
+    suspend fun row(homeRow: HomeRow): Row = homeRows.first(homeRow)
+
+    /** [row] with its next Titles added, as you scroll right. A row that can't load more comes back unchanged. */
+    suspend fun more(row: Row): Row = homeRows.more(row)
+
+    /** What home's hero shows while [title] has focus. */
+    suspend fun hero(title: Title): Hero {
+        val path = if (title.kind == Title.Kind.Movie) "/movie/${title.tmdbId}" else "/tv/${title.tmdbId}"
+        val details = getJson<TmdbHeroDetails>(
+            path,
+            "append_to_response" to "images,translations",
+            "include_image_language" to listOf(locale.language, ENGLISH, "null").filter { it.isNotEmpty() }.distinct().joinToString(","),
+            "language" to language,
+        )
+        val translations = details.translations?.translations.orEmpty()
+        val inTvLanguage = translations.filter { it.language == locale.language }
+        val inEnglish = translations.filter { it.language == ENGLISH }.sortedByDescending { it.country == "US" }
+        val logos = details.images?.logos.orEmpty()
+        return Hero(
+            // TMDB gives the original name when it has none in the TV's language; English reads better than that.
+            name = details.name.takeIf { inTvLanguage.any { it.data.name.isNotBlank() } }
+                ?: inEnglish.map { it.data.name }.firstOrNull { it.isNotBlank() }
+                ?: details.name,
+            logoUrl = imageUrl(
+                LOGO_SIZE,
+                (logos.firstOrNull { it.language == locale.language } ?: logos.firstOrNull { it.language == ENGLISH })?.filePath,
+            ),
+            backdropUrl = imageUrl(
+                BACKDROP_SIZE,
+                details.images?.backdrops.orEmpty().firstOrNull { it.language == null }?.filePath ?: details.backdropPath,
+            ),
+            year = yearOf(details.releaseDate ?: details.firstAirDate),
+            runtimeMinutes = details.runtime?.takeIf { it > 0 },
+            seasonCount = details.numberOfSeasons,
+            genres = details.genres.map { it.name },
+            blurb = details.overview?.takeIf { it.isNotBlank() }
+                ?: inEnglish.map { it.data.overview.orEmpty() }.firstOrNull { it.isNotBlank() }
+                ?: "",
+        )
     }
 
     /** The detail screen's view of the Movie with TMDB ID [tmdbId], with the Title reference for its Sources. */
     suspend fun movieDetails(tmdbId: Int): MovieDetails {
-        val movie = getJson<TmdbMovieDetails>("/movie/$tmdbId", "append_to_response" to "external_ids,alternative_titles")
-        val title = movieTitle(movie.id, movie.title, movie.releaseDate, movie.posterPath)
+        val movie = getJson<TmdbMovieDetails>(
+            "/movie/$tmdbId",
+            "append_to_response" to "external_ids,alternative_titles",
+            "language" to language,
+        )
+        val title = Title(
+            tmdbId = movie.id,
+            kind = Title.Kind.Movie,
+            name = movie.title,
+            year = yearOf(movie.releaseDate),
+            posterUrl = imageUrl(POSTER_SIZE, movie.posterPath),
+            category = HomeRows.categoryOf(movie.genres.map { it.id }, movie.originalLanguage),
+        )
         return MovieDetails(
             title = title,
             backdropUrl = imageUrl(BACKDROP_SIZE, movie.backdropPath),
@@ -42,11 +96,33 @@ class Catalogue(
         )
     }
 
+    private suspend fun listPage(source: ListSource, page: Int): HomeRows.ListPage {
+        val list = getJson<TmdbListPage>(source.path, *source.query.toTypedArray(), "language" to language, "page" to "$page")
+        return HomeRows.ListPage(
+            titles = list.results.map { Listed(it.toTitle(source.kind), it.popularity) },
+            nextPage = (page + 1).takeIf { it <= minOf(list.totalPages, TMDB_LAST_PAGE) },
+        )
+    }
+
+    /** The TV's language as TMDB takes it, such as `de-DE`; English when the TV has none. */
+    private val language: String = locale.toLanguageTag().takeUnless { locale.language.isEmpty() } ?: "en-US"
+
     /** The detail screen's view of the Series with TMDB ID [tmdbId]. Specials, when TMDB has any, are the last season. */
     suspend fun seriesDetails(tmdbId: Int): SeriesDetails {
-        val series = getJson<TmdbSeriesDetails>("/tv/$tmdbId", "append_to_response" to "external_ids,alternative_titles")
+        val series = getJson<TmdbSeriesDetails>(
+            "/tv/$tmdbId",
+            "append_to_response" to "external_ids,alternative_titles",
+            "language" to language,
+        )
         val seasons = series.seasons.map { Season(it.seasonNumber, it.name, it.episodeCount) }
-        val title = Title(series.id, Title.Kind.Series, series.name, yearOf(series.firstAirDate), imageUrl(POSTER_SIZE, series.posterPath))
+        val title = Title(
+            tmdbId = series.id,
+            kind = Title.Kind.Series,
+            name = series.name,
+            year = yearOf(series.firstAirDate),
+            posterUrl = imageUrl(POSTER_SIZE, series.posterPath),
+            category = HomeRows.categoryOf(series.genres.map { it.id }, series.originalLanguage),
+        )
         return SeriesDetails(
             title = title,
             backdropUrl = imageUrl(BACKDROP_SIZE, series.backdropPath),
@@ -68,7 +144,7 @@ class Catalogue(
 
     /** The episodes of [season] of [series], in TMDB's order. */
     suspend fun episodes(series: SeriesDetails, season: Season): List<Episode> {
-        val tmdbSeason = getJson<TmdbSeasonDetails>("/tv/${series.title.tmdbId}/season/${season.number}")
+        val tmdbSeason = getJson<TmdbSeasonDetails>("/tv/${series.title.tmdbId}/season/${season.number}", "language" to language)
         return tmdbSeason.episodes.map { episode ->
             Episode(
                 stillUrl = imageUrl(STILL_SIZE, episode.stillPath),
@@ -116,14 +192,13 @@ class Catalogue(
     private fun authHeaders(): Map<String, String> =
         if (usesBearerToken) mapOf("Authorization" to "Bearer ${tmdb.apiKey}") else emptyMap()
 
-    private fun TmdbMovie.toTitle() = movieTitle(id, title, releaseDate, posterPath)
-
-    private fun movieTitle(tmdbId: Int, name: String, releaseDate: String?, posterPath: String?) = Title(
-        tmdbId = tmdbId,
-        kind = Title.Kind.Movie,
-        name = name,
-        year = yearOf(releaseDate),
+    private fun TmdbListItem.toTitle(kind: Title.Kind) = Title(
+        tmdbId = id,
+        kind = kind,
+        name = (if (kind == Title.Kind.Movie) title else name).orEmpty(),
+        year = yearOf(if (kind == Title.Kind.Movie) releaseDate else firstAirDate),
         posterUrl = imageUrl(POSTER_SIZE, posterPath),
+        category = HomeRows.categoryOf(genreIds, originalLanguage),
     )
 
     private fun yearOf(releaseDate: String?) = releaseDate?.take(4)?.toIntOrNull()
@@ -134,20 +209,34 @@ class Catalogue(
         const val IMAGE_BASE_URL = "https://image.tmdb.org/t/p"
         const val POSTER_SIZE = "w342"
         const val BACKDROP_SIZE = "w1280"
+        const val LOGO_SIZE = "w500"
+        const val ENGLISH = "en"
+
+        /** TMDB serves no list page past 500, whatever its `total_pages` says. */
+        const val TMDB_LAST_PAGE = 500
         const val STILL_SIZE = "w300"
         val json = Json { ignoreUnknownKeys = true }
     }
 }
 
+/** A page of a TMDB list: trending or discover, of Movies (which have a `title`) or Series (a `name`). */
 @Serializable
-private class TmdbPage(val results: List<TmdbMovie>)
+private class TmdbListPage(
+    val results: List<TmdbListItem>,
+    @SerialName("total_pages") val totalPages: Int = 1,
+)
 
 @Serializable
-private class TmdbMovie(
+private class TmdbListItem(
     val id: Int,
-    val title: String,
+    val title: String? = null,
+    val name: String? = null,
     @SerialName("release_date") val releaseDate: String? = null,
+    @SerialName("first_air_date") val firstAirDate: String? = null,
     @SerialName("poster_path") val posterPath: String? = null,
+    @SerialName("genre_ids") val genreIds: List<Int> = emptyList(),
+    @SerialName("original_language") val originalLanguage: String? = null,
+    val popularity: Double = 0.0,
 )
 
 @Serializable
@@ -155,6 +244,7 @@ private class TmdbMovieDetails(
     val id: Int,
     val title: String,
     @SerialName("original_title") val originalTitle: String? = null,
+    @SerialName("original_language") val originalLanguage: String? = null,
     @SerialName("release_date") val releaseDate: String? = null,
     @SerialName("poster_path") val posterPath: String? = null,
     @SerialName("backdrop_path") val backdropPath: String? = null,
@@ -166,7 +256,7 @@ private class TmdbMovieDetails(
 )
 
 @Serializable
-private class TmdbGenre(val name: String)
+private class TmdbGenre(val id: Int, val name: String)
 
 @Serializable
 private class TmdbExternalIds(
@@ -180,11 +270,58 @@ private class TmdbAlternativeTitles(val titles: List<TmdbAlternativeTitle> = emp
 @Serializable
 private class TmdbAlternativeTitle(val title: String)
 
+/** A Movie or Series with its images and translations appended, for the hero. Movies have a `title`, Series a `name`. */
+@Serializable
+private class TmdbHeroDetails(
+    private val title: String? = null,
+    @SerialName("name") private val seriesName: String? = null,
+    @SerialName("release_date") val releaseDate: String? = null,
+    @SerialName("first_air_date") val firstAirDate: String? = null,
+    @SerialName("backdrop_path") val backdropPath: String? = null,
+    val overview: String? = null,
+    val runtime: Int? = null,
+    @SerialName("number_of_seasons") val numberOfSeasons: Int? = null,
+    val genres: List<TmdbGenre> = emptyList(),
+    val images: TmdbImages? = null,
+    val translations: TmdbTranslations? = null,
+) {
+    val name: String get() = title ?: seriesName.orEmpty()
+}
+
+@Serializable
+private class TmdbImages(val backdrops: List<TmdbImage> = emptyList(), val logos: List<TmdbImage> = emptyList())
+
+@Serializable
+private class TmdbImage(
+    @SerialName("file_path") val filePath: String,
+    @SerialName("iso_639_1") val language: String? = null,
+)
+
+@Serializable
+private class TmdbTranslations(val translations: List<TmdbTranslation> = emptyList())
+
+@Serializable
+private class TmdbTranslation(
+    @SerialName("iso_639_1") val language: String,
+    @SerialName("iso_3166_1") val country: String,
+    val data: TmdbTranslationData,
+)
+
+@Serializable
+private class TmdbTranslationData(
+    private val title: String? = null,
+    @SerialName("name") private val seriesName: String? = null,
+    val overview: String? = null,
+) {
+    val name: String get() = title ?: seriesName.orEmpty()
+}
+
 @Serializable
 private class TmdbSeriesDetails(
     val id: Int,
     val name: String,
     @SerialName("original_name") val originalName: String? = null,
+    @SerialName("original_language") val originalLanguage: String? = null,
     @SerialName("first_air_date") val firstAirDate: String? = null,
     @SerialName("poster_path") val posterPath: String? = null,
     @SerialName("backdrop_path") val backdropPath: String? = null,

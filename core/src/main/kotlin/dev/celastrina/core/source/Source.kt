@@ -12,6 +12,9 @@ interface Source {
     val name: String
     val kind: SourceKind
 
+    /** For a Source from an Extension, whether a newer version of it is available: the likely fix when it's failing. */
+    val updateAvailable: Boolean get() = false
+
     /**
      * Asks this Source for Streams of [title]. Only called when [kind] can match the Title.
      * Answers [LookupOutcome.Failure] rather than throwing, but a Source that throws is treated as `source_error`.

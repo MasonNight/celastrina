@@ -1,0 +1,14 @@
+# Celastrina's baseline profile: code ART compiles ahead of time when the app is installed, so home scrolls smoothly
+# before the Install Runbook's `cmd package compile` has run, and after Fire OS drops compiled code on an update.
+# Compose, tv-material, Coil and the rest ship their own profiles, which AGP merges with this one.
+# Rules: H = hot, S = run at startup, P = run after startup; ** matches any class, method or signature.
+HSPLdev/celastrina/app/**->**(**)**
+HSPLdev/celastrina/core/catalogue/**->**(**)**
+HSPLdev/celastrina/core/port/**->**(**)**
+Ldev/celastrina/app/**;
+Ldev/celastrina/core/catalogue/**;
+Ldev/celastrina/core/port/**;
+HSPLkotlinx/serialization/json/**->**(**)**
+Lkotlinx/serialization/json/**;
+HSPLcoil/**->**(**)**
+Lcoil/**;

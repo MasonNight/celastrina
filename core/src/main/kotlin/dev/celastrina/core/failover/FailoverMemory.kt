@@ -24,6 +24,15 @@ class FailoverMemory(private val storage: Storage, private val clock: Clock) {
         storage.write(KEY, json.encodeToString(StoredDemotions.serializer(), StoredDemotions(kept)).encodeToByteArray())
     }
 
+    /** Forgets every Stream of the Sources [sourceIds], which have been removed. */
+    @Synchronized
+    fun forget(sourceIds: Collection<String>) {
+        val all = demotions ?: load()
+        val kept = all.filterNot { it.sourceId in sourceIds }
+        demotions = kept
+        if (kept.size != all.size) storage.write(KEY, json.encodeToString(StoredDemotions.serializer(), StoredDemotions(kept)).encodeToByteArray())
+    }
+
     /** Whether [stream] failed on this TV in the last 24 hours. */
     @Synchronized
     fun isDemoted(stream: Stream): Boolean = current(clock.nowMillis()).any { it.isOf(stream) }

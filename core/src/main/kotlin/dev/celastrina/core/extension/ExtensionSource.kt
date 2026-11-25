@@ -45,6 +45,7 @@ internal class ExtensionSource(
     private val providers: suspend () -> List<MainAPI>,
     /** Called when the Extension turns out to need classes or methods this Celastrina lacks. */
     private val needsNewerCelastrina: () -> Unit,
+    override val updateAvailable: Boolean = false,
 ) : Source {
 
     override suspend fun lookUp(title: TitleReference): LookupOutcome = try {

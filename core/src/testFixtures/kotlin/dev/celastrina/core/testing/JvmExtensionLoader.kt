@@ -16,6 +16,10 @@ class JvmExtensionLoader(private val dir: File, private val missingClasses: Set<
     /** The keys of the code loaded so far, oldest first. */
     val loaded = mutableListOf<String>()
 
+    override fun keepOnly(keys: Set<String>) {
+        dir.listFiles().orEmpty().filter { it.nameWithoutExtension !in keys }.forEach { it.delete() }
+    }
+
     override fun classLoaderFor(key: String, code: ByteArray): ClassLoader {
         val file = File(dir, "$key.cs3")
         dir.mkdirs()

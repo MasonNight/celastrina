@@ -1,6 +1,14 @@
 package dev.celastrina.core.configuration
 
+import dev.celastrina.core.catalogue.Title
+import dev.celastrina.core.catalogue.TitleReference
+import dev.celastrina.core.failover.FailoverMemory
+import dev.celastrina.core.household.ContinueWatching
+import dev.celastrina.core.household.Watching
+import dev.celastrina.core.household.Watchlist
+import dev.celastrina.core.household.WorkedStream
 import dev.celastrina.core.port.FileStorage
+import dev.celastrina.core.source.Stream
 import dev.celastrina.core.port.HttpClient
 import dev.celastrina.core.port.HttpResponse
 import dev.celastrina.core.testing.VirtualClock
@@ -14,6 +22,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
 
 class ConfigurationServiceTest {
@@ -219,6 +228,40 @@ class ConfigurationServiceTest {
         assertEquals(emptyList(), afterRestart.sources())
         assertEquals(0, afterRestart.status().sources)
         assertEquals(listOf(ConfigurationChange(ConfigurationChange.Action.Removed, "Internet Archive", ChangedFrom.Computer)), announced)
+    }
+
+    @Test
+    fun `removing a Source forgets its Streams' Failover memory, and only its`() {
+        val memory = FailoverMemory(FileStorage(dir), clock)
+        val service = ConfigurationService(FileStorage(dir), offline, appVersion = "1.2.3", projectTmdbKey = PROJECT_KEY, clock = clock, failoverMemory = memory)
+        val archive = Stream(sourceId = "internet-archive", id = "a", url = "https://archive.org/a.mp4", delivery = Stream.Delivery.Progressive)
+        val other = Stream(sourceId = "movie-night", id = "b", url = "http://192.168.1.20/b.mp4", delivery = Stream.Delivery.Progressive)
+        memory.demote(archive)
+        memory.demote(other)
+
+        service.remove("internet-archive", ChangedFrom.Tv)
+
+        assertFalse(memory.isDemoted(archive))
+        assertTrue(FailoverMemory(FileStorage(dir), clock).isDemoted(other))
+        assertFalse(FailoverMemory(FileStorage(dir), clock).isDemoted(archive))
+    }
+
+    @Test
+    fun `removing a Source leaves Continue watching and the Watchlist as they were`() {
+        val continueWatching = ContinueWatching(FileStorage(dir), clock)
+        val watchlist = Watchlist(FileStorage(dir))
+        val theMatrix = Title(603, Title.Kind.Movie, "The Matrix", 1999, posterUrl = null, category = null)
+        val watching = Watching(theMatrix, TitleReference(Title.Kind.Movie, 603, "tt0133093", null, "The Matrix", "The Matrix", emptyList(), 1999), null, null)
+        val archive = Stream(sourceId = "internet-archive", id = "a", url = "https://archive.org/a.mp4", delivery = Stream.Delivery.Progressive)
+        continueWatching.save(watching, archive, positionMillis = 600_000, durationMillis = 8_160_000)
+        watchlist.add(theMatrix)
+
+        service().remove("internet-archive", ChangedFrom.Tv)
+
+        val afterRestart = ContinueWatching(FileStorage(dir), clock)
+        assertEquals(listOf(watching), afterRestart.row.value.map { it.watching })
+        assertEquals(WorkedStream("internet-archive", "a"), afterRestart.of(watching.reference)?.lastWorked)
+        assertEquals(listOf(theMatrix), Watchlist(FileStorage(dir)).titles.value)
     }
 
     @Test

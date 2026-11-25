@@ -45,6 +45,10 @@ class Failover(
     var startAtMillis: Long = startAtMillis
         private set
 
+    /** The Stream that last showed its first frame this session, which Continue watching remembers; null before any has. */
+    var worked: Stream? = null
+        private set
+
     /** Where playback has got to: the last position reported by a Stream that showed its first frame. */
     var positionMillis: Long = startAtMillis
         private set
@@ -73,7 +77,10 @@ class Failover(
         val now = clock.nowMillis()
         val current = playing ?: return if (event is PlayerEvent.Position) giveUpIfNoPlayback(now) else null
         if (event is PlayerEvent.Position && stream.firstFrameShown) positionMillis = event.millis
-        if (event == PlayerEvent.FirstFrame) failuresInARow = 0
+        if (event == PlayerEvent.FirstFrame) {
+            failuresInARow = 0
+            worked = current
+        }
         val failure = stream.on(event, now)
         if (failure == null) {
             if (stream.isPlaying) lastPlaybackAtMillis = now

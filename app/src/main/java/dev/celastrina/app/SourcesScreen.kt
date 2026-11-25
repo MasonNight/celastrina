@@ -139,7 +139,15 @@ private fun SourceList(sources: List<SourceSummary>, message: String?, onAddSour
 @Composable
 private fun SourceDetails(source: SourceSummary) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(listOf(kindName(source.kind), if (source.enabled) "Enabled" else "Disabled", source.testState.label()).joinToString(" · "))
+        Text(
+            listOfNotNull(
+                kindName(source.kind),
+                if (source.enabled) "Enabled" else "Disabled",
+                source.testState.label(),
+                source.problem,
+                "update available".takeIf { source.updateAvailable },
+            ).joinToString(" · "),
+        )
         source.computerMarks().forEach { Text(it, color = Dim) }
     }
 }
@@ -216,6 +224,7 @@ fun kindName(kind: String): String = when (kind) {
     "jellyfin" -> "Jellyfin"
     "emby" -> "Emby"
     "stremio" -> "Stremio-compatible add-on"
+    "extension" -> "Extension"
     else -> kind
 }
 

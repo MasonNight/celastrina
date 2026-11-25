@@ -10,19 +10,15 @@ import java.net.URLDecoder
 /**
  * The HTTP fake for TMDB: a local stand-in server that replays recorded TMDB responses.
  *
+ * A recording is picked by the whole request: its path and every query parameter but the key. The request
+ * `/3/trending/movie/week?page=2&language=en-US` replays `recorded/tmdb/trending-movie-week.language=en-US.page=2.json`
+ * (parameters sorted by name). So a change in any parameter the Catalogue sends, such as the TV's language or the
+ * page, reaches a different recording, and a request nothing was recorded for gets TMDB's 404.
+ *
  * It checks the key the way TMDB does: a v4 token in `Authorization: Bearer`, or a v3 key in
- * `api_key`. Anything else gets TMDB's 401. Unknown paths get 404.
+ * `api_key`. Anything else gets TMDB's 401.
  */
 class RecordedTmdb(private val apiKey: String) : AutoCloseable {
-
-    private val recordings = mapOf(
-        "/3/trending/movie/week" to "recorded/tmdb/trending-movie-week.json",
-        "/3/movie/10331" to "recorded/tmdb/movie-10331.json",
-        "/3/tv/19885" to "recorded/tmdb/tv-19885.json",
-        "/3/tv/19885/season/0" to "recorded/tmdb/tv-19885-season-0.json",
-        "/3/tv/19885/season/2" to "recorded/tmdb/tv-19885-season-2.json",
-        "/3/tv/2207" to "recorded/tmdb/tv-2207.json",
-    )
 
     private val server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0).apply {
         createContext("/") { exchange -> exchange.use(::respond) }
@@ -35,7 +31,7 @@ class RecordedTmdb(private val apiKey: String) : AutoCloseable {
     )
 
     private fun respond(exchange: HttpExchange) {
-        val recording = recordings[exchange.requestURI.path]
+        val recording = recordingFor(exchange).takeIf { javaClass.classLoader.getResource(it) != null }
         when {
             recording == null -> exchange.send(404, """{"success":false,"status_code":34,"status_message":"The resource you requested could not be found."}""")
             !exchange.isAuthorised() -> exchange.send(401, """{"success":false,"status_code":7,"status_message":"Invalid API key: You must be granted a valid key."}""")
@@ -43,14 +39,20 @@ class RecordedTmdb(private val apiKey: String) : AutoCloseable {
         }
     }
 
+    private fun recordingFor(exchange: HttpExchange): String {
+        val path = exchange.requestURI.path.removePrefix("/3/").replace('/', '-')
+        val parameters = exchange.queryParameters().filterKeys { it != "api_key" }.toSortedMap()
+        return "recorded/tmdb/" + path + parameters.entries.joinToString("") { (name, value) -> ".$name=$value" } + ".json"
+    }
+
+    private fun HttpExchange.queryParameters(): Map<String, String> =
+        requestURI.rawQuery.orEmpty().split('&').filter { it.isNotEmpty() }
+            .map { it.split('=', limit = 2) }
+            .associate { URLDecoder.decode(it[0], Charsets.UTF_8) to URLDecoder.decode(it.getOrElse(1) { "" }, Charsets.UTF_8) }
+
     private fun HttpExchange.isAuthorised(): Boolean {
         val bearer = requestHeaders.getFirst("Authorization")?.removePrefix("Bearer ")
-        val queryKey = requestURI.rawQuery.orEmpty().split('&')
-            .map { it.split('=', limit = 2) }
-            .firstOrNull { it[0] == "api_key" }
-            ?.getOrNull(1)
-            ?.let { URLDecoder.decode(it, Charsets.UTF_8) }
-        return bearer == apiKey || queryKey == apiKey
+        return bearer == apiKey || queryParameters()["api_key"] == apiKey
     }
 
     private fun HttpExchange.send(status: Int, body: String) {
