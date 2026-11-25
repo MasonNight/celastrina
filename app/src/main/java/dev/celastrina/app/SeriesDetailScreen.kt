@@ -44,9 +44,9 @@ import dev.celastrina.core.catalogue.Episode
 import dev.celastrina.core.catalogue.Season
 import dev.celastrina.core.catalogue.SeriesDetails
 import dev.celastrina.core.catalogue.TitleReference
+import dev.celastrina.core.failover.FailoverMemory
 import dev.celastrina.core.source.Lookup
 import dev.celastrina.core.source.Stream
-import kotlinx.coroutines.flow.StateFlow
 
 private sealed interface SeriesState {
     data object Loading : SeriesState
@@ -70,7 +70,8 @@ fun SeriesDetailScreen(
     tmdbId: Int,
     seasonNumber: Int?,
     catalogue: Catalogue,
-    lookUp: (TitleReference) -> StateFlow<Lookup?>,
+    lookUp: (TitleReference) -> TitleLookup,
+    failoverMemory: FailoverMemory,
     onPlay: (season: Int, request: PlayRequest) -> Unit,
 ) {
     var state by remember(tmdbId) { mutableStateOf<SeriesState>(SeriesState.Loading) }
@@ -84,7 +85,7 @@ fun SeriesDetailScreen(
     when (val s = state) {
         SeriesState.Loading -> Message("Loading…")
         is SeriesState.Failed -> Message(s.reason.message())
-        is SeriesState.Loaded -> SeriesDetail(s.details, seasonNumber, catalogue, lookUp, onPlay)
+        is SeriesState.Loaded -> SeriesDetail(s.details, seasonNumber, catalogue, lookUp, failoverMemory, onPlay)
     }
 }
 
@@ -93,18 +94,19 @@ private fun SeriesDetail(
     details: SeriesDetails,
     seasonNumber: Int?,
     catalogue: Catalogue,
-    lookUp: (TitleReference) -> StateFlow<Lookup?>,
+    lookUp: (TitleReference) -> TitleLookup,
+    failoverMemory: FailoverMemory,
     onPlay: (season: Int, request: PlayRequest) -> Unit,
 ) {
     var seasonIndex by remember(details) { mutableStateOf(details.seasons.indexOfFirst { it.number == seasonNumber }.coerceAtLeast(0)) }
     var picked by remember(details) { mutableStateOf<Episode?>(null) }
-    val lookups = remember(picked) { picked?.let { lookUp(it.reference) } }
-    val lookup = lookups?.collectAsState()?.value
+    val titleLookup = remember(picked) { picked?.let { lookUp(it.reference) } }
+    val lookup = titleLookup?.lookups?.collectAsState()?.value
     var choosing by remember(picked) { mutableStateOf(false) }
     val season = details.seasons.getOrNull(seasonIndex)
     fun play(stream: Stream, handPicked: Boolean) {
         val episode = picked ?: return
-        onPlay(episode.reference.episode!!.season, PlayRequest(stream, handPicked, lookups ?: return))
+        onPlay(episode.reference.episode!!.season, PlayRequest(stream, handPicked, titleLookup ?: return, "${details.title.name} · ${episode.label()}"))
     }
 
     if (choosing) {
@@ -142,7 +144,7 @@ private fun SeriesDetail(
             if (season != null) {
                 EpisodeRow(details, season, catalogue) { picked = it }
             }
-            PickedEpisode(picked, lookup, onPlay = { play(it, handPicked = false) }, onChoose = { choosing = true })
+            PickedEpisode(picked, lookup, failoverMemory, onPlay = { play(it, handPicked = false) }, onChoose = { choosing = true })
         }
     }
 }
@@ -222,12 +224,12 @@ private fun EpisodeCard(episode: Episode, onClick: () -> Unit) {
 
 /** The picked episode, with Play, Choose Stream and its Lookup's status line. Picking an episode is what asks the Sources for it. */
 @Composable
-private fun PickedEpisode(episode: Episode?, lookup: Lookup?, onPlay: (Stream) -> Unit, onChoose: () -> Unit) {
+private fun PickedEpisode(episode: Episode?, lookup: Lookup?, failoverMemory: FailoverMemory, onPlay: (Stream) -> Unit, onChoose: () -> Unit) {
     Box(Modifier.fillMaxWidth().height(48.dp).padding(start = 48.dp), contentAlignment = Alignment.CenterStart) {
         if (episode == null) {
             Text("Pick an episode to find Streams for it.", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.7f))
         } else {
-            PlayRow(lookup, onPlay, onChoose, label = episode.label())
+            PlayRow(lookup, failoverMemory, onPlay, onChoose, label = episode.label())
         }
     }
 }

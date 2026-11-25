@@ -1,7 +1,10 @@
 package dev.celastrina.core.source
 
-/** Where a Lookup of one Title has got to: each Source asked, in the Household's order, with its answer once it has one. */
-data class Lookup(val sources: List<SourceLookup>) {
+/**
+ * Where a Lookup of one Title has got to: each Source asked, in the Household's order, with its answer once it has one.
+ * [askedAtMillis] is when the Sources were last asked, so Failover can tell a Stream list that may have expired.
+ */
+data class Lookup(val sources: List<SourceLookup>, val askedAtMillis: Long = 0) {
 
     val isFinished: Boolean get() = sources.none { it.isLooking }
 
@@ -33,9 +36,12 @@ data class Lookup(val sources: List<SourceLookup>) {
     private fun counted(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
 }
 
-/** One Source in a [Lookup]: its answer, or null while it is still being asked. */
-data class SourceLookup(val source: Source, val outcome: LookupOutcome?) {
-    val isLooking: Boolean get() = outcome == null
+/**
+ * One Source in a [Lookup]: its answer, or null while it is still being asked. While it is [askingAgain], [outcome] is
+ * its answer from last time, so the Streams it found stay listed until it answers again.
+ */
+data class SourceLookup(val source: Source, val outcome: LookupOutcome?, val askingAgain: Boolean = false) {
+    val isLooking: Boolean get() = outcome == null || askingAgain
 }
 
 /** A picture height as the Household knows it: "480p", "1080p", "4K". */

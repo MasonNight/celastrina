@@ -3,6 +3,7 @@ package dev.celastrina.core.source
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.testing.RecordingLogger
+import dev.celastrina.core.testing.VirtualClock
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
@@ -13,6 +14,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 class StreamLookupTest {
@@ -151,6 +153,43 @@ class StreamLookupTest {
         val lookup = StreamLookup(listOf(preferred, other), RecordingLogger()).watch(nightOfTheLivingDead).last()
 
         assertEquals(listOf("p1", "p2", "o1"), lookup.streams.map { it.id })
+    }
+
+    @Test
+    fun `a Lookup knows when it was asked`() = runTest {
+        val clock = VirtualClock()
+        val source = FakeSource("movie-shelf", moviesOnly) { LookupOutcome.NotAvailable }
+
+        val lookup = StreamLookup(listOf(source), RecordingLogger(), clock).watch(nightOfTheLivingDead).last()
+
+        assertEquals(clock.nowMillis(), lookup.askedAtMillis)
+    }
+
+    @Test
+    fun `asking the Sources again keeps each one's Streams listed until it answers again`() = runTest {
+        val clock = VirtualClock()
+        val old = stream("old", "https://example.org/film.mp4?token=old", Stream.Delivery.Progressive)
+        val fresh = stream("fresh", "https://example.org/film.mp4?token=fresh", Stream.Delivery.Progressive)
+        var round = 0
+        val freshAnswer = CompletableDeferred<LookupOutcome>()
+        val shelf = FakeSource("movie-shelf", moviesOnly) { if (round == 0) LookupOutcome.Streams(listOf(old)) else freshAnswer.await() }
+        val other = FakeSource("other", moviesOnly) { LookupOutcome.NotAvailable }
+        val streamLookup = StreamLookup(listOf(shelf, other), RecordingLogger(), clock)
+        val previous = streamLookup.watch(nightOfTheLivingDead).last()
+        round = 1
+        clock.advanceBy(31.minutes)
+        val progress = mutableListOf<Lookup>()
+
+        streamLookup.watch(nightOfTheLivingDead, previous).collect {
+            progress += it
+            if (it.sources.count { s -> s.isLooking } == 1) freshAnswer.complete(LookupOutcome.Streams(listOf(fresh)))
+        }
+
+        assertEquals(listOf(listOf(true, true), listOf(true, false), listOf(false, false)), progress.map { l -> l.sources.map { it.isLooking } })
+        assertEquals(listOf(listOf(old), listOf(old), listOf(fresh)), progress.map { it.streams })
+        assertEquals("1 Stream from 1 Source · still asking 2", progress.first().statusLine)
+        assertTrue(progress.all { it.askedAtMillis == clock.nowMillis() })
+        assertEquals(2, shelf.timesAsked)
     }
 
     @Test

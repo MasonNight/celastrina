@@ -1,6 +1,7 @@
 package dev.celastrina.core.source
 
 import dev.celastrina.core.catalogue.TitleReference
+import dev.celastrina.core.port.Clock
 import dev.celastrina.core.port.Logger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -13,6 +14,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 class StreamLookup(
     private val sources: List<Source>,
     private val logger: Logger,
+    private val clock: Clock = Clock.System,
 ) {
     /**
      * Asks every Source that can match [title], all at once, and emits each one's answer as it arrives.
@@ -28,12 +30,20 @@ class StreamLookup(
     /**
      * The same Lookup as [lookUp], told as where it has got to: first every Source asked still looking, then once more
      * after each answer. The last one emitted [Lookup.isFinished].
+     *
+     * Given the [previous] Lookup of the same Title, it asks the Sources again: each keeps its last answer, and the
+     * Streams in it, until it answers again.
      */
-    fun watch(title: TitleReference): Flow<Lookup> = flow {
-        var lookup = Lookup(matching(title).map { SourceLookup(it, outcome = null) })
+    fun watch(title: TitleReference, previous: Lookup? = null): Flow<Lookup> = flow {
+        val askedAtMillis = clock.nowMillis()
+        val before = previous?.sources.orEmpty().associateBy { it.source.id }
+        var lookup = Lookup(
+            matching(title).map { source -> SourceLookup(source, before[source.id]?.outcome, askingAgain = before[source.id]?.outcome != null) },
+            askedAtMillis,
+        )
         emit(lookup)
         lookUp(title).collect { answer ->
-            lookup = Lookup(lookup.sources.map { if (it.source === answer.source) SourceLookup(it.source, answer.outcome) else it })
+            lookup = lookup.copy(sources = lookup.sources.map { if (it.source === answer.source) SourceLookup(it.source, answer.outcome) else it })
             emit(lookup)
         }
     }
