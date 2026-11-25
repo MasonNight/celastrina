@@ -38,6 +38,7 @@ class MainActivity : ComponentActivity() {
                 catalogue,
                 newStreamLookup = { StreamLookup(app.configuration.sources(), app.logger) },
                 configurationChanges = app.configuration.changes,
+                configuration = app.configuration,
                 tmdbKey = tmdbKey,
                 appVersion = BuildConfig.VERSION_NAME,
                 menuPresses = menuPresses,
