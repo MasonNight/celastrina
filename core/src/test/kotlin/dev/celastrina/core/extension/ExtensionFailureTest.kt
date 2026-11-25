@@ -21,6 +21,7 @@ import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 /** An Extension that throws, hangs or needs a newer Celastrina fails only its own Lookups. */
 class ExtensionFailureTest {
@@ -44,10 +45,10 @@ class ExtensionFailureTest {
         year = 1968,
     )
 
-    private fun service(missingClasses: Set<String> = emptySet()) = ConfigurationService(
+    private fun service(missingClasses: Set<String> = emptySet(), appVersion: String = "1.2.3") = ConfigurationService(
         FileStorage(File(dir, "storage")),
         JdkHttpClient(),
-        appVersion = "1.2.3",
+        appVersion = appVersion,
         projectTmdbKey = "",
         extensionLoader = JvmExtensionLoader(File(dir, "code"), missingClasses),
         logger = RecordingLogger(),
@@ -94,7 +95,72 @@ class ExtensionFailureTest {
 
         val restarted = service()
         assertEquals(ConfigurationService.NEEDS_NEWER_CELASTRINA, restarted.list().single { it.id == EXTENSION_SOURCE }.problem)
-        assertEquals(listOf("internet-archive"), restarted.sources().map { it.id })
+        val requestsBefore = sites.requests.size
+        assertEquals(LookupOutcome.Failure(Reason.SourceError), restarted.extensionSource().lookUp(nightOfTheLivingDead))
+        assertEquals(requestsBefore, sites.requests.size, "The Extension's code was run again")
+    }
+
+    @Test
+    fun `after Celastrina is updated, an Extension that needed a newer one is asked again`() = runTest {
+        service(missingClasses = setOf("com.lagradost.cloudstream3.utils.ExtractorApiKt")).apply {
+            install()
+            extensionSource().lookUp(nightOfTheLivingDead)
+        }
+
+        val updated = service(appVersion = "1.3.0")
+
+        assertEquals(null, updated.list().single { it.id == EXTENSION_SOURCE }.problem)
+        assertIs<LookupOutcome.Streams>(updated.extensionSource().lookUp(nightOfTheLivingDead))
+    }
+
+    @Test
+    fun `after Celastrina is updated, an Extension installed while it needed a newer one gets its Sources`() = runTest {
+        service(missingClasses = setOf("com.lagradost.cloudstream3.MainAPI")).install()
+        val updated = service(appVersion = "1.3.0")
+
+        updated.recheckExtensions()
+
+        assertEquals(listOf("internet-archive", EXTENSION_SOURCE), updated.list().map { it.id })
+        assertEquals(null, updated.list().last().problem)
+        assertIs<LookupOutcome.Streams>(updated.extensionSource().lookUp(nightOfTheLivingDead))
+    }
+
+    @Test
+    fun `an Extension that still needs a newer Celastrina after an update stays labelled`() = runTest {
+        service(missingClasses = setOf("com.lagradost.cloudstream3.MainAPI")).install()
+        val updated = service(missingClasses = setOf("com.lagradost.cloudstream3.MainAPI"), appVersion = "1.3.0")
+
+        updated.recheckExtensions()
+
+        assertEquals(listOf("internet-archive"), updated.list().map { it.id })
+        assertEquals(1, updated.status().extensions)
+    }
+
+    @Test
+    fun `updating an Extension installed while it needed a newer Celastrina gives it its Sources, once the update loads`() = runTest {
+        service(missingClasses = setOf("com.lagradost.cloudstream3.MainAPI")).install()
+        sites.newerVersion = true
+        val service = service()
+        service.checkForUpdates(now = true)
+
+        val outcome = service.updateExtension("InternetArchive", ChangedFrom.Tv)
+
+        assertEquals(InstallOutcome.Installed(listOf(EXTENSION_SOURCE)), outcome)
+        assertIs<LookupOutcome.Streams>(service.extensionSource().lookUp(nightOfTheLivingDead))
+    }
+
+    @Test
+    fun `a Source whose Extension needs a newer Celastrina still says when an update is available, in Choose Stream`() = runTest {
+        val old = service(missingClasses = setOf("com.lagradost.cloudstream3.utils.ExtractorApiKt"))
+        old.install()
+        old.extensionSource().lookUp(nightOfTheLivingDead)
+        sites.newerVersion = true
+
+        old.checkForUpdates(now = true)
+
+        val source = service().extensionSource()
+        assertTrue(source.updateAvailable)
+        assertEquals(LookupOutcome.Failure(Reason.SourceError), source.lookUp(nightOfTheLivingDead))
     }
 
     @Test

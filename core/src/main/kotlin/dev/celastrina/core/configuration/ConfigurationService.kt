@@ -1,7 +1,5 @@
 package dev.celastrina.core.configuration
 
-import com.lagradost.cloudstream3.MainAPI
-import com.lagradost.cloudstream3.syncproviders.SyncIdName
 import dev.celastrina.core.catalogue.NotPlayableMemory
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TmdbSettings
@@ -13,6 +11,7 @@ import dev.celastrina.core.extension.ExtensionRepository
 import dev.celastrina.core.extension.ExtensionSource
 import dev.celastrina.core.extension.ExtensionWarning
 import dev.celastrina.core.extension.ListedExtension
+import dev.celastrina.core.extension.ProvidedSource
 import dev.celastrina.core.extension.RepositoryReader
 import dev.celastrina.core.extension.RepositoryUnreadable
 import dev.celastrina.core.port.ExtensionLoader
@@ -140,7 +139,7 @@ class ConfigurationService(
     /** Every Source in the Household's order. Never includes a secret, only whether there is a login. */
     fun list(): List<SourceSummary> = synchronized(lock) {
         val extensions = loadExtensions()
-        val needingNewer = extensions.installed.filter { it.needsNewerCelastrina }.map { it.name }
+        val needingNewer = extensions.installed.filter { it.needsNewerCelastrina() }.map { it.name }
         val updatable = extensions.updatable().map { it.name }
         load().mapIndexed { index, it ->
             SourceSummary(
@@ -473,16 +472,84 @@ class ConfigurationService(
             is FetchedCode.Refused -> return fetched.outcome
             is FetchedCode.Code -> fetched
         }
-        synchronized(lock) {
+        val synced = synchronized(lock) {
             storage.write(codeKey(code.sha256), code.bytes)
             val extensions = loadExtensions()
-            val updated = installed.copy(displayName = listed.displayName, version = listed.version, sha256 = code.sha256, needsNewerCelastrina = code.providers == null)
+            val updated = installed.copy(
+                displayName = listed.displayName,
+                version = listed.version,
+                sha256 = code.sha256,
+                needsNewerThan = appVersion.takeIf { code.provided == null },
+            )
             saveExtensions(extensions.copy(installed = extensions.installed.map { if (it.name == name) updated else it }))
             if (code.sha256 != installed.sha256) storage.delete(codeKey(installed.sha256))
+            code.provided?.let { syncSources(name, it, from) }
         }
         announce(ConfigurationChange(ConfigurationChange.Action.ExtensionUpdated, listed.displayName, from))
-        if (code.providers == null) return InstallOutcome.Failed(Reason.SourceError, "${listed.displayName}: $NEEDS_NEWER_CELASTRINA.")
+        synced?.let { announce(it) }
+        if (code.provided == null) return InstallOutcome.Failed(Reason.SourceError, "${listed.displayName}: $NEEDS_NEWER_CELASTRINA.")
         return InstallOutcome.Installed(synchronized(lock) { sourceIdsOf(name) })
+    }
+
+    /**
+     * Tries again each installed Extension that needed a newer Celastrina than an earlier one: after an app update, one
+     * that loads now gets its Sources back, or its first ones if it never loaded. Call it when Celastrina starts.
+     */
+    suspend fun recheckExtensions() {
+        val waiting = synchronized(lock) { loadExtensions().installed.filter { it.needsNewerThan != null && !it.needsNewerCelastrina() } }
+        for (installed in waiting) {
+            val provided = try {
+                extensionHost.sourcesOf(installed.name, installed.sha256) {
+                    checkNotNull(storage.read(codeKey(installed.sha256))) { "Extension ${installed.name}'s code is missing" }
+                }
+            } catch (e: ExtensionFailure) {
+                if (e.needsNewerCelastrina) markNeedsNewerCelastrina(installed.name)
+                continue
+            }
+            val synced = synchronized(lock) {
+                val extensions = loadExtensions()
+                saveExtensions(extensions.copy(installed = extensions.installed.map { if (it.name == installed.name) it.copy(needsNewerThan = null) else it }))
+                syncSources(installed.name, provided, ChangedFrom.Tv)
+            }
+            announce(synced)
+        }
+    }
+
+    /** What making an Extension's Sources match its providers changed, as the announcements to make once it is saved. */
+    private class Synced(val added: List<StoredSource>, val removed: List<StoredSource>, val from: ChangedFrom)
+
+    private fun announce(synced: Synced) {
+        if (synced.removed.isNotEmpty()) failoverMemory?.forget(synced.removed.map { it.id })
+        synced.removed.forEach { announce(ConfigurationChange(ConfigurationChange.Action.Removed, it.name, synced.from)) }
+        synced.added.forEach { announce(ConfigurationChange(ConfigurationChange.Action.Added, it.name, synced.from)) }
+    }
+
+    /**
+     * Makes the Extension [name]'s Sources match the Sources it [provided]: each new one joins the end of the order,
+     * enabled, and one it no longer provides leaves it. The rest stay where they are. Call it holding the lock.
+     */
+    private fun syncSources(name: String, provided: List<ProvidedSource>, from: ChangedFrom): Synced {
+        val before = load()
+        val providedNames = provided.map { it.name }.toSet()
+        val removed = before.filter { it.extension == name && it.provider !in providedNames }
+        var sources = (before - removed.toSet()).map { stored ->
+            val now = provided.find { stored.extension == name && it.name == stored.provider } ?: return@map stored
+            stored.copy(titleKinds = now.titleKinds, imdb = now.imdb)
+        }
+        val added = provided.filter { p -> sources.none { it.extension == name && it.provider == p.name } }.map { p ->
+            StoredSource(
+                id = uniqueId(slugOf("$name ${p.name}"), sources),
+                name = uniqueName(p.name, sources),
+                kind = EXTENSION_KIND,
+                extension = name,
+                provider = p.name,
+                titleKinds = p.titleKinds,
+                imdb = p.imdb,
+                addedFromComputerAt = clock.nowMillis().takeIf { from == ChangedFrom.Computer },
+            ).also { sources = sources + it }
+        }
+        if (sources != before) save(sources)
+        return Synced(added, removed, from)
     }
 
     /** Updates every installed Extension that has an update, answering how each went by its name. */
@@ -526,8 +593,8 @@ class ConfigurationService(
     private fun sourceIdsOf(extension: String) = load().filter { it.extension == extension }.map { it.id }
 
     private sealed interface FetchedCode {
-        /** [providers] is null when the code needs a newer Celastrina. */
-        class Code(val bytes: ByteArray, val sha256: String, val providers: List<MainAPI>?) : FetchedCode
+        /** [provided] is null when the code needs a newer Celastrina. */
+        class Code(val bytes: ByteArray, val sha256: String, val provided: List<ProvidedSource>?) : FetchedCode
         class Refused(val outcome: InstallOutcome) : FetchedCode
     }
 
@@ -549,13 +616,13 @@ class ConfigurationService(
                 ),
             )
         }
-        val providers = try {
-            extensionHost.providers(listed.name, sha256) { code }
+        val provided = try {
+            extensionHost.sourcesOf(listed.name, sha256) { code }
         } catch (e: ExtensionFailure) {
             if (!e.needsNewerCelastrina) return FetchedCode.Refused(InstallOutcome.Failed(e.reason, "${listed.displayName} didn't load."))
             null
         }
-        return FetchedCode.Code(code, sha256, providers)
+        return FetchedCode.Code(code, sha256, provided)
     }
 
     /**
@@ -590,37 +657,24 @@ class ConfigurationService(
             is FetchedCode.Refused -> return fetched.outcome
             is FetchedCode.Code -> fetched
         }
-        val providers = code.providers
-        val installed = InstalledExtension(name, listed.displayName, repositoryUrl, listed.version, code.sha256, needsNewerCelastrina = providers == null)
-        val added = synchronized(lock) {
+        val installed = InstalledExtension(
+            name, listed.displayName, repositoryUrl, listed.version, code.sha256,
+            needsNewerThan = appVersion.takeIf { code.provided == null },
+        )
+        val synced = synchronized(lock) {
             storage.write(codeKey(code.sha256), code.bytes)
             val extensions = loadExtensions()
             saveExtensions(extensions.copy(installed = extensions.installed.filter { it.name != name } + installed))
-            var sources = load()
-            providers.orEmpty().map { provider ->
-                val source = StoredSource(
-                    id = uniqueId(slugOf("$name ${provider.name}"), sources),
-                    name = uniqueName(provider.name, sources),
-                    kind = EXTENSION_KIND,
-                    extension = name,
-                    provider = provider.name,
-                    titleKinds = ExtensionSource.titleKindsOf(provider),
-                    imdb = SyncIdName.Imdb in provider.supportedSyncNames,
-                    addedFromComputerAt = clock.nowMillis().takeIf { from == ChangedFrom.Computer },
-                )
-                sources = sources + source
-                source
-            }.also { save(sources) }
+            syncSources(name, code.provided.orEmpty(), from)
         }
-        added.forEach { announce(ConfigurationChange(ConfigurationChange.Action.Added, it.name, from)) }
-        if (providers == null) return InstallOutcome.Failed(Reason.SourceError, "${listed.displayName}: $NEEDS_NEWER_CELASTRINA.")
-        return InstallOutcome.Installed(added.map { it.id })
+        announce(synced)
+        if (code.provided == null) return InstallOutcome.Failed(Reason.SourceError, "${listed.displayName}: $NEEDS_NEWER_CELASTRINA.")
+        return InstallOutcome.Installed(synced.added.map { it.id })
     }
 
     private fun extensionSource(stored: StoredSource): Source? {
         val extensions = loadExtensions()
-        val installed = extensions.installed.find { it.name == stored.extension }
-        if (installed == null || installed.needsNewerCelastrina) return null
+        val installed = extensions.installed.find { it.name == stored.extension } ?: return null
         return ExtensionSource(
             id = stored.id,
             name = stored.name,
@@ -633,16 +687,20 @@ class ConfigurationService(
                     checkNotNull(storage.read(codeKey(installed.sha256))) { "Extension ${installed.name}'s code is missing" }
                 }
             },
-            needsNewerCelastrina = { markNeedsNewerCelastrina(installed.name) },
+            onNeedsNewerCelastrina = { markNeedsNewerCelastrina(installed.name) },
             updateAvailable = installed in extensions.updatable(),
+            needsNewerCelastrina = installed.needsNewerCelastrina(),
         )
     }
 
-    /** Stops Lookups asking the Extension [name]'s Sources: it links against code this Celastrina lacks. */
+    /** Stops Lookups running the Extension [name]'s code, until Celastrina is updated: it links against code this one lacks. */
     private fun markNeedsNewerCelastrina(name: String) = synchronized(lock) {
         val extensions = loadExtensions()
-        saveExtensions(extensions.copy(installed = extensions.installed.map { if (it.name == name) it.copy(needsNewerCelastrina = true) else it }))
+        saveExtensions(extensions.copy(installed = extensions.installed.map { if (it.name == name) it.copy(needsNewerThan = appVersion) else it }))
     }
+
+    /** Whether this Extension needs a newer Celastrina than this one. Once Celastrina is updated, it gets another try. */
+    private fun InstalledExtension.needsNewerCelastrina() = needsNewerThan == appVersion
 
     private fun loadExtensions(): StoredExtensions =
         storage.read(EXTENSIONS)?.let { json.decodeFromString<StoredExtensions>(it.decodeToString()) } ?: StoredExtensions()
@@ -819,7 +877,8 @@ class ConfigurationService(
         val repositoryUrl: String,
         val version: Int,
         val sha256: String,
-        val needsNewerCelastrina: Boolean = false,
+        /** The Celastrina version this Extension's code couldn't load or run on, or null when it can. */
+        val needsNewerThan: String? = null,
     )
 
     companion object {

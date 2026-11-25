@@ -156,6 +156,40 @@ class ExtensionUpdateTest {
     }
 
     @Test
+    fun `an update that adds a provider adds its Source at the end of the order`() = runTest {
+        val service = installed()
+        sites.newerVersion = true
+        sites.newerProviders = listOf("Internet Archive (test)", "Archive Shorts (test)")
+        service.checkForUpdates()
+        val announced = mutableListOf<ConfigurationChange>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { service.changes.toList(announced) }
+
+        val outcome = service.updateExtension("InternetArchive", ChangedFrom.Tv)
+
+        assertEquals(InstallOutcome.Installed(listOf(EXTENSION_SOURCE, SHORTS_SOURCE)), outcome)
+        val restarted = service()
+        assertEquals(listOf("internet-archive", EXTENSION_SOURCE, SHORTS_SOURCE), restarted.list().map { it.id })
+        assertIs<LookupOutcome.Streams>(restarted.sources().single { it.id == SHORTS_SOURCE }.lookUp(nightOfTheLivingDead))
+        assertTrue(ConfigurationChange(ConfigurationChange.Action.Added, "Archive Shorts (test)", ChangedFrom.Tv) in announced)
+    }
+
+    @Test
+    fun `an update that drops a provider removes its Source`() = runTest {
+        val service = installed()
+        sites.newerVersion = true
+        sites.newerProviders = listOf("Archive Shorts (test)")
+        service.checkForUpdates()
+        val announced = mutableListOf<ConfigurationChange>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { service.changes.toList(announced) }
+
+        val outcome = service.updateExtension("InternetArchive", ChangedFrom.Tv)
+
+        assertEquals(InstallOutcome.Installed(listOf(SHORTS_SOURCE)), outcome)
+        assertEquals(listOf("internet-archive", SHORTS_SOURCE), service().list().map { it.id })
+        assertTrue(ConfigurationChange(ConfigurationChange.Action.Removed, "Internet Archive (test)", ChangedFrom.Tv) in announced)
+    }
+
+    @Test
     fun `the replaced code is gone after the next restart`() = runTest {
         val service = installed()
         sites.newerVersion = true
@@ -224,5 +258,6 @@ class ExtensionUpdateTest {
 
     private companion object {
         const val EXTENSION_SOURCE = "internetarchive-internet-archive-test"
+        const val SHORTS_SOURCE = "internetarchive-archive-shorts-test"
     }
 }
