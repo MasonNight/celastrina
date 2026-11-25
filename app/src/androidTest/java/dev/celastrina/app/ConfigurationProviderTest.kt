@@ -152,11 +152,12 @@ class ConfigurationProviderTest {
     fun arguments_that_dont_decode_are_refused_with_a_reason() {
         val notBase64 = contentCall("update", "not-base64!")
         val notAnObject = contentCall("update", base64("""["internet-archive"]"""))
-        val noName = contentCall("update", base64("""{"id": "internet-archive"}"""))
+        val nameNotAString = contentCall("update", base64("""{"id": "internet-archive", "name": 7}"""))
+        val noId = contentCall("update", base64("""{"name": "Movie Night"}"""))
         val unexpected = contentCall("enable", base64("""{"id": "internet-archive", "url": "https://example.org"}"""))
         val unknownCommand = contentCall("rename")
 
-        listOf(notBase64, notAnObject, noName, unexpected).forEach { reply ->
+        listOf(notBase64, notAnObject, nameNotAString, noId, unexpected).forEach { reply ->
             assertEquals("invalid" to "bad_argument", reply.string("result") to reply.string("problem"), reply.toString())
         }
         assertEquals("unknown_command", unknownCommand.string("problem"))
