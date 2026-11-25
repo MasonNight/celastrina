@@ -27,7 +27,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -71,8 +70,12 @@ private const val OFFLINE_RETRY_MILLIS = 15_000L
 /** How close to a row's end focus may get before the row loads more. */
 private const val LOAD_MORE_WITHIN = 8
 
-/** How many frames the Search button tries to take focus over, coming back from search. */
-private const val FOCUS_ATTEMPTS = 10
+/** The Titles a row shows, an empty list if it failed, or null while it loads. */
+private fun RowState?.titlesOrNull(): List<Title>? = when (this) {
+    null, RowState.Loading -> null
+    is RowState.Failed -> emptyList()
+    is RowState.Loaded -> row.titles
+}
 
 /**
  * Home, Variant A "Hero + stacked rows": the focused Title's backdrop, logo, metadata and blurb fill the top, above
@@ -114,6 +117,13 @@ fun HomeScreen(
         }
         return
     }
+    // Until a Title is opened, home focuses the first card of the top row, waiting for the rows above it to load.
+    LaunchedEffect(model) {
+        snapshotFlow {
+            val household = listOf(HouseholdRow.ContinueWatching to watched.map { it.watching.title }, HouseholdRow.Watchlist to listed)
+            firstCard(household + HomeRow.entries.map { it to model.rows[it].titlesOrNull() })
+        }.collect { first -> if (first != null && model.focusTarget == null) model.focusTarget = first }
+    }
     // A flow rather than state, so moving focus doesn't recompose home; only a rested focus reaches the hero.
     val focused = remember(model) { MutableStateFlow<Title?>(null) }
     LaunchedEffect(focused) {
@@ -144,7 +154,6 @@ fun HomeScreen(
                         onLoadMore = { model.loadMore(homeRow) },
                         onFocus = { focused.value = it },
                         onOpen = { onOpen(homeRow, it) },
-                        onFocusTargetMissing = { title -> if (model.focusTarget == null) model.focusTarget = homeRow to title },
                     )
                 }
             }
@@ -156,15 +165,8 @@ fun HomeScreen(
 private fun SearchButton(focused: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val requester = remember { FocusRequester() }
     var hasFocus by remember { mutableStateOf(false) }
-    LaunchedEffect(focused) {
-        if (!focused) return@LaunchedEffect
-        // Coming back to home, the button may not be ready to take focus on the first frame; keep asking for a few.
-        repeat(FOCUS_ATTEMPTS) {
-            withFrameNanos { }
-            if (hasFocus) return@LaunchedEffect
-            runCatching { requester.requestFocus() }
-        }
-    }
+    // Coming back to home, the button may not be ready to take focus on the first frame; keep asking for a few.
+    LaunchedEffect(focused) { if (focused) requester.requestFocusUntil { hasFocus } }
     Surface(
         onClick = onClick,
         modifier = modifier.focusRequester(requester).onFocusChanged { hasFocus = it.isFocused },
@@ -238,7 +240,6 @@ private fun TitleRow(
     onLoadMore: () -> Unit,
     onFocus: (Title) -> Unit,
     onOpen: (Title) -> Unit,
-    onFocusTargetMissing: (Title) -> Unit,
 ) {
     Column {
         Text(homeRow.label, style = MaterialTheme.typography.titleMedium, color = Color.White, modifier = Modifier.padding(start = 48.dp, bottom = 8.dp))
@@ -251,14 +252,14 @@ private fun TitleRow(
                     RowMessage("Nothing here right now.")
                     return@Column
                 }
-                LaunchedEffect(Unit) { onFocusTargetMissing(titles.first()) }
                 LaunchedEffect(listState, titles.size) {
                     snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
                         .collect { lastVisible -> if (lastVisible >= titles.size - LOAD_MORE_WITHIN) onLoadMore() }
                 }
                 val target = focusTarget?.takeIf { it.first == homeRow }?.second
                 val targetRequester = remember { FocusRequester() }
-                LaunchedEffect(target) { if (target != null) runCatching { targetRequester.requestFocusOnceShown() } }
+                var targetFocused by remember { mutableStateOf(false) }
+                LaunchedEffect(target) { if (target != null) targetRequester.requestFocusUntil { targetFocused } }
                 LazyRow(
                     state = listState,
                     modifier = Modifier.focusRestorer(),
@@ -268,7 +269,7 @@ private fun TitleRow(
                     items(titles, key = { "${it.kind}-${it.tmdbId}" }) { title ->
                         PosterCard(
                             title,
-                            modifier = if (title == target) Modifier.focusRequester(targetRequester) else Modifier,
+                            modifier = if (title == target) Modifier.focusRequester(targetRequester).onFocusChanged { targetFocused = it.isFocused } else Modifier,
                             onFocus = { onFocus(title) },
                             onClick = { onOpen(title) },
                         )

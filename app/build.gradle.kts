@@ -244,6 +244,8 @@ dependencies {
     implementation(libs.media3.exoplayer.dash)
     implementation(libs.media3.ui)
 
+    testImplementation(kotlin("test-junit"))
+
     extensionTestRepository(project(path = ":test-extension", configuration = "testRepositoryElements"))
 
     // Seam 2: drives the configuration ContentProvider on a device the way the agent does. Run on the TV with
