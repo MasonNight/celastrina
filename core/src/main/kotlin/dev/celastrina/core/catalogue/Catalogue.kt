@@ -164,6 +164,7 @@ class Catalogue(
     }
 
     private suspend inline fun <reified T> getJson(path: String, vararg query: Pair<String, String>): T {
+        if (tmdb.apiKey.isBlank()) throw CatalogueUnavailable(CatalogueUnavailable.Reason.NoKey)
         val response = try {
             http.get(url(path, query.toList()), authHeaders())
         } catch (e: IOException) {

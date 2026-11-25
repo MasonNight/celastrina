@@ -27,6 +27,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -51,8 +52,32 @@ class ConfigurationProviderTest {
         assertEquals(BuildConfig.VERSION_NAME, status.string("app_version"))
         assertEquals(sources, status["sources"]!!.jsonPrimitive.int)
         assertEquals(0, status["extensions"]!!.jsonPrimitive.int)
+        assertTrue(status.string("tmdb_key") in setOf("project", "override", "none"), status.toString())
         val queried = shell("content query --uri content://$authority/status")
         assertTrue("protocol_version=1" in queried, queried)
+        assertTrue("tmdb_key=${status.string("tmdb_key")}" in queried, queried)
+    }
+
+    @Test
+    fun the_agent_sets_and_clears_the_households_tmdb_key_without_it_being_revealed() {
+        val before = contentCall("status").string("tmdb_key")
+        // The Household's own key can't be read back, so a TV that has one is left alone.
+        assumeTrue("Celastrina Dev already has the Household's own TMDB key", before != "override")
+        val key = "not-a-real-tmdb-key-${System.nanoTime()}"
+
+        val set = contentCall("set-tmdb-key", base64("""{"key": "$key"}"""))
+        val whileSet = contentCall("status")
+        val queriedWhileSet = shell("content query --uri content://$authority/status")
+        val cleared = contentCall("clear-tmdb-key")
+        val clearedAgain = contentCall("clear-tmdb-key")
+
+        assertEquals("ok", set.string("result"))
+        assertEquals("override", whileSet.string("tmdb_key"))
+        listOf(whileSet.toString(), queriedWhileSet, contentCall("list").toString()).forEach { assertFalse(key in it, it) }
+        assertEquals("ok" to "ok", cleared.string("result") to clearedAgain.string("result"))
+        assertEquals(before, contentCall("status").string("tmdb_key"))
+        assertEquals("blank_tmdb_key", contentCall("set-tmdb-key", base64("""{"key": " "}""")).string("problem"))
+        assertEquals("bad_argument", contentCall("clear-tmdb-key", base64("""{"key": "x"}""")).string("problem"))
     }
 
     @Test
@@ -62,6 +87,38 @@ class ConfigurationProviderTest {
         assertEquals("invalid", reply.string("result"))
         assertEquals("unknown_source", reply.string("problem"))
         assertEquals("There's no Source with the ID no-such-source.", reply.string("message"))
+    }
+
+    @Test
+    fun adding_a_server_that_cant_be_reached_replies_failure_with_its_id_and_keeps_it_failing() {
+        val add = """{"kind": "jellyfin", "name": "Provider Test Jellyfin", "url": "http://127.0.0.1:9", "username": "demo", "password": "secret"}"""
+        try {
+            val reply = contentCall("add", base64(add))
+
+            assertEquals(listOf("failure", "provider-test-jellyfin", "unreachable"), listOf(reply.string("result"), reply.string("id"), reply.string("reason")))
+            val listed = sources().single { it.string("id") == "provider-test-jellyfin" }
+            assertEquals("failing" to false, listed.string("test_state") to listed["has_login"]!!.jsonPrimitive.boolean)
+            assertTrue("secret" !in shell("run-as ${BuildConfig.APPLICATION_ID} cat files/core/sources.json"))
+        } finally {
+            contentCall("remove", base64("""{"id": "provider-test-jellyfin"}"""))
+        }
+    }
+
+    @Test
+    fun the_agent_sets_the_source_order() {
+        val add = """{"kind": "jellyfin", "name": "Provider Test Order", "url": "http://127.0.0.1:9", "username": "demo", "password": ""}"""
+        val before = sources().map { it.string("id") }
+        try {
+            contentCall("add", base64(add))
+
+            val reply = contentCall("set-order", base64("""{"ids": ["provider-test-order"]}"""))
+
+            assertEquals("ok", reply.string("result"))
+            assertEquals(listOf("provider-test-order") + before, sources().map { it.string("id") })
+            assertEquals("bad_argument", contentCall("set-order", base64("""{"ids": "provider-test-order"}""")).string("problem"))
+        } finally {
+            contentCall("remove", base64("""{"id": "provider-test-order"}"""))
+        }
     }
 
     @Test
@@ -119,6 +176,8 @@ class ConfigurationProviderTest {
             client.close()
         }
     }
+
+    private fun sources() = contentCall("list")["sources"]!!.jsonArray.map { it.jsonObject }
 
     private fun contentCall(method: String, arg: String? = null): JsonObject {
         val output = shell("content call --uri content://$authority --method $method" + (arg?.let { " --arg $it" } ?: ""))

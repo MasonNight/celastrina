@@ -39,27 +39,37 @@ fun ChangedFromComputerNotices(changes: Flow<ConfigurationChange>) {
             notice = null
         }
     }
-    notice?.let { text ->
-        Box(Modifier.fillMaxSize().padding(top = 32.dp, end = 48.dp), contentAlignment = Alignment.TopEnd) {
-            Text(
-                text,
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color.White,
-                modifier = Modifier
-                    .widthIn(max = 480.dp)
-                    .background(Color(0xE6202020), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
-            )
-        }
+    notice?.let { CornerNotice(it) }
+}
+
+/** A notice in the top-right corner over whatever is on screen. It blocks nothing and takes no focus. */
+@Composable
+fun CornerNotice(text: String) {
+    Box(Modifier.fillMaxSize().padding(top = 32.dp, end = 48.dp), contentAlignment = Alignment.TopEnd) {
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyLarge,
+            color = Color.White,
+            modifier = Modifier
+                .widthIn(max = 480.dp)
+                .background(Color(0xE6202020), RoundedCornerShape(8.dp))
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+        )
     }
 }
 
-private const val NOTICE_MILLIS = 6_000L
+/** How long a notice shows: about 6 s. */
+const val NOTICE_MILLIS = 6_000L
 
 /** "Source removed from a computer: Internet Archive". */
 fun ConfigurationChange.notice(): String = when (action) {
+    ConfigurationChange.Action.Added -> "Source added from a computer: $sourceName"
+    ConfigurationChange.Action.Changed -> "Source changed from a computer: $sourceName"
+    ConfigurationChange.Action.Reordered -> "Source order changed from a computer: $sourceName first"
     ConfigurationChange.Action.Renamed -> "Source renamed from a computer: $previousName → $sourceName"
     ConfigurationChange.Action.Enabled -> "Source enabled from a computer: $sourceName"
     ConfigurationChange.Action.Disabled -> "Source disabled from a computer: $sourceName"
     ConfigurationChange.Action.Removed -> "Source removed from a computer: $sourceName"
+    ConfigurationChange.Action.TmdbKeySet -> "TMDB key set from a computer"
+    ConfigurationChange.Action.TmdbKeyCleared -> "TMDB key cleared from a computer: back to the project key"
 }

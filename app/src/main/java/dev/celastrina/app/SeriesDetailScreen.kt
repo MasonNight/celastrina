@@ -1,11 +1,11 @@
 package dev.celastrina.app
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,7 +31,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Button
 import androidx.tv.material3.Card
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Tab
@@ -43,9 +43,10 @@ import dev.celastrina.core.catalogue.CatalogueUnavailable
 import dev.celastrina.core.catalogue.Episode
 import dev.celastrina.core.catalogue.Season
 import dev.celastrina.core.catalogue.SeriesDetails
-import dev.celastrina.core.source.LookupOutcome
+import dev.celastrina.core.catalogue.TitleReference
+import dev.celastrina.core.failover.FailoverMemory
+import dev.celastrina.core.source.Lookup
 import dev.celastrina.core.source.Stream
-import dev.celastrina.core.source.StreamLookup
 
 private sealed interface SeriesState {
     data object Loading : SeriesState
@@ -69,8 +70,9 @@ fun SeriesDetailScreen(
     tmdbId: Int,
     seasonNumber: Int?,
     catalogue: Catalogue,
-    streamLookup: StreamLookup,
-    onPlay: (season: Int, stream: Stream) -> Unit,
+    lookUp: (TitleReference) -> TitleLookup,
+    failoverMemory: FailoverMemory,
+    onPlay: (season: Int, request: PlayRequest) -> Unit,
 ) {
     var state by remember(tmdbId) { mutableStateOf<SeriesState>(SeriesState.Loading) }
     LaunchedEffect(tmdbId) {
@@ -83,7 +85,7 @@ fun SeriesDetailScreen(
     when (val s = state) {
         SeriesState.Loading -> Message("Loading…")
         is SeriesState.Failed -> Message(s.reason.message())
-        is SeriesState.Loaded -> SeriesDetail(s.details, seasonNumber, catalogue, streamLookup, onPlay)
+        is SeriesState.Loaded -> SeriesDetail(s.details, seasonNumber, catalogue, lookUp, failoverMemory, onPlay)
     }
 }
 
@@ -92,12 +94,26 @@ private fun SeriesDetail(
     details: SeriesDetails,
     seasonNumber: Int?,
     catalogue: Catalogue,
-    streamLookup: StreamLookup,
-    onPlay: (season: Int, stream: Stream) -> Unit,
+    lookUp: (TitleReference) -> TitleLookup,
+    failoverMemory: FailoverMemory,
+    onPlay: (season: Int, request: PlayRequest) -> Unit,
 ) {
     var seasonIndex by remember(details) { mutableStateOf(details.seasons.indexOfFirst { it.number == seasonNumber }.coerceAtLeast(0)) }
     var picked by remember(details) { mutableStateOf<Episode?>(null) }
+    val titleLookup = remember(picked) { picked?.let { lookUp(it.reference) } }
+    val lookup = titleLookup?.lookups?.collectAsState()?.value
+    var choosing by remember(picked) { mutableStateOf(false) }
     val season = details.seasons.getOrNull(seasonIndex)
+    fun play(stream: Stream, handPicked: Boolean) {
+        val episode = picked ?: return
+        onPlay(episode.reference.episode!!.season, PlayRequest(stream, handPicked, titleLookup ?: return, "${details.title.name} · ${episode.label()}"))
+    }
+
+    if (choosing) {
+        BackHandler { choosing = false }
+        ChooseStreamScreen("${details.title.name} · ${picked?.label()}", lookup) { play(it, handPicked = true) }
+        return
+    }
 
     Box(Modifier.fillMaxSize()) {
         AsyncImage(
@@ -128,7 +144,7 @@ private fun SeriesDetail(
             if (season != null) {
                 EpisodeRow(details, season, catalogue) { picked = it }
             }
-            PickedEpisode(picked, streamLookup) { stream -> picked?.let { onPlay(it.reference.episode!!.season, stream) } }
+            PickedEpisode(picked, lookup, failoverMemory, onPlay = { play(it, handPicked = false) }, onChoose = { choosing = true })
         }
     }
 }
@@ -206,36 +222,14 @@ private fun EpisodeCard(episode: Episode, onClick: () -> Unit) {
     }
 }
 
-/** The picked episode, with Play once a Stream arrives. Picking an episode is what asks the Sources for it. */
+/** The picked episode, with Play, Choose Stream and its Lookup's status line. Picking an episode is what asks the Sources for it. */
 @Composable
-private fun PickedEpisode(episode: Episode?, streamLookup: StreamLookup, onPlay: (Stream) -> Unit) {
+private fun PickedEpisode(episode: Episode?, lookup: Lookup?, failoverMemory: FailoverMemory, onPlay: (Stream) -> Unit, onChoose: () -> Unit) {
     Box(Modifier.fillMaxWidth().height(48.dp).padding(start = 48.dp), contentAlignment = Alignment.CenterStart) {
         if (episode == null) {
             Text("Pick an episode to find Streams for it.", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.7f))
-            return@Box
-        }
-        var streams by remember(episode) { mutableStateOf(emptyList<Stream>()) }
-        var lookupFinished by remember(episode) { mutableStateOf(false) }
-        LaunchedEffect(episode) {
-            streamLookup.lookUp(episode.reference).collect { answer ->
-                (answer.outcome as? LookupOutcome.Streams)?.let { streams = streams + it.streams }
-            }
-            lookupFinished = true
-        }
-        val play = remember { FocusRequester() }
-        val playable = streams.isNotEmpty()
-        LaunchedEffect(playable) { if (playable) play.requestFocus() }
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(episode.label(), style = MaterialTheme.typography.titleSmall)
-            if (playable) {
-                Button(onClick = { onPlay(streams.first()) }, modifier = Modifier.focusRequester(play)) { Text("Play") }
-            }
-            // Stopgap until the lookup status line (#27): just enough to say whether anything can play it.
-            when {
-                playable -> Unit
-                !lookupFinished -> Text("Looking for Streams…", style = MaterialTheme.typography.bodyMedium)
-                else -> Text("None of your Sources can play this episode.", style = MaterialTheme.typography.bodyMedium)
-            }
+        } else {
+            PlayRow(lookup, failoverMemory, onPlay, onChoose, label = episode.label())
         }
     }
 }

@@ -3,6 +3,7 @@ package dev.celastrina.core.configuration
 import dev.celastrina.core.port.FileStorage
 import dev.celastrina.core.port.HttpClient
 import dev.celastrina.core.port.HttpResponse
+import dev.celastrina.core.testing.VirtualClock
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import kotlinx.coroutines.flow.toList
@@ -12,22 +13,111 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.time.Duration.Companion.days
 
 class ConfigurationServiceTest {
 
     @TempDir
     lateinit var dir: File
 
-    /** Nothing here goes online: no command in these tests runs a connection test. */
+    /** Nothing here goes online: the Internet Archive has no connection test. */
     private val offline = object : HttpClient {
         override suspend fun get(url: String, headers: Map<String, String>): HttpResponse = error("No network in these tests: $url")
+        override suspend fun postJson(url: String, json: String, headers: Map<String, String>): HttpResponse = error("No network in these tests: $url")
     }
 
-    private fun service() = ConfigurationService(FileStorage(dir), offline, appVersion = "1.2.3")
+    private val clock = VirtualClock()
+
+    private fun service(projectTmdbKey: String = PROJECT_KEY) =
+        ConfigurationService(FileStorage(dir), offline, appVersion = "1.2.3", projectTmdbKey = projectTmdbKey, clock = clock)
 
     @Test
-    fun `a new Household's status shows the app version, one Source, no Extensions and the protocol version`() {
-        assertEquals(Status(appVersion = "1.2.3", sources = 1, extensions = 0, protocolVersion = 1), service().status())
+    fun `a new Household's status shows the app version, the project TMDB key, one Source, no Extensions and the protocol version`() {
+        assertEquals(
+            Status(appVersion = "1.2.3", tmdbKey = TmdbKeyInUse.Project, sources = 1, extensions = 0, protocolVersion = 1),
+            service().status(),
+        )
+    }
+
+    @Test
+    fun `a new Household's Catalogue uses the project TMDB key`() {
+        assertEquals(PROJECT_KEY, service().tmdbSettings().apiKey)
+    }
+
+    @Test
+    fun `a TMDB key set from a computer replaces the project key, survives a restart and is announced`() = runTest {
+        val service = service()
+        val announced = announcementsOf(service)
+
+        assertEquals(WriteOutcome.Ok, service.setTmdbKey("  household-key  ", ChangedFrom.Computer))
+
+        val afterRestart = service()
+        assertEquals("household-key", afterRestart.tmdbSettings().apiKey)
+        assertEquals(TmdbKeyInUse.Override, afterRestart.status().tmdbKey)
+        assertEquals(listOf(ConfigurationChange(ConfigurationChange.Action.TmdbKeySet, sourceName = null, ChangedFrom.Computer)), announced)
+    }
+
+    @Test
+    fun `status says which TMDB key is in use without revealing either`() {
+        val service = service()
+        service.setTmdbKey("household-key", ChangedFrom.Computer)
+
+        val status = service.status().toString()
+
+        assertFalse("household-key" in status, status)
+        assertFalse(PROJECT_KEY in status, status)
+    }
+
+    @Test
+    fun `setting the same TMDB key again is harmless and announces nothing`() = runTest {
+        val service = service()
+        service.setTmdbKey("household-key", ChangedFrom.Computer)
+        val announced = announcementsOf(service)
+
+        assertEquals(WriteOutcome.Ok, service.setTmdbKey("household-key", ChangedFrom.Computer))
+
+        assertEquals(emptyList(), announced)
+    }
+
+    @Test
+    fun `a blank TMDB key is refused and keeps the key in use`() {
+        val service = service()
+        service.setTmdbKey("household-key", ChangedFrom.Computer)
+
+        assertEquals(
+            WriteOutcome.Invalid(WriteOutcome.Problem.BlankTmdbKey, "A TMDB key can't be blank. To go back to the project key, clear the key instead."),
+            service.setTmdbKey(" ", ChangedFrom.Computer),
+        )
+        assertEquals("household-key", service().tmdbSettings().apiKey)
+    }
+
+    @Test
+    fun `clearing the TMDB key goes back to the project key, and clearing it again is harmless`() = runTest {
+        val service = service()
+        service.setTmdbKey("household-key", ChangedFrom.Computer)
+        val announced = announcementsOf(service)
+
+        assertEquals(WriteOutcome.Ok, service.clearTmdbKey(ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Ok, service.clearTmdbKey(ChangedFrom.Computer))
+
+        val afterRestart = service()
+        assertEquals(PROJECT_KEY, afterRestart.tmdbSettings().apiKey)
+        assertEquals(TmdbKeyInUse.Project, afterRestart.status().tmdbKey)
+        assertEquals(listOf(ConfigurationChange(ConfigurationChange.Action.TmdbKeyCleared, sourceName = null, ChangedFrom.Computer)), announced)
+    }
+
+    @Test
+    fun `a build without a project key has no TMDB key until the Household sets one`() {
+        val service = service(projectTmdbKey = "")
+        assertEquals(TmdbKeyInUse.None, service.status().tmdbKey)
+        assertEquals("", service.tmdbSettings().apiKey)
+
+        service.setTmdbKey("household-key", ChangedFrom.Computer)
+        assertEquals(TmdbKeyInUse.Override, service(projectTmdbKey = "").status().tmdbKey)
+
+        service.clearTmdbKey(ChangedFrom.Computer)
+        assertEquals(TmdbKeyInUse.None, service(projectTmdbKey = "").status().tmdbKey)
     }
 
     @Test
@@ -42,6 +132,8 @@ class ConfigurationServiceTest {
                     position = 1,
                     testState = TestState.Untested,
                     hasLogin = false,
+                    addedFromComputerAt = null,
+                    changedFromComputerAt = null,
                 ),
             ),
             service().list(),
@@ -53,7 +145,7 @@ class ConfigurationServiceTest {
         val service = service()
         val announced = announcementsOf(service)
 
-        assertEquals(WriteOutcome.Ok, service.rename("internet-archive", "  Archive.org  ", ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Ok, service.update("internet-archive", SourceChanges(name = "  Archive.org  "), ChangedFrom.Computer))
 
         val afterRestart = service().list().single()
         assertEquals("internet-archive" to "Archive.org", afterRestart.id to afterRestart.name)
@@ -67,25 +159,25 @@ class ConfigurationServiceTest {
     @Test
     fun `renaming to the same name again is harmless and announces nothing`() = runTest {
         val service = service()
-        service.rename("internet-archive", "Archive.org", ChangedFrom.Computer)
+        service.update("internet-archive", SourceChanges(name = "Archive.org"), ChangedFrom.Computer)
         val announced = announcementsOf(service)
 
-        assertEquals(WriteOutcome.Ok, service.rename("internet-archive", "Archive.org", ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Ok, service.update("internet-archive", SourceChanges(name = "Archive.org"), ChangedFrom.Computer))
 
         assertEquals(emptyList(), announced)
     }
 
     @Test
-    fun `a rename with a blank name or of a Source that doesn't exist is refused and changes nothing`() {
+    fun `a rename with a blank name or of a Source that doesn't exist is refused and changes nothing`() = runTest {
         val service = service()
 
         assertEquals(
             WriteOutcome.Invalid(WriteOutcome.Problem.BlankName, "A Source needs a name."),
-            service.rename("internet-archive", " ", ChangedFrom.Computer),
+            service.update("internet-archive", SourceChanges(name = " "), ChangedFrom.Computer),
         )
         assertEquals(
             WriteOutcome.Invalid(WriteOutcome.Problem.UnknownSource, "There's no Source with the ID jellyfin."),
-            service.rename("jellyfin", "Jellyfin", ChangedFrom.Computer),
+            service.update("jellyfin", SourceChanges(name = "Jellyfin"), ChangedFrom.Computer),
         )
         assertEquals(listOf("Internet Archive"), service().list().map { it.name })
     }
@@ -130,11 +222,46 @@ class ConfigurationServiceTest {
     }
 
     @Test
-    fun `enabling or disabling a Source that doesn't exist is refused`() {
+    fun `a Source added from a computer is marked with when, and one added on the TV isn't`() = runTest {
+        val service = service()
+        val addedAt = clock.nowMillis()
+
+        service.add(NewSource(kind = "internet-archive", name = "Archive Two"), ChangedFrom.Computer)
+        service.add(NewSource(kind = "internet-archive", name = "Archive Three"), ChangedFrom.Tv)
+
+        assertEquals(
+            listOf(null, addedAt, null),
+            service().list().map { it.addedFromComputerAt },
+        )
+    }
+
+    @Test
+    fun `a Source changed from a computer is marked with when it last was, and changes on the TV or that change nothing leave it`() = runTest {
+        val service = service()
+        clock.advanceBy(1.days)
+        service.update("internet-archive", SourceChanges(name = "Archive.org"), ChangedFrom.Computer)
+        val renamedAt = clock.nowMillis()
+
+        clock.advanceBy(1.days)
+        service.update("internet-archive", SourceChanges(name = "Archive.org"), ChangedFrom.Computer)
+        service.disable("internet-archive", ChangedFrom.Tv)
+        assertEquals(renamedAt, service().list().single().changedFromComputerAt)
+
+        service.enable("internet-archive", ChangedFrom.Computer)
+        assertEquals(clock.nowMillis(), service().list().single().changedFromComputerAt)
+        assertEquals(null, service().list().single().addedFromComputerAt)
+    }
+
+    @Test
+    fun `enabling or disabling a Source that doesn't exist is refused`() = runTest {
         val unknown = WriteOutcome.Invalid(WriteOutcome.Problem.UnknownSource, "There's no Source with the ID jellyfin.")
 
         assertEquals(unknown, service().enable("jellyfin", ChangedFrom.Computer))
         assertEquals(unknown, service().disable("jellyfin", ChangedFrom.Computer))
+    }
+
+    private companion object {
+        const val PROJECT_KEY = "project-key"
     }
 
     /** Everything [service] announces from now on, as the on-screen notices would see it. */

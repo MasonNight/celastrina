@@ -11,9 +11,12 @@ import android.os.Process
 import android.util.Base64
 import dev.celastrina.core.configuration.ChangedFrom
 import dev.celastrina.core.configuration.ConfigurationService
+import dev.celastrina.core.configuration.NewSource
+import dev.celastrina.core.configuration.SourceChanges
 import dev.celastrina.core.configuration.SourceSummary
 import dev.celastrina.core.configuration.Status
 import dev.celastrina.core.configuration.WriteOutcome
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -30,9 +33,14 @@ import kotlinx.serialization.json.put
  *     adb shell content call --uri content://dev.celastrina.configuration --method <command> [--arg <base64 JSON>]
  *     adb shell content query --uri content://dev.celastrina.configuration/<sources|status>
  *
- * Commands: `status`, `list`, `update` ({"id", "name"}), `enable`, `disable` and `remove` ({"id"}). Every reply is
- * one JSON object in the returned Bundle's `reply`, with `result` set to `ok`, `invalid` (with `problem` and
- * `message`) or `failure` (with `reason`). Only the `shell` user, root and Celastrina itself may call it.
+ * Commands: `status`, `list`, `add` ({"kind", "name", and for `jellyfin` or `emby` "url", "username", "password", for
+ * `stremio` the add-on's manifest URL as "url"}), `update` ({"id"} and any of "name", "url", "username", "password"), `set-order` ({"ids": [...]}, the Sources to
+ * put first), `enable`, `disable` and `remove` ({"id"}), `set-tmdb-key` ({"key"}) and `clear-tmdb-key`. `status` says
+ * which TMDB key is in use (`project`, `override` or `none`), never the key. Every reply is one JSON object in the returned Bundle's
+ * `reply`, with `result` set to `ok`, `invalid` (with `problem` and `message`) or `failure` (with `id`, `reason` and
+ * `message`: saved, but failing its connection test). `add` replies the Source's `id` either way. Writes that test a
+ * connection block until the test is done (a few seconds at most). Only the `shell` user, root and Celastrina itself
+ * may call it.
  */
 class ConfigurationProvider : ContentProvider() {
 
@@ -55,7 +63,7 @@ class ConfigurationProvider : ContentProvider() {
                 }
             }
             "status" -> configuration.status().let { s ->
-                MatrixCursor(STATUS_COLUMNS).apply { addRow(arrayOf<Any>(s.appVersion, s.sources, s.extensions, s.protocolVersion)) }
+                MatrixCursor(STATUS_COLUMNS).apply { addRow(arrayOf<Any>(s.appVersion, s.tmdbKey.wire(), s.sources, s.extensions, s.protocolVersion)) }
             }
             else -> throw IllegalArgumentException("Query content://${uri.authority}/sources or /status, not $uri")
         }
@@ -70,20 +78,37 @@ class ConfigurationProvider : ContentProvider() {
         return when (method) {
             "status" -> configuration.status().toJson()
             "list" -> ok { put("sources", JsonArray(configuration.list().map { it.toJson() })) }
-            "update" -> args.onlyFields("id", "name") ?: run {
-                val id = args.required("id") ?: return args.missing("id")
-                val name = args.required("name") ?: return args.missing("name")
-                configuration.rename(id, name, ChangedFrom.Computer).toJson()
+            "add" -> args.onlyFields("kind", "name", "url", "username", "password") ?: run {
+                val kind = args.string("kind") ?: return args.missing("kind")
+                val name = args.string("name") ?: return args.missing("name")
+                if (args.wrongType("url", "username", "password")) return invalid("bad_argument", "url, username and password must be strings.")
+                val source = NewSource(kind, name, args.string("url"), args.string("username"), args.string("password"))
+                runBlocking { configuration.add(source, ChangedFrom.Computer) }.toJson()
+            }
+            "update" -> args.onlyFields("id", "name", "url", "username", "password") ?: run {
+                val id = args.string("id") ?: return args.missing("id")
+                if (args.wrongType("name", "url", "username", "password")) return invalid("bad_argument", "name, url, username and password must be strings.")
+                val changes = SourceChanges(args.string("name"), args.string("url"), args.string("username"), args.string("password"))
+                runBlocking { configuration.update(id, changes, ChangedFrom.Computer) }.toJson()
+            }
+            "set-order" -> args.onlyFields("ids") ?: run {
+                val ids = args.strings("ids") ?: return invalid("bad_argument", "--arg needs \"ids\", a list of Source IDs.")
+                configuration.setOrder(ids, ChangedFrom.Computer).toJson()
             }
             "enable", "disable", "remove" -> args.onlyFields("id") ?: run {
-                val id = args.required("id") ?: return args.missing("id")
+                val id = args.string("id") ?: return args.missing("id")
                 when (method) {
-                    "enable" -> configuration.enable(id, ChangedFrom.Computer)
+                    "enable" -> runBlocking { configuration.enable(id, ChangedFrom.Computer) }
                     "disable" -> configuration.disable(id, ChangedFrom.Computer)
                     else -> configuration.remove(id, ChangedFrom.Computer)
                 }.toJson()
             }
-            else -> invalid("unknown_command", "There's no command $method. Commands: status, list, update, enable, disable, remove.")
+            "set-tmdb-key" -> args.onlyFields("key") ?: run {
+                val key = args.string("key") ?: return args.missing("key")
+                configuration.setTmdbKey(key, ChangedFrom.Computer).toJson()
+            }
+            "clear-tmdb-key" -> args.onlyFields() ?: configuration.clearTmdbKey(ChangedFrom.Computer).toJson()
+            else -> invalid("unknown_command", "There's no command $method. Commands: ${COMMANDS.joinToString()}.")
         }
     }
 
@@ -116,14 +141,23 @@ class ConfigurationProvider : ContentProvider() {
         }
 
         /** The string argument [name], or null when it's missing or not a string. */
-        fun required(name: String): String? = (fields[name] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+        fun string(name: String): String? = (fields[name] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+
+        /** True when any of [names] is given but isn't a string. */
+        fun wrongType(vararg names: String): Boolean = names.any { fields[it] != null && string(it) == null }
+
+        /** The argument [name] as a list of strings, or null when it isn't one. */
+        fun strings(name: String): List<String>? = (fields[name] as? JsonArray)?.map {
+            (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: return null
+        }
 
         fun missing(name: String) = invalid("bad_argument", "--arg needs \"$name\", a string.")
 
         /** A refusal when the arguments carry a field this command doesn't take, or null when they don't. */
         fun onlyFields(vararg names: String): JsonObject? =
             (fields.keys - names.toSet()).takeIf { it.isNotEmpty() }?.let {
-                invalid("bad_argument", "Unexpected arguments: ${it.joinToString()}. This command takes ${names.joinToString()}.")
+                val takes = if (names.isEmpty()) "no arguments" else names.joinToString()
+                invalid("bad_argument", "Unexpected arguments: ${it.joinToString()}. This command takes $takes.")
             }
     }
 
@@ -141,7 +175,7 @@ class ConfigurationProvider : ContentProvider() {
         const val SHELL_UID = 2000 // Process.SHELL_UID is API 29.
         const val PER_USER_RANGE = 100_000
         val SOURCE_COLUMNS = arrayOf("id", "name", "kind", "enabled", "position", "test_state", "has_login")
-        val STATUS_COLUMNS = arrayOf("app_version", "sources", "extensions", "protocol_version")
+        val STATUS_COLUMNS = arrayOf("app_version", "tmdb_key", "sources", "extensions", "protocol_version")
 
         fun ok(fields: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit = {}) = buildJsonObject {
             put("result", "ok")
@@ -156,6 +190,7 @@ class ConfigurationProvider : ContentProvider() {
 
         fun Status.toJson() = ok {
             put("app_version", appVersion)
+            put("tmdb_key", tmdbKey.wire())
             put("sources", sources)
             put("extensions", extensions)
             put("protocol_version", protocolVersion)
@@ -171,9 +206,18 @@ class ConfigurationProvider : ContentProvider() {
             put("has_login", hasLogin)
         }
 
+        val COMMANDS = listOf("status", "list", "add", "update", "set-order", "enable", "disable", "remove", "set-tmdb-key", "clear-tmdb-key")
+
         fun WriteOutcome.toJson() = when (this) {
             WriteOutcome.Ok -> ok()
+            is WriteOutcome.Added -> ok { put("id", sourceId) }
             is WriteOutcome.Invalid -> invalid(problem.wire(), message)
+            is WriteOutcome.Failed -> buildJsonObject {
+                put("result", "failure")
+                put("id", sourceId)
+                put("reason", reason.wire())
+                put("message", message)
+            }
         }
 
         /** `UnknownSource` → `unknown_source`. */
