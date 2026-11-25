@@ -15,7 +15,8 @@ gummy-bears = "0.12.0"
 androidx-test-runner = "1.6.2"
 androidx-test-ext-junit = "1.2.1"
 # CloudStream's GPL-3.0 `library`, which Extensions run against (ADR 0001). Pinned to one exact version per Celastrina
-# release; it needs Kotlin 2.3. Later versions need compileSdk 36 or more. r8 dexes the test Extension.
+# release; it needs Kotlin 2.3. Later versions need compileSdk 36 or more. r8 dexes the test Extension, and replaces
+# AGP's own R8 for the release build, which can't read Kotlin 2.3's metadata.
 cloudstream = "v4.7.0"
 r8 = "8.13.25"
 # What CloudStream's library v4.7.0 was built with; the test Extension compiles against them.
