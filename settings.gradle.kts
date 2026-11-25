@@ -14,4 +14,6 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "celastrina"
+// The release version rules, which the app's build script uses.
+includeBuild("build-logic")
 include(":core", ":app", ":test-extension")

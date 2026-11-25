@@ -46,6 +46,8 @@ cloudstream-library = { module = "com.github.recloudstream.cloudstream:library",
 r8 = { module = "com.android.tools:r8", version.ref = "r8" }
 nicehttp = { module = "com.github.Blatzar:NiceHttp", version.ref = "nicehttp" }
 jackson-module-kotlin = { module = "com.fasterxml.jackson.module:jackson-module-kotlin", version.ref = "jackson-kotlin" }
+# Celastrina's own build logic (build-logic/), an included build; the app's build script loads it.
+celastrina-build-logic = { module = "dev.celastrina.build:build-logic" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

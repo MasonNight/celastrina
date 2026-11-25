@@ -1,4 +1,5 @@
 plugins {
+    base
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.kotlin.android) apply false
     alias(libs.plugins.kotlin.jvm) apply false
@@ -6,3 +7,6 @@ plugins {
     alias(libs.plugins.kotlin.serialization) apply false
     alias(libs.plugins.animalsniffer) apply false
 }
+
+// The build logic's own tests.
+tasks.check { dependsOn(gradle.includedBuild("build-logic").task(":check")) }
