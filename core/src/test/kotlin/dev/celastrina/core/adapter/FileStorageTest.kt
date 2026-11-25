@@ -1,4 +1,4 @@
-package dev.celastrina.core.port
+package dev.celastrina.core.adapter
 
 import org.junit.jupiter.api.io.TempDir
 import java.io.File

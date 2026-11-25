@@ -1,9 +1,9 @@
 package dev.celastrina.core.catalogue
 
-import dev.celastrina.core.port.FileStorage
+import dev.celastrina.core.adapter.FileStorage
 import dev.celastrina.core.port.HttpClient
 import dev.celastrina.core.port.HttpResponse
-import dev.celastrina.core.port.JdkHttpClient
+import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.testing.RecordedTmdb
 import dev.celastrina.core.testing.VirtualClock
 import kotlinx.coroutines.test.runTest

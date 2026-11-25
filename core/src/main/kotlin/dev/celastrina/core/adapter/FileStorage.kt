@@ -1,5 +1,6 @@
-package dev.celastrina.core.port
+package dev.celastrina.core.adapter
 
+import dev.celastrina.core.port.Storage
 import java.io.File
 
 /**

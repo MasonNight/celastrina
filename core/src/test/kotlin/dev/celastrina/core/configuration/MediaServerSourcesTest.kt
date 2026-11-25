@@ -1,7 +1,7 @@
 package dev.celastrina.core.configuration
 
-import dev.celastrina.core.port.FileStorage
-import dev.celastrina.core.port.JdkHttpClient
+import dev.celastrina.core.adapter.FileStorage
+import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.source.LookupOutcome.Failure.Reason
 import dev.celastrina.core.testing.RecordedJellyfin
 import dev.celastrina.core.testing.VirtualClock

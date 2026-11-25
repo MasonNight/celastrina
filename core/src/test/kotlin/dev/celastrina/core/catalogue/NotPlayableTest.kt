@@ -5,7 +5,7 @@ import dev.celastrina.core.configuration.ConfigurationService
 import dev.celastrina.core.configuration.NewSource
 import dev.celastrina.core.configuration.SourceChanges
 import dev.celastrina.core.configuration.WriteOutcome
-import dev.celastrina.core.port.FileStorage
+import dev.celastrina.core.adapter.FileStorage
 import dev.celastrina.core.port.HttpClient
 import dev.celastrina.core.port.HttpResponse
 import dev.celastrina.core.source.IdScheme

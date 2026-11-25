@@ -13,7 +13,7 @@ import dev.celastrina.core.configuration.ConfigurationService
 import dev.celastrina.core.configuration.ImportOutcome
 import dev.celastrina.core.configuration.InstallOutcome
 import dev.celastrina.core.extension.ExtensionWarning
-import dev.celastrina.core.port.FileStorage
+import dev.celastrina.core.adapter.FileStorage
 import dev.celastrina.core.port.HttpClient
 import dev.celastrina.core.port.HttpResponse
 import dev.celastrina.core.port.Logger

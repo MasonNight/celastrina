@@ -6,8 +6,8 @@ import dev.celastrina.core.configuration.ChangedFrom
 import dev.celastrina.core.configuration.ConfigurationService
 import dev.celastrina.core.configuration.NewSource
 import dev.celastrina.core.configuration.WriteOutcome
-import dev.celastrina.core.port.FileStorage
-import dev.celastrina.core.port.JdkHttpClient
+import dev.celastrina.core.adapter.FileStorage
+import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.source.LookupOutcome
 import dev.celastrina.core.source.Source
 import dev.celastrina.core.source.Stream

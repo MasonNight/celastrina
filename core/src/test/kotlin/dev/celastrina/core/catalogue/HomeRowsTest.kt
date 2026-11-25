@@ -1,6 +1,6 @@
 package dev.celastrina.core.catalogue
 
-import dev.celastrina.core.port.JdkHttpClient
+import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.testing.RecordedTmdb
 import kotlinx.coroutines.test.runTest
 import java.util.Locale

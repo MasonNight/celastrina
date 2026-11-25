@@ -3,7 +3,7 @@ package dev.celastrina.core.household
 import dev.celastrina.core.catalogue.AirDate
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
-import dev.celastrina.core.port.FileStorage
+import dev.celastrina.core.adapter.FileStorage
 import dev.celastrina.core.source.Stream
 import dev.celastrina.core.testing.VirtualClock
 import org.junit.jupiter.api.io.TempDir

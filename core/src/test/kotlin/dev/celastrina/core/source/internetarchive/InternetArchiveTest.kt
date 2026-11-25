@@ -3,8 +3,8 @@ package dev.celastrina.core.source.internetarchive
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.configuration.ConfigurationService
-import dev.celastrina.core.port.FileStorage
-import dev.celastrina.core.port.JdkHttpClient
+import dev.celastrina.core.adapter.FileStorage
+import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.source.LookupOutcome
 import dev.celastrina.core.source.Stream
 import dev.celastrina.core.source.StreamLookup

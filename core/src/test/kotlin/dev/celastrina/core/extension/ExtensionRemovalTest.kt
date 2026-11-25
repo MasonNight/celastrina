@@ -10,8 +10,8 @@ import dev.celastrina.core.configuration.ImportOutcome
 import dev.celastrina.core.configuration.InstallOutcome
 import dev.celastrina.core.configuration.WriteOutcome
 import dev.celastrina.core.failover.FailoverMemory
-import dev.celastrina.core.port.FileStorage
-import dev.celastrina.core.port.JdkHttpClient
+import dev.celastrina.core.adapter.FileStorage
+import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.source.IdScheme
 import dev.celastrina.core.source.LookupOutcome
 import dev.celastrina.core.source.Source

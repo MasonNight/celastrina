@@ -4,7 +4,7 @@ import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.household.WorkedStream
 import dev.celastrina.core.port.Decoders
-import dev.celastrina.core.port.FileStorage
+import dev.celastrina.core.adapter.FileStorage
 import dev.celastrina.core.source.IdScheme
 import dev.celastrina.core.source.Lookup
 import dev.celastrina.core.source.LookupOutcome

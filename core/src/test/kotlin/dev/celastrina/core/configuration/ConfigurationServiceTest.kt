@@ -7,7 +7,7 @@ import dev.celastrina.core.household.ContinueWatching
 import dev.celastrina.core.household.Watching
 import dev.celastrina.core.household.Watchlist
 import dev.celastrina.core.household.WorkedStream
-import dev.celastrina.core.port.FileStorage
+import dev.celastrina.core.adapter.FileStorage
 import dev.celastrina.core.source.Stream
 import dev.celastrina.core.port.HttpClient
 import dev.celastrina.core.port.HttpResponse
