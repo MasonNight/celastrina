@@ -39,22 +39,27 @@ fun ChangedFromComputerNotices(changes: Flow<ConfigurationChange>) {
             notice = null
         }
     }
-    notice?.let { text ->
-        Box(Modifier.fillMaxSize().padding(top = 32.dp, end = 48.dp), contentAlignment = Alignment.TopEnd) {
-            Text(
-                text,
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color.White,
-                modifier = Modifier
-                    .widthIn(max = 480.dp)
-                    .background(Color(0xE6202020), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
-            )
-        }
+    notice?.let { CornerNotice(it) }
+}
+
+/** A notice in the top-right corner over whatever is on screen. It blocks nothing and takes no focus. */
+@Composable
+fun CornerNotice(text: String) {
+    Box(Modifier.fillMaxSize().padding(top = 32.dp, end = 48.dp), contentAlignment = Alignment.TopEnd) {
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyLarge,
+            color = Color.White,
+            modifier = Modifier
+                .widthIn(max = 480.dp)
+                .background(Color(0xE6202020), RoundedCornerShape(8.dp))
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+        )
     }
 }
 
-private const val NOTICE_MILLIS = 6_000L
+/** How long a notice shows: about 6 s. */
+const val NOTICE_MILLIS = 6_000L
 
 /** "Source removed from a computer: Internet Archive". */
 fun ConfigurationChange.notice(): String = when (action) {
