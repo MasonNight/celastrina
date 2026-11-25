@@ -14,6 +14,7 @@ Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 
 Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
-## Verifying on the TV
+## Verifying on a device
 
-`scripts/tv.sh` connects to the household AFTTI43, installs, launches and takes screenshots.
+On-device checks run on the `celastrina-tv` Android TV emulator: `CELASTRINA_ADB_SERIAL=emulator-5554 scripts/tv.sh …`.
+See `docs/agents/emulator.md`. The household TV is the maintainer's; install on it only when they ask.
