@@ -147,7 +147,7 @@ private fun SeriesDetail(
             verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.Bottom),
         ) {
             Column(Modifier.fillMaxWidth(0.6f).padding(start = 48.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(details.title.name, style = MaterialTheme.typography.displaySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                TitleLogo(details.title.name, details.logoUrl, MaterialTheme.typography.displaySmall, maxHeight = 120.dp, maxWidth = 420.dp)
                 Text(details.metadataLine(), style = MaterialTheme.typography.titleSmall, color = Color.White.copy(alpha = 0.8f))
                 Text(details.synopsis, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 WatchlistButton(details.title, watchlist)

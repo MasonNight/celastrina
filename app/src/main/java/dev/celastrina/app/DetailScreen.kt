@@ -126,7 +126,7 @@ private fun MovieDetail(
             modifier = Modifier.fillMaxWidth(0.55f).fillMaxHeight().padding(start = 48.dp, top = 48.dp, bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.Bottom),
         ) {
-            Text(details.title.name, style = MaterialTheme.typography.displaySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            TitleLogo(details.title.name, details.logoUrl, MaterialTheme.typography.displaySmall, maxHeight = 120.dp, maxWidth = 420.dp)
             Text(details.metadataLine(), style = MaterialTheme.typography.titleSmall, color = Color.White.copy(alpha = 0.8f))
             NotPlayableBadge(details.title)
             Text(details.synopsis, style = MaterialTheme.typography.bodyLarge, maxLines = 5, overflow = TextOverflow.Ellipsis)

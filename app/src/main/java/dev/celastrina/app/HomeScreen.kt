@@ -11,9 +11,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -49,7 +47,6 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
-import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
 import dev.celastrina.core.catalogue.CatalogueUnavailable
 import dev.celastrina.core.catalogue.Hero
@@ -218,21 +215,7 @@ private fun HeroText(shown: Pair<Title, Hero>?, modifier: Modifier) {
 
 /** The Title's logo, or its name as text when there is no logo or it won't load. */
 @Composable
-private fun HeroLogo(hero: Hero) {
-    var logoFailed by remember(hero.logoUrl) { mutableStateOf(false) }
-    if (hero.logoUrl == null || logoFailed) {
-        Text(hero.name, style = MaterialTheme.typography.headlineMedium, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
-    } else {
-        AsyncImage(
-            model = hero.logoUrl,
-            contentDescription = hero.name,
-            contentScale = ContentScale.Fit,
-            alignment = Alignment.BottomStart,
-            onState = { if (it is AsyncImagePainter.State.Error) logoFailed = true },
-            modifier = Modifier.heightIn(max = 90.dp).widthIn(max = 360.dp),
-        )
-    }
-}
+private fun HeroLogo(hero: Hero) = TitleLogo(hero.name, hero.logoUrl, MaterialTheme.typography.headlineMedium, maxHeight = 90.dp, maxWidth = 360.dp)
 
 private fun metadataLine(title: Title, hero: Hero): String = listOfNotNull(
     hero.year?.toString(),

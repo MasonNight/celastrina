@@ -7,6 +7,7 @@ import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 
 class MovieDetailsTest {
 
@@ -26,6 +27,27 @@ class MovieDetailsTest {
                     "flesh-eating ghouls ravaging the Northeast.",
                 details.synopsis,
             )
+        }
+    }
+
+    @Test
+    fun `a Movie's detail screen shows its title logo over its textless backdrop`() = runTest {
+        RecordedTmdb(apiKey = "project-token").use { tmdb ->
+            val details = Catalogue(JdkHttpClient(), tmdb.settings, Locale.US).movieDetails(tmdbId = 10331)
+
+            assertEquals("https://image.tmdb.org/t/p/w500/dfqAfoQJiDQlDthddcVYn2z3jF7.png", details.logoUrl)
+            assertEquals("https://image.tmdb.org/t/p/w1280/5KtmBSqFtHY3I9t8lgH27Mc0bqY.jpg", details.backdropUrl)
+        }
+    }
+
+    @Test
+    fun `on a Swiss German TV a Movie with no synopsis in its language shows the English one, and its name without a logo`() = runTest {
+        RecordedTmdb(apiKey = "project-token").use { tmdb ->
+            val details = Catalogue(JdkHttpClient(), tmdb.settings, Locale("de", "CH")).movieDetails(tmdbId = 1401459)
+
+            assertEquals("Fjord", details.title.name)
+            assertEquals("Following the deaths of Mihai's parents", details.synopsis.take(39))
+            assertNull(details.logoUrl)
         }
     }
 
