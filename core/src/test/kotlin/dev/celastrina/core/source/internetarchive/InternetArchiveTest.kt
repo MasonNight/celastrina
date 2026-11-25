@@ -1,5 +1,6 @@
 package dev.celastrina.core.source.internetarchive
 
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.configuration.ConfigurationService
@@ -28,7 +29,7 @@ class InternetArchiveTest {
     fun `a new Household has the Internet Archive Source, which needs no settings and plays only Movies`() = runTest {
         val sources = ConfigurationService(FileStorage(dir), JdkHttpClient(), appVersion = "test", projectTmdbKey = "").sources()
 
-        assertEquals(listOf("internet-archive"), sources.map { it.id })
+        assertEquals(listOf("internet-archive"), sources.map { it.id.value })
         assertEquals("Internet Archive", sources.single().name)
         assertTrue(sources.single().kind.canMatch(nightOfTheLivingDead))
         val answers = StreamLookup(sources, RecordingLogger()).lookUp(nightOfTheLivingDead.copy(kind = Title.Kind.Series)).toList()
@@ -41,7 +42,7 @@ class InternetArchiveTest {
 
         assertEquals(
             Stream(
-                sourceId = "internet-archive",
+                sourceId = SourceId("internet-archive"),
                 id = "Night.Of.The.Living.Dead_1080p/NightOfTheLivingDead_PS3.mp4",
                 url = "https://archive.org/download/Night.Of.The.Living.Dead_1080p/NightOfTheLivingDead_PS3.mp4",
                 delivery = Stream.Delivery.Progressive,

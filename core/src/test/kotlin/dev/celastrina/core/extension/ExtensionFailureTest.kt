@@ -1,5 +1,6 @@
 package dev.celastrina.core.extension
 
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.configuration.ChangedFrom
@@ -59,7 +60,7 @@ class ExtensionFailureTest {
         return installExtension(sites.repositoryUrl, "InternetArchive", ChangedFrom.Computer)
     }
 
-    private fun ConfigurationService.extensionSource() = sources().single { it.id == EXTENSION_SOURCE }
+    private fun ConfigurationService.extensionSource() = sources().single { it.id.value == EXTENSION_SOURCE }
 
     @Test
     fun `an Extension that throws answers source_error, and the next Lookup works again`() = runTest {
@@ -94,7 +95,7 @@ class ExtensionFailureTest {
         assertEquals(LookupOutcome.Failure(Reason.SourceError), service.extensionSource().lookUp(nightOfTheLivingDead))
 
         val restarted = service()
-        assertEquals(ConfigurationService.NEEDS_NEWER_CELASTRINA, restarted.list().single { it.id == EXTENSION_SOURCE }.problem)
+        assertEquals(ConfigurationService.NEEDS_NEWER_CELASTRINA, restarted.list().single { it.id.value == EXTENSION_SOURCE }.problem)
         val requestsBefore = sites.requests.size
         assertEquals(LookupOutcome.Failure(Reason.SourceError), restarted.extensionSource().lookUp(nightOfTheLivingDead))
         assertEquals(requestsBefore, sites.requests.size, "The Extension's code was run again")
@@ -109,7 +110,7 @@ class ExtensionFailureTest {
 
         val updated = service(appVersion = "1.3.0")
 
-        assertEquals(null, updated.list().single { it.id == EXTENSION_SOURCE }.problem)
+        assertEquals(null, updated.list().single { it.id.value == EXTENSION_SOURCE }.problem)
         assertIs<LookupOutcome.Streams>(updated.extensionSource().lookUp(nightOfTheLivingDead))
     }
 
@@ -120,7 +121,7 @@ class ExtensionFailureTest {
 
         updated.recheckExtensions()
 
-        assertEquals(listOf("internet-archive", EXTENSION_SOURCE), updated.list().map { it.id })
+        assertEquals(listOf("internet-archive", EXTENSION_SOURCE), updated.list().map { it.id.value })
         assertEquals(null, updated.list().last().problem)
         assertIs<LookupOutcome.Streams>(updated.extensionSource().lookUp(nightOfTheLivingDead))
     }
@@ -132,7 +133,7 @@ class ExtensionFailureTest {
 
         updated.recheckExtensions()
 
-        assertEquals(listOf("internet-archive"), updated.list().map { it.id })
+        assertEquals(listOf("internet-archive"), updated.list().map { it.id.value })
         assertEquals(1, updated.status().extensions)
     }
 
@@ -145,7 +146,7 @@ class ExtensionFailureTest {
 
         val outcome = service.updateExtension("InternetArchive", ChangedFrom.Tv)
 
-        assertEquals(InstallOutcome.Installed(listOf(EXTENSION_SOURCE)), outcome)
+        assertEquals(InstallOutcome.Installed(listOf(EXTENSION_SOURCE).map(::SourceId)), outcome)
         assertIs<LookupOutcome.Streams>(service.extensionSource().lookUp(nightOfTheLivingDead))
     }
 
@@ -171,7 +172,7 @@ class ExtensionFailureTest {
 
         assertEquals(InstallOutcome.Failed(Reason.SourceError, "Internet Archive (test): Needs a newer Celastrina."), outcome)
         assertEquals(1, service().status().extensions)
-        assertEquals(listOf("internet-archive"), service().list().map { it.id })
+        assertEquals(listOf("internet-archive"), service().list().map { it.id.value })
     }
 
     private companion object {

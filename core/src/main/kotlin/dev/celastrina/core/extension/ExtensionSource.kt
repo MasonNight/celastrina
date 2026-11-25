@@ -20,6 +20,7 @@ import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.source.IdScheme
 import dev.celastrina.core.source.LookupOutcome
 import dev.celastrina.core.source.Source
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.source.SourceKind
 import dev.celastrina.core.source.Stream
 import java.security.MessageDigest
@@ -36,7 +37,7 @@ import kotlin.math.abs
  * absolute episode number.
  */
 internal class ExtensionSource(
-    override val id: String,
+    override val id: SourceId,
     override val name: String,
     override val kind: SourceKind,
     private val extension: String,

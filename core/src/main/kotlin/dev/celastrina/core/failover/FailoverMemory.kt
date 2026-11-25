@@ -2,6 +2,7 @@ package dev.celastrina.core.failover
 
 import dev.celastrina.core.port.Clock
 import dev.celastrina.core.port.Storage
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.source.Stream
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -26,7 +27,7 @@ class FailoverMemory(private val storage: Storage, private val clock: Clock) {
 
     /** Forgets every Stream of the Sources [sourceIds], which have been removed. */
     @Synchronized
-    fun forget(sourceIds: Collection<String>) {
+    fun forget(sourceIds: Collection<SourceId>) {
         val all = demotions ?: load()
         val kept = all.filterNot { it.sourceId in sourceIds }
         demotions = kept
@@ -49,7 +50,7 @@ class FailoverMemory(private val storage: Storage, private val clock: Clock) {
     private data class StoredDemotions(val demotions: List<Demotion>)
 
     @Serializable
-    private data class Demotion(val sourceId: String, val streamId: String, val atMillis: Long) {
+    private data class Demotion(val sourceId: SourceId, val streamId: String, val atMillis: Long) {
         fun isOf(stream: Stream) = sourceId == stream.sourceId && streamId == stream.id
     }
 

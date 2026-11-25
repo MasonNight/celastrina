@@ -1,5 +1,6 @@
 package dev.celastrina.app
 
+import dev.celastrina.core.source.SourceId
 import android.content.res.AssetManager
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -95,7 +96,7 @@ class ExtensionLoadingTest {
     ).run {
         assertIs<ImportOutcome.Imported>(importRepository(REPOSITORY, ExtensionWarning.VERSION, ChangedFrom.Computer))
         assertIs<InstallOutcome.Installed>(installExtension(REPOSITORY, "InternetArchive", ChangedFrom.Computer))
-        sources().single { it.id == "internetarchive-internet-archive-test" }
+        sources().single { it.id == SourceId("internetarchive-internet-archive-test") }
     }
 
     private fun movie(title: String, year: Int, imdbId: String?) = TitleReference(

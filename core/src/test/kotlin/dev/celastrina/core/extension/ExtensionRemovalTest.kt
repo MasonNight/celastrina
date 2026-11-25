@@ -1,5 +1,6 @@
 package dev.celastrina.core.extension
 
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.catalogue.NotPlayableMemory
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
@@ -76,8 +77,8 @@ class ExtensionRemovalTest {
 
         assertEquals(WriteOutcome.Ok, service.removeExtension("InternetArchive", ChangedFrom.Computer))
 
-        assertEquals(listOf("internet-archive"), service.list().map { it.id })
-        assertEquals(listOf("internet-archive"), service.sources().map { it.id })
+        assertEquals(listOf("internet-archive"), service.list().map { it.id.value })
+        assertEquals(listOf("internet-archive"), service.sources().map { it.id.value })
         assertEquals(0, service.status().extensions)
         assertFalse(service.repositories().single().extensions.single().installed)
         assertEquals(listOf(ConfigurationChange(ConfigurationChange.Action.ExtensionRemoved, "Internet Archive (test)", ChangedFrom.Computer)), announced)
@@ -105,7 +106,7 @@ class ExtensionRemovalTest {
     @Test
     fun `a removed Extension's Sources are forgotten by Failover memory`() = runTest {
         val service = installed()
-        val stream = Stream(sourceId = EXTENSION_SOURCE, id = "s1", url = "https://example.org/a.mp4", delivery = Stream.Delivery.Progressive)
+        val stream = Stream(sourceId = SourceId(EXTENSION_SOURCE), id = "s1", url = "https://example.org/a.mp4", delivery = Stream.Delivery.Progressive)
         failoverMemory.demote(stream)
 
         service.removeExtension("InternetArchive", ChangedFrom.Tv)
@@ -117,7 +118,7 @@ class ExtensionRemovalTest {
     fun `removing an Extension forgets every Not playable Title`() = runTest {
         val service = installed()
         val nothingHere = object : Source {
-            override val id = EXTENSION_SOURCE
+            override val id = SourceId(EXTENSION_SOURCE)
             override val name = "Internet Archive (test)"
             override val kind = SourceKind("Extension", setOf(IdScheme.Name), setOf(Title.Kind.Movie))
             override suspend fun lookUp(title: TitleReference) = LookupOutcome.NotAvailable
@@ -153,7 +154,7 @@ class ExtensionRemovalTest {
         val restarted = service()
         assertEquals(listOf(sites.otherRepositoryUrl), restarted.repositories().map { it.url })
         assertEquals(null, restarted.repository(sites.repositoryUrl))
-        assertEquals(listOf("internet-archive"), restarted.list().map { it.id })
+        assertEquals(listOf("internet-archive"), restarted.list().map { it.id.value })
         assertEquals(0, restarted.status().extensions)
         assertEquals(
             listOf(

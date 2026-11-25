@@ -8,7 +8,7 @@ import kotlin.time.Duration.Companion.seconds
 /** One configured instance of a [SourceKind] that, given a Title, can offer Streams for it. */
 interface Source {
     /** Stable for the life of the Source, whatever it is called. */
-    val id: String
+    val id: SourceId
     val name: String
     val kind: SourceKind
 

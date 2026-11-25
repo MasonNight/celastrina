@@ -1,5 +1,6 @@
 package dev.celastrina.core.failover
 
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.household.WorkedStream
@@ -102,7 +103,7 @@ class FailoverTest {
 
         assertEquals(
             listOf(archiveMp4, nightly1080, nightly720, archiveOgv),
-            lookup.candidates(everythingDecodes, memory, lastWorked = WorkedStream("internet-archive", "mp4")),
+            lookup.candidates(everythingDecodes, memory, lastWorked = WorkedStream(SourceId("internet-archive"), "mp4")),
         )
     }
 
@@ -111,14 +112,14 @@ class FailoverTest {
         val lookup = lookup(movieNight to listOf(nightly1080), archive to listOf(archiveMp4))
         playing(archiveMp4, lookup).fail()
 
-        assertEquals(listOf(nightly1080, archiveMp4), lookup.candidates(everythingDecodes, memory, lastWorked = WorkedStream("internet-archive", "mp4")))
+        assertEquals(listOf(nightly1080, archiveMp4), lookup.candidates(everythingDecodes, memory, lastWorked = WorkedStream(SourceId("internet-archive"), "mp4")))
     }
 
     @Test
     fun `the Stream that last worked must be one the TV can decode`() {
         val lookup = lookup(movieNight to listOf(nightly1080), friends to listOf(friendsHevc))
 
-        assertEquals(listOf(nightly1080), lookup.candidates(Decoders { it != "video/hevc" }, memory, lastWorked = WorkedStream("friends", "hevc")))
+        assertEquals(listOf(nightly1080), lookup.candidates(Decoders { it != "video/hevc" }, memory, lastWorked = WorkedStream(SourceId("friends"), "hevc")))
     }
 
     @Test
@@ -178,7 +179,7 @@ class FailoverTest {
 
     @Test
     fun `resuming waits for the Source of the Stream that last worked, then plays that Stream`() {
-        val lastWorked = WorkedStream("internet-archive", "mp4")
+        val lastWorked = WorkedStream(SourceId("internet-archive"), "mp4")
 
         assertEquals(ResumeChoice.Waiting, lookup(movieNight to listOf(nightly1080), archive to null).resumeChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis()))
         assertEquals(
@@ -189,7 +190,7 @@ class FailoverTest {
 
     @Test
     fun `resuming waits at most 3 s for the Source of the Stream that last worked, then plays Play's choice`() {
-        val lastWorked = WorkedStream("internet-archive", "mp4")
+        val lastWorked = WorkedStream(SourceId("internet-archive"), "mp4")
         // The Sources were asked just now; the Internet Archive is still being asked.
         val stillAsking = lookup(movieNight to listOf(nightly1080), archive to null)
 
@@ -199,7 +200,7 @@ class FailoverTest {
 
     @Test
     fun `when the Stream that last worked is gone, resuming plays Play's choice`() {
-        val lastWorked = WorkedStream("internet-archive", "mp4")
+        val lastWorked = WorkedStream(SourceId("internet-archive"), "mp4")
 
         assertEquals(
             ResumeChoice.Play(nightly1080),
@@ -835,7 +836,8 @@ class FailoverTest {
     /** A Source being asked again, which still has the Streams it found last time. */
     private class AskingAgain(vararg val streams: Stream)
 
-    private class TestSource(override val id: String, override val name: String) : Source {
+    private class TestSource(id: String, override val name: String) : Source {
+        override val id = SourceId(id)
         override val kind = SourceKind(name, setOf(IdScheme.Tmdb), setOf(Title.Kind.Movie))
         override suspend fun lookUp(title: TitleReference) = LookupOutcome.NotAvailable
 

@@ -7,7 +7,7 @@ package dev.celastrina.core.source
  * before anything else sees them.
  */
 data class Stream(
-    val sourceId: String,
+    val sourceId: SourceId,
     /** Stable within the Source, so Failover can remember which Streams work. */
     val id: String,
     val url: String,

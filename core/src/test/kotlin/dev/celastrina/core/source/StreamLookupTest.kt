@@ -102,7 +102,7 @@ class StreamLookupTest {
 
         val first = StreamLookup(listOf(slow, quick), RecordingLogger()).lookUp(nightOfTheLivingDead).first()
 
-        assertEquals("quick", first.source.id)
+        assertEquals("quick", first.source.id.value)
         assertTrue(first.outcome is LookupOutcome.Streams)
     }
 
@@ -118,7 +118,7 @@ class StreamLookupTest {
 
         assertEquals(
             listOf("slow" to LookupOutcome.NotAvailable, "hangs" to LookupOutcome.Failure(LookupOutcome.Failure.Reason.Unreachable)),
-            answers.map { it.source.id to it.outcome },
+            answers.map { it.source.id.value to it.outcome },
         )
         assertEquals(8.seconds.inWholeMilliseconds, testScheduler.currentTime)
     }
@@ -137,7 +137,7 @@ class StreamLookupTest {
         }
 
         assertEquals(listOf(listOf(true, true), listOf(true, false), listOf(false, false)), progress.map { l -> l.sources.map { it.isLooking } })
-        assertEquals(listOf("first", "second"), progress.last().sources.map { it.source.id })
+        assertEquals(listOf("first", "second"), progress.last().sources.map { it.source.id.value })
     }
 
     @Test
@@ -212,14 +212,15 @@ class StreamLookupTest {
     }
 
     private fun stream(id: String, url: String, delivery: Stream.Delivery) =
-        Stream(sourceId = "movie-shelf", id = id, url = url, delivery = delivery)
+        Stream(sourceId = SourceId("movie-shelf"), id = id, url = url, delivery = delivery)
 
     private class FakeSource(
-        override val id: String,
+        name: String,
         override val kind: SourceKind,
         private val answer: suspend () -> LookupOutcome,
     ) : Source {
-        override val name = id
+        override val id = SourceId(name)
+        override val name = name
         var timesAsked = 0
 
         override suspend fun lookUp(title: TitleReference): LookupOutcome {

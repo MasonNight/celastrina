@@ -8,6 +8,7 @@ import dev.celastrina.core.source.IdScheme
 import dev.celastrina.core.source.LookupOutcome
 import dev.celastrina.core.source.LookupOutcome.Failure.Reason
 import dev.celastrina.core.source.Source
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.source.SourceKind
 import dev.celastrina.core.source.Stream
 import dev.celastrina.core.source.failureReason
@@ -106,7 +107,7 @@ internal class MediaServer(
         QuickConnectStep.Failed(Reason.Unreachable)
     }
 
-    fun source(id: String, name: String, kind: SourceKind, login: MediaServerLogin?): Source = MediaServerSource(id, name, kind, login)
+    fun source(id: SourceId, name: String, kind: SourceKind, login: MediaServerLogin?): Source = MediaServerSource(id, name, kind, login)
 
     private suspend fun connect(attempt: suspend () -> MediaServerLogin): ConnectionResult = try {
         ConnectionResult.Connected(attempt())
@@ -117,7 +118,7 @@ internal class MediaServer(
     }
 
     private inner class MediaServerSource(
-        override val id: String,
+        override val id: SourceId,
         override val name: String,
         override val kind: SourceKind,
         private val login: MediaServerLogin?,

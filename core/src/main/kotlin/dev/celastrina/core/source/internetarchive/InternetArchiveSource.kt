@@ -7,6 +7,7 @@ import dev.celastrina.core.port.HttpResponse
 import dev.celastrina.core.source.IdScheme
 import dev.celastrina.core.source.LookupOutcome
 import dev.celastrina.core.source.Source
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.source.SourceKind
 import dev.celastrina.core.source.Stream
 import dev.celastrina.core.source.failureReason
@@ -38,7 +39,7 @@ data class InternetArchiveSettings(
 class InternetArchiveSource(
     private val http: HttpClient,
     private val settings: InternetArchiveSettings = InternetArchiveSettings(),
-    override val id: String = "internet-archive",
+    override val id: SourceId = SourceId("internet-archive"),
     override val name: String = "Internet Archive",
 ) : Source {
 

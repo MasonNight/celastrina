@@ -7,6 +7,7 @@ import dev.celastrina.core.source.IdScheme
 import dev.celastrina.core.source.LookupOutcome
 import dev.celastrina.core.source.LookupOutcome.Failure.Reason
 import dev.celastrina.core.source.Source
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.source.SourceKind
 import dev.celastrina.core.source.Stream
 import dev.celastrina.core.source.failureReason
@@ -71,10 +72,10 @@ internal class StremioAddon(private val http: HttpClient, private val manifestUr
     }
 
     /** The add-on as a Source. [manifest] is the one saved by [check]; without it, the first Lookup fetches it. */
-    fun source(id: String, name: String, manifest: String?): Source = AddonSource(id, name, manifest?.let(Manifest::parse))
+    fun source(id: SourceId, name: String, manifest: String?): Source = AddonSource(id, name, manifest?.let(Manifest::parse))
 
     private inner class AddonSource(
-        override val id: String,
+        override val id: SourceId,
         override val name: String,
         @Volatile private var manifest: Manifest?,
     ) : Source {

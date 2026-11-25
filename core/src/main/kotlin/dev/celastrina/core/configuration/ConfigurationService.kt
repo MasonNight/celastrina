@@ -28,7 +28,7 @@ import dev.celastrina.core.source.jellyfin.MediaServer
 import dev.celastrina.core.source.jellyfin.MediaServerKinds
 import dev.celastrina.core.source.jellyfin.MediaServerLogin
 import dev.celastrina.core.source.jellyfin.QuickConnectStep
-import dev.celastrina.core.source.slugOf
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.source.stremio.ManifestCheck
 import dev.celastrina.core.source.stremio.StremioAddon
 import dev.celastrina.core.source.stremio.StremioAddonKind
@@ -267,7 +267,7 @@ class ConfigurationService(
     }
 
     private sealed interface Saved {
-        data class As(val id: String) : Saved
+        data class As(val id: SourceId) : Saved
         data class Refused(val outcome: WriteOutcome.Invalid) : Saved
     }
 
@@ -281,7 +281,7 @@ class ConfigurationService(
             val sameName = sources.find { it.name.equals(name, ignoreCase = true) }
             when {
                 sameName == null -> {
-                    val id = uniqueId(slugOf(name), sources)
+                    val id = uniqueId(SourceId.of(name), sources)
                     val addedAt = clock.nowMillis().takeIf { from == ChangedFrom.Computer }
                     save(sources + StoredSource(id = id, name = name, kind = kind.id, url = url, username = username, addedFromComputerAt = addedAt))
                     Saved.As(id)
@@ -303,7 +303,7 @@ class ConfigurationService(
      * Changes a Source's name, server address or login; anything left null stays as it is. The ID never changes.
      * A new username needs the password too.
      */
-    suspend fun update(id: String, changes: SourceChanges, from: ChangedFrom): WriteOutcome {
+    suspend fun update(id: SourceId, changes: SourceChanges, from: ChangedFrom): WriteOutcome {
         val newName = changes.name?.trim()
         if (newName != null && newName.isEmpty()) return blankName()
         val kind = synchronized(lock) { load().find { it.id == id }?.kind }?.let(::kindOf) ?: return unknownSource(id)
@@ -328,15 +328,15 @@ class ConfigurationService(
     }
 
     /** Lets Lookups ask the Source again, and tests its connection. */
-    suspend fun enable(id: String, from: ChangedFrom): WriteOutcome {
+    suspend fun enable(id: SourceId, from: ChangedFrom): WriteOutcome {
         val outcome = setEnabled(id, true, from)
         return if (outcome == WriteOutcome.Ok) test(id, logInWith = null) else outcome
     }
 
     /** Keeps the Source, but stops Lookups asking it. */
-    fun disable(id: String, from: ChangedFrom): WriteOutcome = setEnabled(id, false, from)
+    fun disable(id: SourceId, from: ChangedFrom): WriteOutcome = setEnabled(id, false, from)
 
-    private fun setEnabled(id: String, enabled: Boolean, from: ChangedFrom) = change(id, from) { source ->
+    private fun setEnabled(id: SourceId, enabled: Boolean, from: ChangedFrom) = change(id, from) { source ->
         val action = if (enabled) ConfigurationChange.Action.Enabled else ConfigurationChange.Action.Disabled
         Edit(source.copy(enabled = enabled), ConfigurationChange(action, source.name, from).takeIf { source.enabled != enabled })
     }
@@ -345,7 +345,7 @@ class ConfigurationService(
      * Puts the Sources [ids] first, in that order; the others follow in the order they were in. Lookups prefer
      * Streams from Sources earlier in the order.
      */
-    fun setOrder(ids: List<String>, from: ChangedFrom): WriteOutcome {
+    fun setOrder(ids: List<SourceId>, from: ChangedFrom): WriteOutcome {
         ids.groupingBy { it }.eachCount().entries.firstOrNull { it.value > 1 }?.let {
             return invalid(WriteOutcome.Problem.RepeatedSource, "The order names ${it.key} more than once.")
         }
@@ -362,7 +362,7 @@ class ConfigurationService(
     }
 
     /** Removes the Source, its login and its Failover memory for good. Removing one that is already gone is harmless. */
-    fun remove(id: String, from: ChangedFrom): WriteOutcome = change(id, from, ifMissing = WriteOutcome.Ok) { source ->
+    fun remove(id: SourceId, from: ChangedFrom): WriteOutcome = change(id, from, ifMissing = WriteOutcome.Ok) { source ->
         storage.delete(loginKey(id))
         storage.delete(deviceIdKey(id))
         storage.delete(manifestKey(id))
@@ -543,7 +543,7 @@ class ConfigurationService(
         }
         val added = provided.filter { p -> sources.none { it.extension == name && it.nameInExtension == p.name } }.map { p ->
             StoredSource(
-                id = uniqueId(slugOf("$name ${p.name}"), sources),
+                id = uniqueId(SourceId.of("$name ${p.name}"), sources),
                 name = uniqueName(p.name, sources),
                 kind = EXTENSION_KIND,
                 extension = name,
@@ -722,7 +722,7 @@ class ConfigurationService(
      * Tests the Source [id]'s connection and saves how it went: a Jellyfin or Emby server logs in again with
      * [logInWith] when given, and otherwise checks the saved login. The Internet Archive has nothing to test.
      */
-    private suspend fun test(id: String, logInWith: String?): WriteOutcome {
+    private suspend fun test(id: SourceId, logInWith: String?): WriteOutcome {
         val source = synchronized(lock) { load().find { it.id == id } } ?: return WriteOutcome.Ok
         if (kindOf(source.kind) == StremioAddonKind) return testAddon(source)
         if (kindOf(source.kind) !in MediaServerKinds.all) return WriteOutcome.Ok
@@ -789,7 +789,7 @@ class ConfigurationService(
 
     private fun server(source: StoredSource) = MediaServer(http, checkNotNull(source.url) { "Source ${source.id} has no URL" }, deviceId(source.id), appVersion)
 
-    private fun login(id: String): MediaServerLogin? =
+    private fun login(id: SourceId): MediaServerLogin? =
         storage.read(loginKey(id))?.let { json.decodeFromString(MediaServerLogin.serializer(), it.decodeToString()) }
 
     /**
@@ -797,7 +797,7 @@ class ConfigurationService(
      * is its own device: a second Source on the same server, logging in, doesn't sign the first out. Made once, then
      * kept. The one device ID an earlier Celastrina used for every Source goes to the first that asks with a login.
      */
-    private fun deviceId(id: String): String = synchronized(lock) {
+    private fun deviceId(id: SourceId): String = synchronized(lock) {
         storage.read(deviceIdKey(id))?.decodeToString()?.let { return it }
         val legacy = storage.read(LEGACY_DEVICE_ID)?.decodeToString()?.takeIf { login(id) != null }
         val deviceId = legacy ?: UUID.randomUUID().toString()
@@ -813,7 +813,7 @@ class ConfigurationService(
      * Applies [edit] to the Source [id] and saves it, marking it changed from a computer when it was. A missing Source
      * answers [ifMissing].
      */
-    private fun change(id: String, from: ChangedFrom, ifMissing: WriteOutcome = unknownSource(id), edit: (StoredSource) -> Edit): WriteOutcome {
+    private fun change(id: SourceId, from: ChangedFrom, ifMissing: WriteOutcome = unknownSource(id), edit: (StoredSource) -> Edit): WriteOutcome {
         val announcement = synchronized(lock) {
             val sources = load()
             val source = sources.find { it.id == id } ?: return ifMissing
@@ -830,9 +830,9 @@ class ConfigurationService(
         return WriteOutcome.Ok
     }
 
-    /** The first of [slug], `slug-2`, `slug-3`… that no Source has. */
-    private fun uniqueId(slug: String, sources: List<StoredSource>): String =
-        generateSequence(1) { it + 1 }.map { if (it == 1) slug else "$slug-$it" }.first { id -> sources.none { it.id == id } }
+    /** The first of [id], `id-2`, `id-3`… that no Source has. */
+    private fun uniqueId(id: SourceId, sources: List<StoredSource>): SourceId =
+        generateSequence(1) { it + 1 }.map { if (it == 1) id else SourceId("$id-$it") }.first { candidate -> sources.none { it.id == candidate } }
 
     private fun save(sources: List<StoredSource>) {
         storage.write(SOURCES, json.encodeToString(StoredSources.serializer(), StoredSources(sources)).encodeToByteArray())
@@ -842,7 +842,7 @@ class ConfigurationService(
         storage.read(SOURCES)?.let { json.decodeFromString<StoredSources>(it.decodeToString()).sources } ?: preinstalled()
 
     private fun preinstalled() = listOf(
-        StoredSource(id = slugOf(INTERNET_ARCHIVE), name = INTERNET_ARCHIVE, kind = InternetArchiveSource.Kind.id),
+        StoredSource(id = SourceId.of(INTERNET_ARCHIVE), name = INTERNET_ARCHIVE, kind = InternetArchiveSource.Kind.id),
     )
 
     @Serializable
@@ -850,7 +850,7 @@ class ConfigurationService(
 
     @Serializable
     private data class StoredSource(
-        val id: String,
+        val id: SourceId,
         val name: String,
         val kind: String,
         val enabled: Boolean = true,
@@ -940,11 +940,11 @@ class ConfigurationService(
 
         private fun kindOf(id: String): SourceKind? = KINDS.find { it.id == id }
 
-        private fun loginKey(id: String) = "login-$id.json"
+        private fun loginKey(id: SourceId) = "login-$id.json"
 
-        private fun deviceIdKey(id: String) = "device-id-$id"
+        private fun deviceIdKey(id: SourceId) = "device-id-$id"
 
-        private fun manifestKey(id: String) = "manifest-$id.json"
+        private fun manifestKey(id: SourceId) = "manifest-$id.json"
 
         /** [text] as a server address, `http(s)://host[:port][/path]` without a trailing '/', or null when it isn't one. */
         private fun serverAddress(text: String?): String? {
@@ -959,7 +959,7 @@ class ConfigurationService(
 
         private fun invalid(problem: WriteOutcome.Problem, message: String) = WriteOutcome.Invalid(problem, message)
         private fun blankName() = invalid(WriteOutcome.Problem.BlankName, "A Source needs a name.")
-        private fun unknownSource(id: String) = invalid(WriteOutcome.Problem.UnknownSource, "There's no Source with the ID $id.")
+        private fun unknownSource(id: SourceId) = invalid(WriteOutcome.Problem.UnknownSource, "There's no Source with the ID $id.")
         private fun unneededSetting(kind: SourceKind) = invalid(
             WriteOutcome.Problem.UnneededSetting,
             if (kind == StremioAddonKind) "A Stremio-compatible add-on needs only its manifest URL, no login." else "The ${kind.name} needs no URL or login.",
@@ -1013,7 +1013,7 @@ data class SourceChanges(
 /** What the Household and the agent see of a Source. */
 data class SourceSummary(
     /** Made from the name when the Source is added; unchanged by renames. */
-    val id: String,
+    val id: SourceId,
     val name: String,
     /** The Source Kind's ID, such as `internet-archive`. */
     val kind: String,
@@ -1040,12 +1040,12 @@ sealed interface WriteOutcome {
     data object Ok : WriteOutcome
 
     /** A Source was added (or was already there), passing its connection test. */
-    data class Added(val sourceId: String) : WriteOutcome
+    data class Added(val sourceId: SourceId) : WriteOutcome
 
     data class Invalid(val problem: Problem, val message: String) : WriteOutcome
 
     /** The write was saved, but the Source [sourceId] failed its connection test for [reason]. */
-    data class Failed(val sourceId: String, val reason: Reason, val message: String) : WriteOutcome
+    data class Failed(val sourceId: SourceId, val reason: Reason, val message: String) : WriteOutcome
 
     enum class Problem {
         UnknownSource, BlankName, UnknownKind, BadUrl, MissingLogin, NameTaken, RepeatedSource, UnneededSetting, BlankTmdbKey, QuickConnectUnsupported,
@@ -1106,7 +1106,7 @@ sealed interface ImportOutcome {
 /** What installing an Extension answers. */
 sealed interface InstallOutcome {
     /** Installed (or already was): the IDs of the Sources it provides. */
-    data class Installed(val sourceIds: List<String>) : InstallOutcome
+    data class Installed(val sourceIds: List<SourceId>) : InstallOutcome
 
     data class Invalid(val problem: WriteOutcome.Problem, val message: String) : InstallOutcome
 

@@ -34,6 +34,7 @@ import dev.celastrina.core.configuration.SourceChanges
 import dev.celastrina.core.configuration.SourceSummary
 import dev.celastrina.core.configuration.TestState
 import dev.celastrina.core.configuration.WriteOutcome
+import dev.celastrina.core.source.SourceId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -51,7 +52,7 @@ private val Warning = Color(0xFFFFB4A8)
 @Composable
 fun SourcesScreen(configuration: ConfigurationService, onAddSource: () -> Unit) {
     var sources by remember { mutableStateOf(configuration.list()) }
-    var pickedId by remember { mutableStateOf<String?>(null) }
+    var pickedId by remember { mutableStateOf<SourceId?>(null) }
     /** What the last change answered, when it wasn't simply done. */
     var message by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }

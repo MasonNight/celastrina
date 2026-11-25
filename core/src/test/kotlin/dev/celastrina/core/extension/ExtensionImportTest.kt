@@ -1,5 +1,6 @@
 package dev.celastrina.core.extension
 
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.configuration.ChangedFrom
 import dev.celastrina.core.configuration.ConfigurationChange
 import dev.celastrina.core.configuration.ConfigurationService
@@ -134,11 +135,11 @@ class ExtensionImportTest {
 
         val outcome = service.installExtension(sites.repositoryUrl, "InternetArchive", ChangedFrom.Computer)
 
-        assertEquals(InstallOutcome.Installed(listOf("internetarchive-internet-archive-test")), outcome)
+        assertEquals(InstallOutcome.Installed(listOf("internetarchive-internet-archive-test").map(::SourceId)), outcome)
         val restarted = service()
         assertEquals(
             SourceSummary(
-                id = "internetarchive-internet-archive-test",
+                id = SourceId("internetarchive-internet-archive-test"),
                 name = "Internet Archive (test)",
                 kind = "extension",
                 enabled = true,
@@ -150,7 +151,7 @@ class ExtensionImportTest {
             ),
             restarted.list().last(),
         )
-        assertEquals(listOf("internet-archive", "internetarchive-internet-archive-test"), restarted.sources().map { it.id })
+        assertEquals(listOf("internet-archive", "internetarchive-internet-archive-test"), restarted.sources().map { it.id.value })
         assertEquals(1, restarted.status().extensions)
         assertTrue(restarted.repository(sites.repositoryUrl)!!.extensions.single().installed)
         assertEquals(listOf(ConfigurationChange(ConfigurationChange.Action.Added, "Internet Archive (test)", ChangedFrom.Computer)), announced)
@@ -175,7 +176,7 @@ class ExtensionImportTest {
         val outcome = service.installExtension(sites.repositoryUrl, "InternetArchive", ChangedFrom.Computer)
 
         assertEquals(WriteOutcome.Problem.HashMismatch, assertIs<InstallOutcome.Invalid>(outcome).problem)
-        assertEquals(listOf("internet-archive"), service().list().map { it.id })
+        assertEquals(listOf("internet-archive"), service().list().map { it.id.value })
         assertEquals(0, service().status().extensions)
     }
 

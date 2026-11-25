@@ -1,5 +1,6 @@
 package dev.celastrina.core.configuration
 
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.adapter.FileStorage
 import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.source.LookupOutcome.Failure.Reason
@@ -43,11 +44,11 @@ class MediaServerSourcesTest {
         val service = service()
         val announced = announcementsOf(service)
 
-        assertEquals(WriteOutcome.Added("movie-night-jellyfin"), service.add(movieNight(), ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Added(SourceId("movie-night-jellyfin")), service.add(movieNight(), ChangedFrom.Computer))
 
         assertEquals(
             SourceSummary(
-                id = "movie-night-jellyfin",
+                id = SourceId("movie-night-jellyfin"),
                 name = "Movie Night Jellyfin",
                 kind = "jellyfin",
                 enabled = true,
@@ -59,7 +60,7 @@ class MediaServerSourcesTest {
             ),
             service().list().last(),
         )
-        assertEquals(listOf("internet-archive", "movie-night-jellyfin"), service().sources().map { it.id })
+        assertEquals(listOf("internet-archive", "movie-night-jellyfin"), service().sources().map { it.id.value })
         assertTrue(RecordedJellyfin.ACCESS_TOKEN in storedText())
         assertFalse(jellyfin.password in storedText(), "The password was saved")
         assertEquals(listOf(ConfigurationChange(ConfigurationChange.Action.Added, "Movie Night Jellyfin", ChangedFrom.Computer)), announced)
@@ -69,9 +70,9 @@ class MediaServerSourcesTest {
     fun `a wrong password is saved as a failing Source without a login, and says login needed`() = runTest {
         val outcome = service().add(movieNight(password = "hunter2"), ChangedFrom.Computer)
 
-        assertEquals(WriteOutcome.Failed("movie-night-jellyfin", Reason.AuthRequired, "Movie Night Jellyfin turned down the username or password."), outcome)
+        assertEquals(WriteOutcome.Failed(SourceId("movie-night-jellyfin"), Reason.AuthRequired, "Movie Night Jellyfin turned down the username or password."), outcome)
         val saved = service().list().last()
-        assertEquals(Triple("movie-night-jellyfin", TestState.Failing, false), Triple(saved.id, saved.testState, saved.hasLogin))
+        assertEquals(Triple("movie-night-jellyfin", TestState.Failing, false), Triple(saved.id.value, saved.testState, saved.hasLogin))
         assertFalse("hunter2" in storedText(), "The password was saved")
     }
 
@@ -82,7 +83,7 @@ class MediaServerSourcesTest {
 
         val outcome = service().add(movieNight(url = gone), ChangedFrom.Computer)
 
-        assertEquals(WriteOutcome.Failed("movie-night-jellyfin", Reason.Unreachable, "Can't reach Movie Night Jellyfin at $gone."), outcome)
+        assertEquals(WriteOutcome.Failed(SourceId("movie-night-jellyfin"), Reason.Unreachable, "Can't reach Movie Night Jellyfin at $gone."), outcome)
         assertEquals(TestState.Failing, service().list().last().testState)
     }
 
@@ -92,7 +93,7 @@ class MediaServerSourcesTest {
         service.add(movieNight(), ChangedFrom.Computer)
         val announced = announcementsOf(service)
 
-        assertEquals(WriteOutcome.Added("movie-night-jellyfin"), service.add(movieNight(), ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Added(SourceId("movie-night-jellyfin")), service.add(movieNight(), ChangedFrom.Computer))
 
         assertEquals(2, service().list().size)
         assertEquals(emptyList(), announced)
@@ -107,8 +108,8 @@ class MediaServerSourcesTest {
             WriteOutcome.Invalid(WriteOutcome.Problem.NameTaken, "There's already a Source called Movie Night Jellyfin. Choose another name."),
             service.add(movieNight().copy(url = "http://192.168.1.20:8096"), ChangedFrom.Computer),
         )
-        assertEquals(WriteOutcome.Added("movie-night-jellyfin-2"), service.add(movieNight().copy(name = "Movie-Night Jellyfin"), ChangedFrom.Computer))
-        assertEquals(listOf("internet-archive", "movie-night-jellyfin", "movie-night-jellyfin-2"), service().list().map { it.id })
+        assertEquals(WriteOutcome.Added(SourceId("movie-night-jellyfin-2")), service.add(movieNight().copy(name = "Movie-Night Jellyfin"), ChangedFrom.Computer))
+        assertEquals(listOf("internet-archive", "movie-night-jellyfin", "movie-night-jellyfin-2"), service().list().map { it.id.value })
     }
 
     @Test
@@ -134,13 +135,13 @@ class MediaServerSourcesTest {
     fun `renaming or enabling a server tests its connection again`() = runTest {
         val service = service()
         service.add(movieNight(), ChangedFrom.Computer)
-        service.disable("movie-night-jellyfin", ChangedFrom.Computer)
+        service.disable(SourceId("movie-night-jellyfin"), ChangedFrom.Computer)
         jellyfin.tokenRevoked = true
 
-        val renamed = service.update("movie-night-jellyfin", SourceChanges(name = "Den"), ChangedFrom.Computer)
-        val enabled = service.enable("movie-night-jellyfin", ChangedFrom.Computer)
+        val renamed = service.update(SourceId("movie-night-jellyfin"), SourceChanges(name = "Den"), ChangedFrom.Computer)
+        val enabled = service.enable(SourceId("movie-night-jellyfin"), ChangedFrom.Computer)
 
-        val loginNeeded = WriteOutcome.Failed("movie-night-jellyfin", Reason.AuthRequired, "Den turned down the saved login. Log in again.")
+        val loginNeeded = WriteOutcome.Failed(SourceId("movie-night-jellyfin"), Reason.AuthRequired, "Den turned down the saved login. Log in again.")
         assertEquals(loginNeeded, renamed)
         assertEquals(loginNeeded, enabled)
         assertEquals(TestState.Failing, service().list().last().testState)
@@ -151,7 +152,7 @@ class MediaServerSourcesTest {
         val service = service()
         service.add(movieNight(password = "hunter2"), ChangedFrom.Computer)
 
-        val outcome = service.update("movie-night-jellyfin", SourceChanges(password = jellyfin.password), ChangedFrom.Computer)
+        val outcome = service.update(SourceId("movie-night-jellyfin"), SourceChanges(password = jellyfin.password), ChangedFrom.Computer)
 
         assertEquals(WriteOutcome.Ok, outcome)
         val fixed = service().list().last()
@@ -162,12 +163,12 @@ class MediaServerSourcesTest {
     fun `moving a server to a new address keeps its login, and a new username needs the password`() = runTest {
         val service = service()
         service.add(movieNight(url = "http://jellyfin.invalid:8096"), ChangedFrom.Computer)
-        service.update("movie-night-jellyfin", SourceChanges(password = jellyfin.password, url = jellyfin.url), ChangedFrom.Computer)
+        service.update(SourceId("movie-night-jellyfin"), SourceChanges(password = jellyfin.password, url = jellyfin.url), ChangedFrom.Computer)
 
-        assertEquals(WriteOutcome.Ok, service.update("movie-night-jellyfin", SourceChanges(url = "${jellyfin.url}/"), ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Ok, service.update(SourceId("movie-night-jellyfin"), SourceChanges(url = "${jellyfin.url}/"), ChangedFrom.Computer))
         assertEquals(
             WriteOutcome.Problem.MissingLogin,
-            (service.update("movie-night-jellyfin", SourceChanges(username = "guest"), ChangedFrom.Computer) as WriteOutcome.Invalid).problem,
+            (service.update(SourceId("movie-night-jellyfin"), SourceChanges(username = "guest"), ChangedFrom.Computer) as WriteOutcome.Invalid).problem,
         )
     }
 
@@ -178,10 +179,10 @@ class MediaServerSourcesTest {
         service.add(movieNight().copy(name = "Den Emby", kind = "emby"), ChangedFrom.Computer)
         val announced = announcementsOf(service)
 
-        assertEquals(WriteOutcome.Ok, service.setOrder(listOf("den-emby", "movie-night-jellyfin"), ChangedFrom.Computer))
-        assertEquals(WriteOutcome.Ok, service.setOrder(listOf("den-emby", "movie-night-jellyfin"), ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Ok, service.setOrder(listOf("den-emby", "movie-night-jellyfin").map(::SourceId), ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Ok, service.setOrder(listOf("den-emby", "movie-night-jellyfin").map(::SourceId), ChangedFrom.Computer))
 
-        assertEquals(listOf("den-emby", "movie-night-jellyfin", "internet-archive"), service().sources().map { it.id })
+        assertEquals(listOf("den-emby", "movie-night-jellyfin", "internet-archive"), service().sources().map { it.id.value })
         assertEquals(listOf(1, 2, 3), service().list().map { it.position })
         assertEquals(listOf(ConfigurationChange(ConfigurationChange.Action.Reordered, "Den Emby", ChangedFrom.Computer)), announced)
     }
@@ -192,9 +193,9 @@ class MediaServerSourcesTest {
 
         assertEquals(
             WriteOutcome.Invalid(WriteOutcome.Problem.UnknownSource, "There's no Source with the ID plex."),
-            service.setOrder(listOf("plex"), ChangedFrom.Computer),
+            service.setOrder(listOf("plex").map(::SourceId), ChangedFrom.Computer),
         )
-        assertEquals(WriteOutcome.Problem.RepeatedSource, (service.setOrder(listOf("internet-archive", "internet-archive"), ChangedFrom.Computer) as WriteOutcome.Invalid).problem)
+        assertEquals(WriteOutcome.Problem.RepeatedSource, (service.setOrder(listOf("internet-archive", "internet-archive").map(::SourceId), ChangedFrom.Computer) as WriteOutcome.Invalid).problem)
     }
 
     @Test
@@ -202,9 +203,9 @@ class MediaServerSourcesTest {
         val service = service()
         service.add(movieNight(), ChangedFrom.Computer)
 
-        assertEquals(WriteOutcome.Added("kids-jellyfin"), service.add(movieNight().copy(name = "Kids Jellyfin"), ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Added(SourceId("kids-jellyfin")), service.add(movieNight().copy(name = "Kids Jellyfin"), ChangedFrom.Computer))
 
-        assertEquals(WriteOutcome.Ok, service.enable("movie-night-jellyfin", ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Ok, service.enable(SourceId("movie-night-jellyfin"), ChangedFrom.Computer))
         assertEquals(listOf(TestState.Passing, TestState.Passing), service().list().drop(1).map { it.testState })
     }
 
@@ -213,10 +214,10 @@ class MediaServerSourcesTest {
         val service = service()
         service.add(movieNight(), ChangedFrom.Computer)
 
-        assertEquals(WriteOutcome.Ok, service.remove("movie-night-jellyfin", ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Ok, service.remove(SourceId("movie-night-jellyfin"), ChangedFrom.Computer))
 
         assertFalse(RecordedJellyfin.ACCESS_TOKEN in storedText(), "The login outlived its Source")
-        assertEquals(listOf("internet-archive"), service().list().map { it.id })
+        assertEquals(listOf("internet-archive"), service().list().map { it.id.value })
     }
 
     /** Everything [service] announces from now on, as the on-screen notices would see it. */

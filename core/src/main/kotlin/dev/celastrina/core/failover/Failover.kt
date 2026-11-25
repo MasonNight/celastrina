@@ -5,6 +5,7 @@ import dev.celastrina.core.port.Decoders
 import dev.celastrina.core.port.Logger
 import dev.celastrina.core.source.Lookup
 import dev.celastrina.core.source.LookupOutcome
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.source.Stream
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -194,7 +195,7 @@ class Failover(
         next = next,
     )
 
-    private fun sourceName(sourceId: String) = lookup.sources.firstOrNull { it.source.id == sourceId }?.source?.name ?: sourceId
+    private fun sourceName(sourceId: SourceId) = lookup.sources.firstOrNull { it.source.id == sourceId }?.source?.name ?: sourceId.value
 
     private class Failed(val stream: Stream, val reason: StreamFailure, val handPicked: Boolean)
 
