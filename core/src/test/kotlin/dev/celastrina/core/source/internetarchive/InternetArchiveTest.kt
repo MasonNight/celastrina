@@ -26,7 +26,7 @@ class InternetArchiveTest {
 
     @Test
     fun `a new Household has the Internet Archive Source, which needs no settings and plays only Movies`() = runTest {
-        val sources = ConfigurationService(FileStorage(dir), JdkHttpClient(), appVersion = "test").sources()
+        val sources = ConfigurationService(FileStorage(dir), JdkHttpClient(), appVersion = "test", projectTmdbKey = "").sources()
 
         assertEquals(listOf("internet-archive"), sources.map { it.id })
         assertEquals("Internet Archive", sources.single().name)
