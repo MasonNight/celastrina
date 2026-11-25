@@ -28,6 +28,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -64,6 +65,9 @@ private const val HERO_REST_MILLIS = 300L
 
 /** How close to a row's end focus may get before the row loads more. */
 private const val LOAD_MORE_WITHIN = 8
+
+/** How many frames the Search button tries to take focus over, coming back from search. */
+private const val FOCUS_ATTEMPTS = 10
 
 /**
  * Home, Variant A "Hero + stacked rows": the focused Title's backdrop, logo, metadata and blurb fill the top, above
@@ -118,10 +122,19 @@ fun HomeScreen(model: HomeModel, onSearch: () -> Unit, onOpen: (HomeRow, Title) 
 @Composable
 private fun SearchButton(focused: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val requester = remember { FocusRequester() }
-    LaunchedEffect(focused) { if (focused) runCatching { requester.requestFocus() } }
+    var hasFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(focused) {
+        if (!focused) return@LaunchedEffect
+        // Coming back to home, the button isn't ready to take focus on the first frame; keep asking for a few.
+        repeat(FOCUS_ATTEMPTS) {
+            withFrameNanos { }
+            if (hasFocus) return@LaunchedEffect
+            runCatching { requester.requestFocus() }
+        }
+    }
     Surface(
         onClick = onClick,
-        modifier = modifier.focusRequester(requester),
+        modifier = modifier.focusRequester(requester).onFocusChanged { hasFocus = it.isFocused },
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color(0x66000000),
