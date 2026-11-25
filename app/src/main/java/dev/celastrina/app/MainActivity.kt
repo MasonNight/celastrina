@@ -37,6 +37,7 @@ class MainActivity : ComponentActivity() {
             CelastrinaApp(
                 catalogue,
                 newStreamLookup = { StreamLookup(app.configuration.sources(), app.logger) },
+                logger = app.logger,
                 configurationChanges = app.configuration.changes,
                 configuration = app.configuration,
                 tmdbKey = tmdbKey,
