@@ -192,7 +192,7 @@ private fun lookUpIn(scope: CoroutineScope, streamLookup: StreamLookup): (TitleR
 
 fun CatalogueUnavailable.Reason.message() = when (this) {
     CatalogueUnavailable.Reason.NoKey -> "No TMDB key"
-    CatalogueUnavailable.Reason.Unreachable -> "Can't reach TMDB. Check the TV's network connection."
+    CatalogueUnavailable.Reason.Unreachable -> "You're offline, and this isn't saved on the TV yet."
     CatalogueUnavailable.Reason.KeyRejected -> "TMDB rejected the key."
     CatalogueUnavailable.Reason.ServiceError -> "TMDB isn't answering properly right now."
 }

@@ -38,7 +38,7 @@ class MainActivity : ComponentActivity() {
             }
             // Extension updates are checked at launch, at most once a day; the Household updates by hand.
             LaunchedEffect(Unit) { withContext(Dispatchers.IO) { app.configuration.checkForUpdates() } }
-            val catalogue = remember(tmdb) { Catalogue(app.http, tmdb, Locale.getDefault()) }
+            val catalogue = remember(tmdb) { Catalogue(app.http, tmdb, Locale.getDefault(), app.catalogueCache) }
             val tmdbKey = remember(tmdb) { app.configuration.status().tmdbKey }
             CompositionLocalProvider(LocalNotPlayable provides app.notPlayable) {
                 CelastrinaApp(
