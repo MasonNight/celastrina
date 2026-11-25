@@ -3,13 +3,13 @@ package dev.celastrina.core.source.stremio
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.port.HttpClient
-import dev.celastrina.core.port.HttpResponse
 import dev.celastrina.core.source.IdScheme
 import dev.celastrina.core.source.LookupOutcome
 import dev.celastrina.core.source.LookupOutcome.Failure.Reason
 import dev.celastrina.core.source.Source
 import dev.celastrina.core.source.SourceKind
 import dev.celastrina.core.source.Stream
+import dev.celastrina.core.source.failureReason
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -65,7 +65,7 @@ internal class StremioAddon(private val http: HttpClient, private val manifestUr
         } catch (e: IOException) {
             return ManifestCheck.Failed(Reason.Unreachable)
         }
-        failureOf(response)?.let { reason -> return if (response.status == 404) ManifestCheck.NotAManifest else ManifestCheck.Failed(reason) }
+        response.failureReason()?.let { reason -> return if (response.status == 404) ManifestCheck.NotAManifest else ManifestCheck.Failed(reason) }
         val manifest = Manifest.parse(response.bodyText()) ?: return ManifestCheck.NotAManifest
         return if (manifest.streams == null) ManifestCheck.NoStreams else ManifestCheck.Fetched(response.bodyText())
     }
@@ -99,7 +99,7 @@ internal class StremioAddon(private val http: HttpClient, private val manifestUr
             }
             // A static add-on, a folder of JSON files, has no file for a Title it has nothing for.
             if (response.status == 404) return LookupOutcome.NotAvailable
-            failureOf(response)?.let { return LookupOutcome.Failure(it) }
+            response.failureReason()?.let { return LookupOutcome.Failure(it) }
             val found = try {
                 json.decodeFromString<StreamsResponse>(response.bodyText()).streams.mapNotNull { it.toStream() }
             } catch (e: SerializationException) {
@@ -257,15 +257,6 @@ internal class StremioAddon(private val http: HttpClient, private val manifestUr
             val imdbId = title.imdbId ?: return null
             val episode = title.episode ?: return imdbId.takeIf { title.kind == Title.Kind.Movie }
             return "$imdbId:${episode.season}:${episode.episode}"
-        }
-
-        /** Why the add-on's [response] can't be used, or null when it can. */
-        private fun failureOf(response: HttpResponse): Reason? = when {
-            response.isSuccessful -> null
-            response.status == 401 || response.status == 403 -> Reason.AuthRequired
-            response.status == 429 -> Reason.RateLimited
-            response.status in 502..504 -> Reason.Unreachable
-            else -> Reason.SourceError
         }
 
         private fun deliveryNamed(name: String): Stream.Delivery? = when (name.lowercase()) {

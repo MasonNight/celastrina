@@ -10,6 +10,7 @@ import dev.celastrina.core.source.LookupOutcome.Failure.Reason
 import dev.celastrina.core.source.Source
 import dev.celastrina.core.source.SourceKind
 import dev.celastrina.core.source.Stream
+import dev.celastrina.core.source.failureReason
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -192,12 +193,7 @@ internal class MediaServer(
     }
 
     /** Answers [response] if it succeeded, otherwise throws why the server can't help. */
-    private fun checked(response: HttpResponse): HttpResponse = when {
-        response.isSuccessful -> response
-        response.status == 401 || response.status == 403 -> throw RequestFailed(Reason.AuthRequired)
-        response.status == 429 -> throw RequestFailed(Reason.RateLimited)
-        else -> throw RequestFailed(Reason.SourceError)
-    }
+    private fun checked(response: HttpResponse): HttpResponse = response.failureReason()?.let { throw RequestFailed(it) } ?: response
 
     private inline fun <reified T> parse(response: HttpResponse): T = try {
         json.decodeFromString<T>(response.bodyText())

@@ -38,6 +38,13 @@ class RecordedJellyfin(
     @Volatile
     var tokenRevoked = false
 
+    /**
+     * Answer every request HTTP 502, as a reverse proxy in front of a Jellyfin server that's stopped does. Hand-written:
+     * the demo server is never down on demand.
+     */
+    @Volatile
+    var behindDownProxy = false
+
     /** Once false, the server refuses to start Quick Connect, as Jellyfin does when its dashboard turns it off. */
     @Volatile
     var quickConnectEnabled = true
@@ -92,6 +99,7 @@ class RecordedJellyfin(
 
     private fun respond(exchange: HttpExchange) {
         synchronized(requested) { requested += exchange.requestURI.toString() }
+        if (behindDownProxy) return exchange.send(502, "<html><body><h1>502 Bad Gateway</h1></body></html>", "text/html")
         val path = exchange.requestURI.path
         val authorization = exchange.requestHeaders.getFirst("Authorization")
             ?: return exchange.send(401, resource("unauthorized.html"), "text/html")

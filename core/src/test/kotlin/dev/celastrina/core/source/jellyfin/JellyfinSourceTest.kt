@@ -182,6 +182,14 @@ class JellyfinSourceTest {
     }
 
     @Test
+    fun `a server whose reverse proxy says it is down answers unreachable`() = runTest {
+        val source = movieNight()
+        jellyfin.behindDownProxy = true
+
+        assertEquals(LookupOutcome.Failure(LookupOutcome.Failure.Reason.Unreachable), source.lookUp(nightOfTheLivingDead))
+    }
+
+    @Test
     fun `a server that has gone away answers unreachable`() = runTest {
         val source = movieNight()
         jellyfin.close()
