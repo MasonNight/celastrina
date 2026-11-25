@@ -15,14 +15,8 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.int
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -36,6 +30,8 @@ import kotlin.test.assertTrue
  * shell, base64-encoded JSON in, one JSON reply out. The rules behind it are covered by the Core's tests.
  *
  * Runs on a device (the AFTTI43) against the installed Celastrina Dev, whose configuration it leaves as it found it.
+ * It reads the replies with Android's own org.json: against the minified release APK (-PtestBuildType=release) the test
+ * links against the app's copy of each library, and R8 renames those it doesn't keep, kotlinx.serialization among them.
  */
 @RunWith(AndroidJUnit4::class)
 class ConfigurationProviderTest {
@@ -50,7 +46,7 @@ class ConfigurationProviderTest {
         assertEquals("invalid", reply.string("result"))
         assertEquals("warning_not_acknowledged", reply.string("problem"))
         assertTrue("home network" in reply.string("warning"), reply.toString())
-        assertEquals(1, reply["warning_version"]!!.jsonPrimitive.int)
+        assertEquals(1, reply.getInt("warning_version"))
     }
 
     @Test
@@ -62,8 +58,8 @@ class ConfigurationProviderTest {
         val noName = contentCall("remove-extension")
 
         assertEquals("ok", extensions.string("result"))
-        assertTrue(extensions["updates_available"]!!.jsonPrimitive.int >= 0, extensions.toString())
-        assertTrue(extensions["repositories"] is JsonArray, extensions.toString())
+        assertTrue(extensions.getInt("updates_available") >= 0, extensions.toString())
+        assertTrue(extensions.get("repositories") is JSONArray, extensions.toString())
         assertEquals("ok" to "ok", removeUnknown.string("result") to removeUnknownRepository.string("result"))
         assertEquals("unknown_extension", updateUnknown.string("problem"))
         assertEquals("bad_argument", noName.string("problem"))
@@ -72,13 +68,13 @@ class ConfigurationProviderTest {
     @Test
     fun the_agent_reads_the_status_with_the_protocol_version() {
         val status = contentCall("status")
-        val sources = contentCall("list")["sources"]!!.jsonArray.size
+        val sources = contentCall("list").getJSONArray("sources").length()
 
         assertEquals("ok", status.string("result"))
-        assertEquals(1, status["protocol_version"]!!.jsonPrimitive.int)
+        assertEquals(1, status.getInt("protocol_version"))
         assertEquals(BuildConfig.VERSION_NAME, status.string("app_version"))
-        assertEquals(sources, status["sources"]!!.jsonPrimitive.int)
-        assertTrue(status["extensions"]!!.jsonPrimitive.int >= 0, status.toString())
+        assertEquals(sources, status.getInt("sources"))
+        assertTrue(status.getInt("extensions") >= 0, status.toString())
         assertTrue(status.string("tmdb_key") in setOf("project", "override", "none"), status.toString())
         val queried = shell("content query --uri content://$authority/status")
         assertTrue("protocol_version=1" in queried, queried)
@@ -124,7 +120,7 @@ class ConfigurationProviderTest {
 
             assertEquals(listOf("failure", "provider-test-jellyfin", "unreachable"), listOf(reply.string("result"), reply.string("id"), reply.string("reason")))
             val listed = sources().single { it.string("id") == "provider-test-jellyfin" }
-            assertEquals("failing" to false, listed.string("test_state") to listed["has_login"]!!.jsonPrimitive.boolean)
+            assertEquals("failing" to false, listed.string("test_state") to listed.getBoolean("has_login"))
             assertTrue("secret" !in shell("run-as ${BuildConfig.APPLICATION_ID} cat files/core/sources.json"))
         } finally {
             contentCall("remove", base64("""{"id": "provider-test-jellyfin"}"""))
@@ -165,11 +161,11 @@ class ConfigurationProviderTest {
 
     @Test
     fun a_change_from_a_computer_is_announced_on_the_tv() = runBlocking {
-        val source = contentCall("list")["sources"]!!.jsonArray.firstOrNull()?.jsonObject
+        val source = contentCall("list").getJSONArray("sources").optJSONObject(0)
         assumeTrue("Celastrina Dev has no Sources to toggle", source != null)
         val id = source!!.string("id")
         val name = source.string("name")
-        val wasEnabled = source["enabled"]!!.jsonPrimitive.boolean
+        val wasEnabled = source.getBoolean("enabled")
         val configuration = (instrumentation.targetContext.applicationContext as CelastrinaApplication).configuration
         val announced = mutableListOf<ConfigurationChange>()
         val listening = launch(start = CoroutineStart.UNDISPATCHED) { configuration.changes.toList(announced) }
@@ -205,14 +201,14 @@ class ConfigurationProviderTest {
         }
     }
 
-    private fun sources() = contentCall("list")["sources"]!!.jsonArray.map { it.jsonObject }
+    private fun sources() = contentCall("list").getJSONArray("sources").let { list -> List(list.length()) { list.getJSONObject(it) } }
 
-    private fun contentCall(method: String, arg: String? = null): JsonObject {
+    private fun contentCall(method: String, arg: String? = null): JSONObject {
         val output = shell("content call --uri content://$authority --method $method" + (arg?.let { " --arg $it" } ?: ""))
         // `content call` prints: Result: Bundle[{reply={"result":"ok",…}}]
         val reply = output.substringAfter("reply=", missingDelimiterValue = "").substringBeforeLast("}]")
         check(reply.isNotEmpty()) { "No reply from content call: $output" }
-        return Json.parseToJsonElement(reply).jsonObject
+        return JSONObject(reply)
     }
 
     /** Runs [command] as the `shell` user, as `adb shell` does. */
@@ -223,7 +219,7 @@ class ConfigurationProviderTest {
 
     private fun base64(json: String) = Base64.encodeToString(json.toByteArray(), Base64.NO_WRAP)
 
-    private fun JsonObject.string(name: String) = this[name]!!.jsonPrimitive.content
+    private fun JSONObject.string(name: String): String = getString(name)
 
     private companion object {
         const val PER_USER_RANGE = 100_000
