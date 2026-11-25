@@ -167,11 +167,11 @@ fun PlayRow(
 
 /**
  * The Stream Play starts with: the one that [lastWorked] for this Title or episode, else the first in the Household's
- * order that this TV can decode, with Streams that failed here in the last 24 hours last, or the first Stream at all
- * when the TV seems to decode none.
+ * order that this TV can decode, with Streams that failed here in the last 24 hours last. A Stream this TV can't decode
+ * is never Play's choice (story 35); Choose Stream still lists it.
  */
 fun Lookup.firstChoice(failoverMemory: FailoverMemory, lastWorked: WorkedStream? = null): Stream? =
-    candidates(MediaCodecDecoders, failoverMemory, lastWorked).firstOrNull() ?: streams.firstOrNull()
+    candidates(MediaCodecDecoders, failoverMemory, lastWorked).firstOrNull()
 
 /** + Watchlist, which adds [title] to the Watchlist, or ✓ Watchlist, which takes it off. */
 @Composable
