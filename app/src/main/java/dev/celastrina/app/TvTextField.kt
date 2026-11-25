@@ -54,7 +54,7 @@ fun TvTextField(
     val box = remember { FocusRequester() }
     val field = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    if (focusFirst) LaunchedEffect(Unit) { box.requestFocus() }
+    if (focusFirst) LaunchedEffect(Unit) { box.requestFocusOnceShown() }
     // Null until the box is first opened, so a box that was never edited doesn't take focus.
     var wasEditing by remember { mutableStateOf<Boolean?>(null) }
     LaunchedEffect(editing) {

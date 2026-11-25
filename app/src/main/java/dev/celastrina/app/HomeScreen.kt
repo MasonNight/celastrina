@@ -257,7 +257,7 @@ private fun TitleRow(
                 }
                 val target = focusTarget?.takeIf { it.first == homeRow }?.second
                 val targetRequester = remember { FocusRequester() }
-                LaunchedEffect(target) { if (target != null) runCatching { targetRequester.requestFocus() } }
+                LaunchedEffect(target) { if (target != null) runCatching { targetRequester.requestFocusOnceShown() } }
                 LazyRow(
                     state = listState,
                     modifier = Modifier.focusRestorer(),

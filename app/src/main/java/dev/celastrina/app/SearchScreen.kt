@@ -23,6 +23,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -69,6 +70,7 @@ fun SearchScreen(search: Search, gridState: LazyGridState, opened: Title?, onOpe
     }
     val focusOpened = opened != null && opened in titles
     LaunchedEffect(Unit) {
+        withFrameNanos { }
         runCatching { if (focusOpened) openedCard.requestFocus() else firstKey.requestFocus() }
             .onFailure { runCatching { firstKey.requestFocus() } }
     }

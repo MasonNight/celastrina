@@ -93,7 +93,7 @@ private fun <T : Any> HouseholdRowOf(
     val target = model.focusTarget?.takeIf { it.first == row && !model.focusSearch }?.second
     val targetRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { if (model.focusTarget == null) model.focusTarget = row to titleOf(items.first()) }
-    LaunchedEffect(target) { if (target != null) runCatching { targetRequester.requestFocus() } }
+    LaunchedEffect(target) { if (target != null) runCatching { targetRequester.requestFocusOnceShown() } }
     Column {
         Text(row.label, style = MaterialTheme.typography.titleMedium, color = Color.White, modifier = Modifier.padding(start = 48.dp, bottom = 8.dp))
         LazyRow(

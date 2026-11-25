@@ -49,7 +49,7 @@ fun GiveUpScreen(title: String, gaveUp: FailoverStep.GaveUp, lookup: TitleLookup
     val retry = remember { FocusRequester() }
     val choose = remember { FocusRequester() }
     val retryWith = current?.firstChoice(failoverMemory)
-    LaunchedEffect(retryWith != null) { (if (retryWith != null) retry else choose).requestFocus() }
+    LaunchedEffect(retryWith != null) { (if (retryWith != null) retry else choose).requestFocusOnceShown() }
     Column(
         Modifier.fillMaxSize().background(Color.Black).padding(horizontal = 48.dp, vertical = 40.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),

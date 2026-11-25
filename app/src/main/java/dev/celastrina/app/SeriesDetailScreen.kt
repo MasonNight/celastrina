@@ -170,7 +170,7 @@ private fun SeasonTabs(seasons: List<Season>, selected: Int, onSelect: (Int) -> 
     // Focus starts on the season the screen opened on.
     val openedOn = remember { selected }
     val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focus.requestFocus() }
+    LaunchedEffect(Unit) { focus.requestFocusOnceShown() }
     // As on other TV apps, moving focus onto a tab shows that season.
     TabRow(selectedTabIndex = selected, modifier = Modifier.padding(start = 40.dp)) {
         seasons.forEachIndexed { index, season ->

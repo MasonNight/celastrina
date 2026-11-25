@@ -70,7 +70,7 @@ fun AddSourceScreen(configuration: ConfigurationService, onExtensions: () -> Uni
 @Composable
 private fun KindChoice(onExtensions: () -> Unit, onChoose: (String) -> Unit) {
     val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) { first.requestFocus() }
+    LaunchedEffect(Unit) { first.requestFocusOnceShown() }
     Text("What kind of Source?", style = MaterialTheme.typography.titleMedium)
     ADDABLE_KINDS.forEachIndexed { index, kind ->
         ListItem(
@@ -202,7 +202,7 @@ private fun SourceForm(kind: String, configuration: ConfigurationService, onDone
         }
         is FormState.SavedFailing -> {
             val back = remember { FocusRequester() }
-            LaunchedEffect(Unit) { back.requestFocus() }
+            LaunchedEffect(Unit) { back.requestFocusOnceShown() }
             Text(
                 "${name.trim()} is saved, but it failed its connection test: ${s.message}",
                 style = MaterialTheme.typography.bodyLarge,

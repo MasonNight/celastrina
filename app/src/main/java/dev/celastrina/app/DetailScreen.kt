@@ -155,7 +155,7 @@ fun PlayRow(
     val choose = remember { FocusRequester() }
     val best = lookup?.firstChoice(failoverMemory, watched?.lastWorked)
     val resumes = watched != null && watched.resumeAtMillis > 0
-    LaunchedEffect(best != null) { (if (best != null) play else choose).requestFocus() }
+    LaunchedEffect(best != null) { (if (best != null) play else choose).requestFocusOnceShown() }
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
         label?.let { Text(it, style = MaterialTheme.typography.titleSmall) }
         Button(onClick = { best?.let(onPlay) }, enabled = best != null, modifier = Modifier.focusRequester(play)) { Text(if (resumes) "Resume" else "Play") }

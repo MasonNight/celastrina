@@ -39,7 +39,7 @@ import java.util.Locale
 fun ChooseStreamScreen(title: String, lookup: Lookup?, onPick: (Stream) -> Unit) {
     val first = remember { FocusRequester() }
     val firstStream = lookup?.streams?.firstOrNull()
-    LaunchedEffect(firstStream != null) { if (firstStream != null) first.requestFocus() }
+    LaunchedEffect(firstStream != null) { if (firstStream != null) first.requestFocusOnceShown() }
 
     Column(Modifier.fillMaxSize().background(Color.Black).padding(start = 48.dp, end = 48.dp, top = 32.dp)) {
         Text("Choose Stream", style = MaterialTheme.typography.headlineMedium)

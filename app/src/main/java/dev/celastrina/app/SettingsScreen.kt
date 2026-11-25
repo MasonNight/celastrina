@@ -34,7 +34,7 @@ fun SettingsScreen(
     onAbout: () -> Unit,
 ) {
     val firstItem = remember { FocusRequester() }
-    LaunchedEffect(Unit) { firstItem.requestFocus() }
+    LaunchedEffect(Unit) { firstItem.requestFocusOnceShown() }
     Column(Modifier.fillMaxSize().padding(horizontal = 96.dp, vertical = 48.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
         ListItem(

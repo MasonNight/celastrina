@@ -109,7 +109,7 @@ fun SourcesScreen(configuration: ConfigurationService, onAddSource: () -> Unit) 
 @Composable
 private fun SourceList(sources: List<SourceSummary>, message: String?, onAddSource: () -> Unit, onPick: (SourceSummary) -> Unit) {
     val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) { first.requestFocus() }
+    LaunchedEffect(Unit) { first.requestFocusOnceShown() }
     message?.let { Text(it, style = MaterialTheme.typography.bodyLarge, color = Warning) }
     LazyColumn(contentPadding = PaddingValues(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         item(key = "add") {
@@ -174,7 +174,7 @@ private fun SourceActions(
     when (mode) {
         ActionsMode.Menu -> {
             val first = remember { FocusRequester() }
-            LaunchedEffect(source.id) { first.requestFocus() }
+            LaunchedEffect(source.id) { first.requestFocusOnceShown() }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onToggle, modifier = Modifier.focusRequester(first)) { Text(if (source.enabled) "Disable" else "Enable") }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -202,7 +202,7 @@ private fun SourceActions(
         ActionsMode.ConfirmRemove -> {
             BackHandler { mode = ActionsMode.Menu }
             val keep = remember { FocusRequester() }
-            LaunchedEffect(Unit) { keep.requestFocus() }
+            LaunchedEffect(Unit) { keep.requestFocusOnceShown() }
             Text(
                 "Remove ${source.name} for good? Its login goes too. You'd have to add it again to use it.",
                 style = MaterialTheme.typography.bodyLarge,
