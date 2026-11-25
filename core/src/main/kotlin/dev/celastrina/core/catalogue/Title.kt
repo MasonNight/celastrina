@@ -41,8 +41,15 @@ enum class HomeRow(val label: String) {
 
 /**
  * A named, ordered list of Titles shown on home, as far as it has loaded. While [canLoadMore], `Catalogue.more`
- * returns it with the next Titles added; it stops at about 100 Titles.
+ * returns it with the next Titles added; it stops at about 100 Titles. A row [fromOfflineCache] was read, at least in
+ * part, from what the cache kept because TMDB couldn't be reached: it may be old, so it's worth loading again once the TV
+ * is back online.
  */
-class Row internal constructor(val name: String, val titles: List<Title>, internal val rest: RowRest?) {
+class Row internal constructor(
+    val name: String,
+    val titles: List<Title>,
+    internal val rest: RowRest?,
+    val fromOfflineCache: Boolean = false,
+) {
     val canLoadMore: Boolean get() = rest != null
 }

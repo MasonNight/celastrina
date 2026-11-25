@@ -15,27 +15,29 @@ internal class Listed(val title: Title, val popularity: Double)
 /** Builds home's rows from TMDB lists, a page of Titles at a time. [fetch] reads one page of a list. */
 internal class HomeRows(private val fetch: suspend (ListSource, page: Int) -> ListPage) {
 
-    class ListPage(val titles: List<Listed>, val nextPage: Int?)
+    /** One page of a list; [fromOfflineCache] when it came from the cache because TMDB couldn't be reached. */
+    class ListPage(val titles: List<Listed>, val nextPage: Int?, val fromOfflineCache: Boolean = false)
 
     suspend fun first(homeRow: HomeRow): Row =
         fill(homeRow, emptyList(), sourcesOf(homeRow).map { RowList(it, waiting = emptyList(), nextPage = 1) })
 
     suspend fun more(row: Row): Row {
         val rest = row.rest ?: return row
-        return fill(rest.homeRow, row.titles, rest.lists)
+        return fill(rest.homeRow, row.titles, rest.lists, row.fromOfflineCache)
     }
 
     /**
      * Adds up to a page of Titles to [shown]. Each step takes the most popular Title waiting at the head of any list,
      * fetching a list's next page whenever it runs dry, so merged lists stay in popularity order across pages.
      */
-    private suspend fun fill(homeRow: HomeRow, shown: List<Title>, startLists: List<RowList>): Row {
+    private suspend fun fill(homeRow: HomeRow, shown: List<Title>, startLists: List<RowList>, shownFromOfflineCache: Boolean = false): Row {
+        var fromOfflineCache = shownFromOfflineCache
         val titles = shown.toMutableList()
         val seen = shown.mapTo(mutableSetOf()) { it.kind to it.tmdbId }
         val target = minOf(titles.size + PAGE_SIZE, MAX_TITLES)
         var lists = startLists
         while (titles.size < target) {
-            lists = lists.map { refill(homeRow, it) }
+            lists = lists.map { list -> refill(homeRow, list) { fromOfflineCache = true } }
             val next = lists.indices.filter { lists[it].waiting.isNotEmpty() }
                 .maxByOrNull { lists[it].waiting.first().popularity } ?: break
             val taken = lists[next].waiting.first().title
@@ -43,13 +45,14 @@ internal class HomeRows(private val fetch: suspend (ListSource, page: Int) -> Li
             if (seen.add(taken.kind to taken.tmdbId)) titles += taken
         }
         val exhausted = lists.all { it.waiting.isEmpty() && it.nextPage == null }
-        return Row(homeRow.label, titles, RowRest(homeRow, lists).takeUnless { exhausted || titles.size >= MAX_TITLES })
+        return Row(homeRow.label, titles, RowRest(homeRow, lists).takeUnless { exhausted || titles.size >= MAX_TITLES }, fromOfflineCache)
     }
 
-    private suspend fun refill(homeRow: HomeRow, list: RowList): RowList {
+    private suspend fun refill(homeRow: HomeRow, list: RowList, offline: () -> Unit): RowList {
         var refilled = list
         while (refilled.waiting.isEmpty() && refilled.nextPage != null) {
             val page = fetch(refilled.source, refilled.nextPage!!)
+            if (page.fromOfflineCache) offline()
             refilled = refilled.copy(
                 waiting = page.titles.filter { it.title.category == homeRow.category },
                 nextPage = page.nextPage,

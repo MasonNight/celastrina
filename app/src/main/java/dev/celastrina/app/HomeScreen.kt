@@ -95,9 +95,10 @@ fun HomeScreen(
     val offline by remember {
         derivedStateOf { model.rows.values.any { it == RowState.Failed(CatalogueUnavailable.Reason.Unreachable) } }
     }
-    // Rows that couldn't reach TMDB, and had nothing cached, load once the TV is back online.
-    LaunchedEffect(offline) {
-        while (offline) {
+    val fromOfflineCache by remember { derivedStateOf { model.rows.values.any { it is RowState.Loaded && it.row.fromOfflineCache } } }
+    // Rows that couldn't reach TMDB, or showed what the cache kept, load afresh once the TV is back online.
+    LaunchedEffect(offline || fromOfflineCache) {
+        while (offline || fromOfflineCache) {
             delay(OFFLINE_RETRY_MILLIS)
             model.retryFailed()
         }

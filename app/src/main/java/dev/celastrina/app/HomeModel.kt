@@ -45,6 +45,7 @@ class HomeModel(private val catalogue: Catalogue, private val scope: CoroutineSc
     var focusSearch by mutableStateOf(false)
 
     private val loadingMore = mutableSetOf<HomeRow>()
+    private val refreshing = mutableSetOf<HomeRow>()
     private val heroes = object : LinkedHashMap<Title, Hero>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Title, Hero>) = size > HEROES_KEPT
     }
@@ -53,9 +54,28 @@ class HomeModel(private val catalogue: Catalogue, private val scope: CoroutineSc
         HomeRow.entries.forEach(::load)
     }
 
-    /** Loads again each row that couldn't load, as when the TV comes back online. */
+    /**
+     * Loads again each row that couldn't load, and each shown from what the cache kept while offline, as when the TV
+     * comes back online. A row from the cache stays on screen while it loads; if TMDB still can't be reached, it stays
+     * as it was.
+     */
     fun retryFailed() {
         rows.filterValues { it is RowState.Failed }.keys.forEach(::load)
+        rows.filterValues { it is RowState.Loaded && it.row.fromOfflineCache }.keys.forEach(::refresh)
+    }
+
+    private fun refresh(homeRow: HomeRow) {
+        if (!refreshing.add(homeRow)) return
+        scope.launch {
+            try {
+                val row = offMain { catalogue.row(homeRow) }
+                if (!row.fromOfflineCache) rows[homeRow] = RowState.Loaded(row)
+            } catch (_: CatalogueUnavailable) {
+                // Still offline: the row keeps what it shows.
+            } finally {
+                refreshing.remove(homeRow)
+            }
+        }
     }
 
     private fun load(homeRow: HomeRow) {

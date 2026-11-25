@@ -14,6 +14,8 @@ import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 
@@ -71,6 +73,20 @@ class CatalogueCacheTest {
 
             assertEquals("Avengers: Doomsday", catalogue(tmdb).row(HomeRow.Movies).titles.first().name)
             assertEquals("Night of the Living Dead", catalogue(tmdb).movieDetails(10331).title.name)
+        }
+    }
+
+    @Test
+    fun `a row shown from what was cached while offline says so, so home can load it afresh once the network is back`() = runTest {
+        RecordedTmdb(apiKey = "project-token").use { tmdb ->
+            assertFalse(catalogue(tmdb).row(HomeRow.Movies).fromOfflineCache)
+            clock.advanceBy(30.days)
+            network.up = false
+
+            assertTrue(catalogue(tmdb).row(HomeRow.Movies).fromOfflineCache)
+
+            network.up = true
+            assertFalse(catalogue(tmdb).row(HomeRow.Movies).fromOfflineCache)
         }
     }
 

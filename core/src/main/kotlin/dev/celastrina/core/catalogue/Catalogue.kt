@@ -150,10 +150,12 @@ class Catalogue(
     }
 
     private suspend fun listPage(source: ListSource, page: Int): HomeRows.ListPage {
-        val list = getJson<TmdbListPage>(source.path, *source.query.toTypedArray(), "language" to language, "page" to "$page", freshForMillis = ROW_FRESH_FOR_MILLIS)
+        val answer = answerOf<TmdbListPage>(source.path, *source.query.toTypedArray(), "language" to language, "page" to "$page", freshForMillis = ROW_FRESH_FOR_MILLIS)
+        val list = answer.value
         return HomeRows.ListPage(
             titles = list.results.map { Listed(it.toTitle(source.kind), it.popularity) },
             nextPage = (page + 1).takeIf { it <= minOf(list.totalPages, TMDB_LAST_PAGE) },
+            fromOfflineCache = answer.fromOfflineCache,
         )
     }
 
@@ -225,16 +227,27 @@ class Catalogue(
         vararg query: Pair<String, String>,
         freshForMillis: Long = TITLE_FRESH_FOR_MILLIS,
         cached: Boolean = true,
-    ): T {
+    ): T = answerOf<T>(path, *query, freshForMillis = freshForMillis, cached = cached).value
+
+    /** An answer from TMDB, or from the cache; [fromOfflineCache] when it's what the cache kept because TMDB couldn't be reached. */
+    private class Answer<T>(val value: T, val fromOfflineCache: Boolean = false)
+
+    /** As [getJson], saying whether the answer came from the cache because TMDB couldn't be reached. */
+    private suspend inline fun <reified T> answerOf(
+        path: String,
+        vararg query: Pair<String, String>,
+        freshForMillis: Long = TITLE_FRESH_FOR_MILLIS,
+        cached: Boolean = true,
+    ): Answer<T> {
         if (tmdb.apiKey.isBlank()) throw CatalogueUnavailable(CatalogueUnavailable.Reason.NoKey)
         val cache = cache.takeIf { cached }
         val request = url(path, query.toList(), withKey = false)
-        cache?.fresh(request, freshForMillis)?.let { fresh -> decodeOrNull<T>(fresh)?.let { return it } }
+        cache?.fresh(request, freshForMillis)?.let { fresh -> decodeOrNull<T>(fresh)?.let { return Answer(it) } }
         val response = try {
             http.get(url(path, query.toList()), authHeaders())
         } catch (e: IOException) {
             // Offline, what's cached is better than nothing, however old.
-            cache?.kept(request)?.let { kept -> decodeOrNull<T>(kept)?.let { return it } }
+            cache?.kept(request)?.let { kept -> decodeOrNull<T>(kept)?.let { return Answer(it, fromOfflineCache = true) } }
             throw CatalogueUnavailable(CatalogueUnavailable.Reason.Unreachable, e)
         }
         when {
@@ -248,7 +261,7 @@ class Catalogue(
             throw CatalogueUnavailable(CatalogueUnavailable.Reason.ServiceError, e)
         }
         cache?.store(request, body)
-        return decoded
+        return Answer(decoded)
     }
 
     /** A cached answer, or null when it no longer reads (if what the Catalogue reads has changed shape since). */
