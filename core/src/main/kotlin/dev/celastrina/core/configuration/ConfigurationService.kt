@@ -13,6 +13,7 @@ import dev.celastrina.core.extension.ListedExtension
 import dev.celastrina.core.extension.RepositoryReader
 import dev.celastrina.core.extension.RepositoryUnreadable
 import dev.celastrina.core.port.ExtensionLoader
+import dev.celastrina.core.port.Clock
 import dev.celastrina.core.port.HttpClient
 import dev.celastrina.core.port.Logger
 import dev.celastrina.core.port.Storage
@@ -24,7 +25,11 @@ import dev.celastrina.core.source.jellyfin.ConnectionResult
 import dev.celastrina.core.source.jellyfin.MediaServer
 import dev.celastrina.core.source.jellyfin.MediaServerKinds
 import dev.celastrina.core.source.jellyfin.MediaServerLogin
+import dev.celastrina.core.source.jellyfin.QuickConnectStep
 import dev.celastrina.core.source.slugOf
+import dev.celastrina.core.source.stremio.ManifestCheck
+import dev.celastrina.core.source.stremio.StremioAddon
+import dev.celastrina.core.source.stremio.StremioAddonKind
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -51,6 +56,8 @@ class ConfigurationService(
     private val projectTmdbKey: String,
     extensionLoader: ExtensionLoader = ExtensionLoader.None,
     logger: Logger = Logger.StandardOut,
+    /** Dates the marks on Sources added or changed from a computer. */
+    private val clock: Clock = Clock.System,
 ) {
     private val lock = Any()
     private val extensionHost = ExtensionHost(extensionLoader, logger)
@@ -121,6 +128,8 @@ class ConfigurationService(
                 testState = it.testState,
                 hasLogin = login(it.id) != null,
                 problem = NEEDS_NEWER_CELASTRINA.takeIf { _ -> it.extension in needingNewer },
+                addedFromComputerAt = it.addedFromComputerAt,
+                changedFromComputerAt = it.changedFromComputerAt,
             )
         }
     }
@@ -132,6 +141,7 @@ class ConfigurationService(
             when (val kind = kindOf(stored.kind)) {
                 InternetArchiveSource.Kind -> InternetArchiveSource(http, id = stored.id, name = stored.name)
                 in MediaServerKinds.all -> server(stored).source(stored.id, stored.name, kind!!, login(stored.id))
+                StremioAddonKind -> addon(stored).source(stored.id, stored.name, storage.read(manifestKey(stored.id))?.decodeToString())
                 else -> error("Unknown Source Kind ${stored.kind} for Source ${stored.id}")
             }
         }
@@ -149,36 +159,117 @@ class ConfigurationService(
         val name = new.name.trim()
         if (name.isEmpty()) return blankName()
         val url = if (kind == InternetArchiveSource.Kind) {
-            if (new.url != null || new.username != null || new.password != null) return unneededSetting()
+            if (new.url != null || new.username != null || new.password != null) return unneededSetting(kind)
             null
+        } else if (kind == StremioAddonKind) {
+            if (new.username != null || new.password != null) return unneededSetting(kind)
+            StremioAddon.manifestUrlOf(new.url) ?: return badUrl(kind)
         } else {
-            val url = serverAddress(new.url) ?: return badUrl()
+            val url = serverAddress(new.url) ?: return badUrl(kind)
             if (new.username.isNullOrBlank() || new.password == null) {
                 return invalid(WriteOutcome.Problem.MissingLogin, "A ${kind.name} Source needs a username and a password (which may be empty).")
             }
             url
         }
-        val username = new.username?.trim()
-
-        val (id, isNew) = synchronized(lock) {
-            val sources = load()
-            val sameName = sources.find { it.name.equals(name, ignoreCase = true) }
-            when {
-                sameName == null -> {
-                    val id = uniqueId(slugOf(name), sources)
-                    save(sources + StoredSource(id = id, name = name, kind = kind.id, url = url, username = username))
-                    id to true
-                }
-                sameName.kind == kind.id && sameName.url == url && sameName.username == username -> sameName.id to false
-                else -> return invalid(WriteOutcome.Problem.NameTaken, "There's already a Source called ${sameName.name}. Choose another name.")
-            }
+        val id = when (val saved = saveNew(name, kind, url, new.username?.trim(), from)) {
+            is Saved.As -> saved.id
+            is Saved.Refused -> return saved.outcome
         }
-        if (isNew) announcements.tryEmit(ConfigurationChange(ConfigurationChange.Action.Added, name, from))
         return when (val tested = test(id, logInWith = new.password)) {
             WriteOutcome.Ok -> WriteOutcome.Added(id)
             else -> tested
         }
     }
+
+    /**
+     * Starts adding a Jellyfin server with Quick Connect: the answer's code is for the Household to approve in the
+     * server's Quick Connect page, signed in on another device. [new] needs the kind, name and server address. Nothing
+     * is saved until the code is approved.
+     */
+    suspend fun startQuickConnect(new: NewSource): QuickConnect {
+        if (kindOf(new.kind) != MediaServerKinds.Jellyfin) {
+            return QuickConnect.Finished(invalid(WriteOutcome.Problem.QuickConnectUnsupported, "Quick Connect is only for Jellyfin servers. Log in with a username and password instead."))
+        }
+        val name = new.name.trim()
+        if (name.isEmpty()) return QuickConnect.Finished(blankName())
+        val url = serverAddress(new.url) ?: return QuickConnect.Finished(badUrl(MediaServerKinds.Jellyfin))
+        synchronized(lock) { nameTaken(name, load())?.let { return QuickConnect.Finished(it) } }
+        return when (val step = MediaServer(http, url, deviceId(), appVersion).startQuickConnect()) {
+            is QuickConnectStep.Started -> QuickConnect.Waiting(step.code, name, url, step.secret)
+            is QuickConnectStep.Failed -> QuickConnect.Failed(step.reason, quickConnectFailure(name, url, step.reason, starting = true))
+            else -> QuickConnect.Failed(Reason.SourceError, quickConnectFailure(name, url, Reason.SourceError, starting = true))
+        }
+    }
+
+    /**
+     * Asks whether the Household has approved [waiting]'s code yet, answering [QuickConnect.Waiting] until it has.
+     * Once approved, the server is added at the end of the order with the approving user's login, and answers
+     * [WriteOutcome.Added].
+     */
+    suspend fun continueQuickConnect(waiting: QuickConnect.Waiting, from: ChangedFrom): QuickConnect {
+        val (name, url) = waiting.name to waiting.url
+        return when (val step = MediaServer(http, url, deviceId(), appVersion).continueQuickConnect(waiting.secret)) {
+            QuickConnectStep.Waiting -> waiting
+            QuickConnectStep.Expired -> QuickConnect.Failed(Reason.AuthRequired, "The Quick Connect code for $name has expired. Start again for a new code.")
+            is QuickConnectStep.Failed -> QuickConnect.Failed(step.reason, quickConnectFailure(name, url, step.reason, starting = false))
+            is QuickConnectStep.Started -> QuickConnect.Failed(Reason.SourceError, quickConnectFailure(name, url, Reason.SourceError, starting = false))
+            is QuickConnectStep.Connected -> when (val saved = saveNew(name, MediaServerKinds.Jellyfin, url, step.username, from)) {
+                is Saved.Refused -> QuickConnect.Finished(saved.outcome)
+                is Saved.As -> {
+                    synchronized(lock) {
+                        val sources = load()
+                        storage.write(loginKey(saved.id), json.encodeToString(MediaServerLogin.serializer(), step.login).encodeToByteArray())
+                        save(sources.map { if (it.id == saved.id) it.copy(testState = TestState.Passing) else it })
+                    }
+                    QuickConnect.Finished(WriteOutcome.Added(saved.id))
+                }
+            }
+        }
+    }
+
+    private fun quickConnectFailure(name: String, url: String, reason: Reason, starting: Boolean) = when (reason) {
+        Reason.Unreachable -> "Can't reach $name at $url."
+        Reason.AuthRequired -> if (starting) {
+            "Quick Connect is turned off on $name. Turn it on in the server's dashboard, or log in with a username and password."
+        } else {
+            "$name turned down the Quick Connect login. Start again for a new code."
+        }
+        Reason.RateLimited -> "$name is refusing requests for now. Try again later."
+        Reason.SourceError -> "$name answered, but doesn't offer Quick Connect as a Jellyfin server does. Check the address, or log in with a username and password."
+    }
+
+    private sealed interface Saved {
+        data class As(val id: String) : Saved
+        data class Refused(val outcome: WriteOutcome.Invalid) : Saved
+    }
+
+    /**
+     * Saves a new Source at the end of the order, untested, and announces it. The same Source again is harmless and
+     * answers its ID; another Source with the same name is refused.
+     */
+    private fun saveNew(name: String, kind: SourceKind, url: String?, username: String?, from: ChangedFrom): Saved {
+        val saved = synchronized(lock) {
+            val sources = load()
+            val sameName = sources.find { it.name.equals(name, ignoreCase = true) }
+            when {
+                sameName == null -> {
+                    val id = uniqueId(slugOf(name), sources)
+                    val addedAt = clock.nowMillis().takeIf { from == ChangedFrom.Computer }
+                    save(sources + StoredSource(id = id, name = name, kind = kind.id, url = url, username = username, addedFromComputerAt = addedAt))
+                    Saved.As(id)
+                }
+                sameName.kind == kind.id && sameName.url == url && sameName.username == username -> return Saved.As(sameName.id)
+                else -> return Saved.Refused(nameTaken(name, sources)!!)
+            }
+        }
+        announcements.tryEmit(ConfigurationChange(ConfigurationChange.Action.Added, name, from))
+        return saved
+    }
+
+    private fun nameTaken(name: String, sources: List<StoredSource>): WriteOutcome.Invalid? =
+        sources.find { it.name.equals(name, ignoreCase = true) }?.let {
+            invalid(WriteOutcome.Problem.NameTaken, "There's already a Source called ${it.name}. Choose another name.")
+        }
 
     /**
      * Changes a Source's name, server address or login; anything left null stays as it is. The ID never changes.
@@ -187,15 +278,16 @@ class ConfigurationService(
     suspend fun update(id: String, changes: SourceChanges, from: ChangedFrom): WriteOutcome {
         val newName = changes.name?.trim()
         if (newName != null && newName.isEmpty()) return blankName()
-        val newUrl = changes.url?.let { serverAddress(it) ?: return badUrl() }
+        val kind = synchronized(lock) { load().find { it.id == id }?.kind }?.let(::kindOf) ?: return unknownSource(id)
+        val takesUrl = kind in MediaServerKinds.all || kind == StremioAddonKind
+        val takesLogin = kind in MediaServerKinds.all
+        if ((changes.url != null && !takesUrl) || ((changes.username != null || changes.password != null) && !takesLogin)) return unneededSetting(kind)
+        val newUrl = changes.url?.let { (if (kind == StremioAddonKind) StremioAddon.manifestUrlOf(it) else serverAddress(it)) ?: return badUrl(kind) }
         val newUsername = changes.username?.trim()
         if (newUsername != null && (newUsername.isEmpty() || changes.password == null)) {
             return invalid(WriteOutcome.Problem.MissingLogin, "A new username needs its password too.")
         }
-        val serverSettings = changes.url != null || changes.username != null || changes.password != null
-        val kind = synchronized(lock) { load().find { it.id == id }?.kind } ?: return unknownSource(id)
-        if (serverSettings && kindOf(kind) !in MediaServerKinds.all) return unneededSetting()
-        val outcome = change(id) { source ->
+        val outcome = change(id, from) { source ->
             val changed = source.copy(name = newName ?: source.name, url = newUrl ?: source.url, username = newUsername ?: source.username)
             val announcement = when {
                 changed.name != source.name -> ConfigurationChange(ConfigurationChange.Action.Renamed, changed.name, from, previousName = source.name)
@@ -216,7 +308,7 @@ class ConfigurationService(
     /** Keeps the Source, but stops Lookups asking it. */
     fun disable(id: String, from: ChangedFrom): WriteOutcome = setEnabled(id, false, from)
 
-    private fun setEnabled(id: String, enabled: Boolean, from: ChangedFrom) = change(id) { source ->
+    private fun setEnabled(id: String, enabled: Boolean, from: ChangedFrom) = change(id, from) { source ->
         val action = if (enabled) ConfigurationChange.Action.Enabled else ConfigurationChange.Action.Disabled
         Edit(source.copy(enabled = enabled), ConfigurationChange(action, source.name, from).takeIf { source.enabled != enabled })
     }
@@ -242,8 +334,9 @@ class ConfigurationService(
     }
 
     /** Removes the Source and its login for good. Removing one that is already gone is harmless. */
-    fun remove(id: String, from: ChangedFrom): WriteOutcome = change(id, ifMissing = WriteOutcome.Ok) { source ->
+    fun remove(id: String, from: ChangedFrom): WriteOutcome = change(id, from, ifMissing = WriteOutcome.Ok) { source ->
         storage.delete(loginKey(id))
+        storage.delete(manifestKey(id))
         Edit(null, ConfigurationChange(ConfigurationChange.Action.Removed, source.name, from))
     }
 
@@ -363,6 +456,7 @@ class ConfigurationService(
                     provider = provider.name,
                     titleKinds = ExtensionSource.titleKindsOf(provider),
                     imdb = SyncIdName.Imdb in provider.supportedSyncNames,
+                    addedFromComputerAt = clock.nowMillis().takeIf { from == ChangedFrom.Computer },
                 )
                 sources = sources + source
                 source
@@ -415,6 +509,7 @@ class ConfigurationService(
      */
     private suspend fun test(id: String, logInWith: String?): WriteOutcome {
         val source = synchronized(lock) { load().find { it.id == id } } ?: return WriteOutcome.Ok
+        if (kindOf(source.kind) == StremioAddonKind) return testAddon(source)
         if (kindOf(source.kind) !in MediaServerKinds.all) return WriteOutcome.Ok
         val server = server(source)
         val saved = login(id)
@@ -435,6 +530,36 @@ class ConfigurationService(
             is ConnectionResult.Failed -> WriteOutcome.Failed(id, result.reason, failureMessage(source, result.reason, loggedIn = logInWith != null, hadLogin = saved != null))
         }
     }
+
+    /** Fetches the add-on's manifest, and keeps it for Lookups when it offers Streams. */
+    private suspend fun testAddon(source: StoredSource): WriteOutcome {
+        val check = addon(source).check()
+        synchronized(lock) {
+            val sources = load()
+            if (sources.none { it.id == source.id }) return WriteOutcome.Ok
+            if (check is ManifestCheck.Fetched) storage.write(manifestKey(source.id), check.manifest.encodeToByteArray()) else storage.delete(manifestKey(source.id))
+            val state = if (check is ManifestCheck.Fetched) TestState.Passing else TestState.Failing
+            save(sources.map { if (it.id == source.id) it.copy(testState = state) else it })
+        }
+        // An add-on's URL may hold its settings, even a key, so the messages never repeat it.
+        fun failed(reason: Reason, message: String) = WriteOutcome.Failed(source.id, reason, message)
+        return when (check) {
+            is ManifestCheck.Fetched -> WriteOutcome.Ok
+            ManifestCheck.NoStreams -> failed(Reason.SourceError, "${source.name} offers no Streams. Celastrina uses only an add-on's Streams.")
+            ManifestCheck.NotAManifest -> failed(Reason.SourceError, "${source.name} didn't answer with an add-on manifest. Check the URL.")
+            is ManifestCheck.Failed -> failed(
+                check.reason,
+                when (check.reason) {
+                    Reason.Unreachable -> "Can't reach the add-on ${source.name}."
+                    Reason.AuthRequired -> "${source.name} turned the URL down. Its settings may need making again."
+                    Reason.RateLimited -> "${source.name} is refusing requests for now. Try again later."
+                    Reason.SourceError -> "${source.name} didn't answer with an add-on manifest. Check the URL."
+                },
+            )
+        }
+    }
+
+    private fun addon(source: StoredSource) = StremioAddon(http, checkNotNull(source.url) { "Source ${source.id} has no URL" })
 
     private fun failureMessage(source: StoredSource, reason: Reason, loggedIn: Boolean, hadLogin: Boolean) = when (reason) {
         Reason.Unreachable -> "Can't reach ${source.name} at ${source.url}."
@@ -460,13 +585,21 @@ class ConfigurationService(
     /** What an edit of one Source does: the changed Source (null to remove it) and its announcement, if anything changed. */
     private class Edit(val changed: StoredSource?, val announcement: ConfigurationChange?)
 
-    /** Applies [edit] to the Source [id] and saves it. A missing Source answers [ifMissing]. */
-    private fun change(id: String, ifMissing: WriteOutcome = unknownSource(id), edit: (StoredSource) -> Edit): WriteOutcome {
+    /**
+     * Applies [edit] to the Source [id] and saves it, marking it changed from a computer when it was. A missing Source
+     * answers [ifMissing].
+     */
+    private fun change(id: String, from: ChangedFrom, ifMissing: WriteOutcome = unknownSource(id), edit: (StoredSource) -> Edit): WriteOutcome {
         val announcement = synchronized(lock) {
             val sources = load()
             val source = sources.find { it.id == id } ?: return ifMissing
             val result = edit(source)
-            if (result.changed != source) save(sources.mapNotNull { if (it.id == id) result.changed else it })
+            val changed = if (result.announcement != null && from == ChangedFrom.Computer) {
+                result.changed?.copy(changedFromComputerAt = clock.nowMillis())
+            } else {
+                result.changed
+            }
+            if (changed != source) save(sources.mapNotNull { if (it.id == id) changed else it })
             result.announcement
         }
         announcement?.let(announcements::tryEmit)
@@ -498,7 +631,7 @@ class ConfigurationService(
         val kind: String,
         val enabled: Boolean = true,
         val testState: TestState = TestState.Untested,
-        /** A Jellyfin or Emby server's address, without a trailing '/'. */
+        /** A Jellyfin or Emby server's address, without a trailing '/', or an add-on's manifest URL. */
         val url: String? = null,
         val username: String? = null,
         /** For a Source from an Extension: the Extension's name, its provider's name, and what the provider plays. */
@@ -506,6 +639,8 @@ class ConfigurationService(
         val provider: String? = null,
         val titleKinds: Set<Title.Kind> = emptySet(),
         val imdb: Boolean = false,
+        val addedFromComputerAt: Long? = null,
+        val changedFromComputerAt: Long? = null,
     )
 
     @Serializable
@@ -557,12 +692,15 @@ class ConfigurationService(
             }
             return trimmed.takeIf { uri.scheme?.lowercase() in setOf("http", "https") && !uri.host.isNullOrEmpty() }
         }
-        private val KINDS = listOf(InternetArchiveSource.Kind) + MediaServerKinds.all
+
+        private val KINDS = listOf(InternetArchiveSource.Kind) + MediaServerKinds.all + StremioAddonKind
         private val json = Json { ignoreUnknownKeys = true }
 
         private fun kindOf(id: String): SourceKind? = KINDS.find { it.id == id }
 
         private fun loginKey(id: String) = "login-$id.json"
+
+        private fun manifestKey(id: String) = "manifest-$id.json"
 
         /** [text] as a server address, `http(s)://host[:port][/path]` without a trailing '/', or null when it isn't one. */
         private fun serverAddress(text: String?): String? {
@@ -578,10 +716,17 @@ class ConfigurationService(
         private fun invalid(problem: WriteOutcome.Problem, message: String) = WriteOutcome.Invalid(problem, message)
         private fun blankName() = invalid(WriteOutcome.Problem.BlankName, "A Source needs a name.")
         private fun unknownSource(id: String) = invalid(WriteOutcome.Problem.UnknownSource, "There's no Source with the ID $id.")
-        private fun unneededSetting() = invalid(WriteOutcome.Problem.UnneededSetting, "The Internet Archive needs no URL or login.")
-        private fun badUrl() = invalid(
+        private fun unneededSetting(kind: SourceKind) = invalid(
+            WriteOutcome.Problem.UnneededSetting,
+            if (kind == StremioAddonKind) "A Stremio-compatible add-on needs only its manifest URL, no login." else "The ${kind.name} needs no URL or login.",
+        )
+        private fun badUrl(kind: SourceKind) = invalid(
             WriteOutcome.Problem.BadUrl,
-            "A Jellyfin or Emby Source needs the server's address, starting http:// or https://, such as http://192.168.1.20:8096.",
+            if (kind == StremioAddonKind) {
+                "A Stremio-compatible add-on Source needs its manifest URL, starting http:// or https:// and ending /manifest.json."
+            } else {
+                "A Jellyfin or Emby Source needs the server's address, starting http:// or https://, such as http://192.168.1.20:8096."
+            },
         )
     }
 }
@@ -600,7 +745,10 @@ enum class TmdbKeyInUse {
     None,
 }
 
-/** A Source to add. [kind] is a Source Kind's ID; Jellyfin and Emby need [url], [username] and [password]. */
+/**
+ * A Source to add. [kind] is a Source Kind's ID; Jellyfin and Emby need [url], [username] and [password], and a
+ * Stremio-compatible add-on needs its manifest URL as [url].
+ */
 data class NewSource(
     val kind: String,
     val name: String,
@@ -630,6 +778,10 @@ data class SourceSummary(
     val position: Int,
     val testState: TestState,
     val hasLogin: Boolean,
+    /** When the agent added it from a computer, in epoch milliseconds; null when it was added on the TV or preinstalled. */
+    val addedFromComputerAt: Long?,
+    /** When the agent last changed it from a computer, in epoch milliseconds; null when it never has. */
+    val changedFromComputerAt: Long?,
     /** Why Lookups don't ask this Source though it is enabled, such as "Needs a newer Celastrina"; null when they do. */
     val problem: String? = null,
 )
@@ -650,9 +802,26 @@ sealed interface WriteOutcome {
     data class Failed(val sourceId: String, val reason: Reason, val message: String) : WriteOutcome
 
     enum class Problem {
-        UnknownSource, BlankName, UnknownKind, BadUrl, MissingLogin, NameTaken, RepeatedSource, UnneededSetting, BlankTmdbKey,
+        UnknownSource, BlankName, UnknownKind, BadUrl, MissingLogin, NameTaken, RepeatedSource, UnneededSetting, BlankTmdbKey, QuickConnectUnsupported,
         UnknownRepository, UnknownExtension, PinnedToOtherRepository, MissingHash, HashMismatch,
     }
+}
+
+/** How adding a Jellyfin server with Quick Connect is going. */
+sealed interface QuickConnect {
+    /** Show [code] until the Household approves it on the server, asking again every few seconds. */
+    class Waiting internal constructor(
+        val code: String,
+        internal val name: String,
+        internal val url: String,
+        internal val secret: String,
+    ) : QuickConnect
+
+    /** Done: the server was [added][WriteOutcome.Added], or the add was [refused][WriteOutcome.Invalid]. */
+    data class Finished(val outcome: WriteOutcome) : QuickConnect
+
+    /** Couldn't log in, for [reason]; nothing was saved. */
+    data class Failed(val reason: Reason, val message: String) : QuickConnect
 }
 
 /** Where a change was made: on the TV, or by the agent over ADB. */

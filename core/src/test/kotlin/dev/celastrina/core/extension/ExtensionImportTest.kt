@@ -14,6 +14,7 @@ import dev.celastrina.core.source.LookupOutcome.Failure.Reason
 import dev.celastrina.core.testing.JvmExtensionLoader
 import dev.celastrina.core.testing.RecordedExtensionSites
 import dev.celastrina.core.testing.RecordingLogger
+import dev.celastrina.core.testing.VirtualClock
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -33,6 +34,7 @@ class ExtensionImportTest {
     lateinit var dir: File
 
     private val sites = RecordedExtensionSites()
+    private val clock = VirtualClock()
 
     @AfterEach
     fun stopServer() = sites.close()
@@ -42,6 +44,7 @@ class ExtensionImportTest {
         JdkHttpClient(),
         appVersion = "1.2.3",
         projectTmdbKey = "",
+        clock = clock,
         extensionLoader = JvmExtensionLoader(File(dir, "code")),
         logger = RecordingLogger(),
     )
@@ -142,6 +145,8 @@ class ExtensionImportTest {
                 position = 2,
                 testState = TestState.Untested,
                 hasLogin = false,
+                addedFromComputerAt = clock.nowMillis(),
+                changedFromComputerAt = null,
             ),
             restarted.list().last(),
         )

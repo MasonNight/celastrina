@@ -19,6 +19,10 @@ import java.net.URLDecoder
  * does. A search ([`/Items`][answerItems]) gets the recording for its Title kind and search term, or the demo's
  * recorded empty result when there is none.
  *
+ * Quick Connect replays the demo's recorded flow: [`Initiate`][answerQuickConnect] gets the code, `Connect` answers
+ * waiting until the test [approves][approveQuickConnect] it, and then `AuthenticateWithQuickConnect` logs in as the
+ * demo account. Its secret is replaced with [QUICK_CONNECT_SECRET].
+ *
  * `items-movie-caminandes-llama-drama.json` is the recorded search with two subtitle streams added by hand (an
  * external English SubRip file and an embedded Spanish PGS track), because nothing on the demo server has subtitles.
  */
@@ -30,6 +34,26 @@ class RecordedJellyfin(
     /** Once true, the server refuses the token, as Jellyfin does after the session is signed out or deleted. */
     @Volatile
     var tokenRevoked = false
+
+    /** Once false, the server refuses to start Quick Connect, as Jellyfin does when its dashboard turns it off. */
+    @Volatile
+    var quickConnectEnabled = true
+
+    @Volatile
+    private var quickConnect = QuickConnectState.None
+
+    /** The Household approves the code on another device, signed in to the server. */
+    fun approveQuickConnect() {
+        check(quickConnect == QuickConnectState.Waiting) { "No Quick Connect is waiting: $quickConnect" }
+        quickConnect = QuickConnectState.Approved
+    }
+
+    /** The server forgets the code, as Jellyfin does after a few minutes. */
+    fun forgetQuickConnect() {
+        quickConnect = QuickConnectState.None
+    }
+
+    private enum class QuickConnectState { None, Waiting, Approved }
 
     private val requested = mutableListOf<String>()
 
@@ -54,6 +78,7 @@ class RecordedJellyfin(
             return exchange.send(400, "Missing client fields in the MediaBrowser Authorization header", "text/plain")
         }
         if (exchange.requestMethod == "POST" && path == "/Users/AuthenticateByName") return answerLogin(exchange)
+        if (path.startsWith("/QuickConnect/") || path == "/Users/AuthenticateWithQuickConnect") return answerQuickConnect(exchange)
         if (tokenRevoked || TOKEN.find(authorization)?.groupValues?.get(1) != ACCESS_TOKEN) {
             return exchange.send(401, resource("unauthorized.html"), "text/html")
         }
@@ -74,6 +99,35 @@ class RecordedJellyfin(
             exchange.send(200, resource("authenticate-by-name.json"), JSON)
         } else {
             exchange.send(401, resource("unauthorized.html"), "text/html")
+        }
+    }
+
+    private fun answerQuickConnect(exchange: HttpExchange) {
+        val path = exchange.requestURI.path
+        when {
+            exchange.requestMethod == "POST" && path == "/QuickConnect/Initiate" -> if (quickConnectEnabled) {
+                quickConnect = QuickConnectState.Waiting
+                exchange.send(200, resource("quick-connect-initiate.json"), JSON)
+            } else {
+                // Hand-written: the demo keeps Quick Connect on. Jellyfin answers 401 with this text when it's off.
+                exchange.send(401, "Quick connect is disabled", "text/plain")
+            }
+            exchange.requestMethod == "GET" && path == "/QuickConnect/Connect" -> when {
+                exchange.query()["secret"] != QUICK_CONNECT_SECRET || quickConnect == QuickConnectState.None ->
+                    exchange.send(404, resource("not-found.html"), "text/html")
+                quickConnect == QuickConnectState.Waiting -> exchange.send(200, resource("quick-connect-connect-waiting.json"), JSON)
+                else -> exchange.send(200, resource("quick-connect-connect-approved.json"), JSON)
+            }
+            exchange.requestMethod == "POST" && path == "/Users/AuthenticateWithQuickConnect" -> {
+                val secret = Json.parseToJsonElement(exchange.requestBody.readBytes().decodeToString()).jsonObject["Secret"]?.jsonPrimitive?.content
+                if (secret == QUICK_CONNECT_SECRET && quickConnect == QuickConnectState.Approved) {
+                    exchange.send(200, resource("authenticate-with-quick-connect.json"), JSON)
+                } else {
+                    // Hand-written: an unapproved secret wasn't recorded. This is Jellyfin's 401 for a login it turns down.
+                    exchange.send(401, resource("unauthorized.html"), "text/html")
+                }
+            }
+            else -> exchange.send(404, resource("not-found.html"), "text/html")
         }
     }
 
@@ -127,6 +181,12 @@ class RecordedJellyfin(
     companion object {
         /** The token in the recorded login, standing in for the one the demo issued. */
         const val ACCESS_TOKEN = "0123456789abcdef0123456789abcdef"
+
+        /** The code in the recorded Quick Connect, which the TV shows for the Household to approve. */
+        const val QUICK_CONNECT_CODE = "304393"
+
+        /** The secret in the recorded Quick Connect, standing in for the one the demo issued. */
+        const val QUICK_CONNECT_SECRET = "F00DF00DF00DF00DF00DF00DF00DF00DF00DF00DF00DF00DF00DF00DF00DF00D"
 
         /** The demo account's user ID. */
         const val USER_ID = "4ed1b8b42a7c4ea682f0fe5d08d4e278"

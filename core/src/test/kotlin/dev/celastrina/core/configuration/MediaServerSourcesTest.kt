@@ -4,6 +4,7 @@ import dev.celastrina.core.port.FileStorage
 import dev.celastrina.core.port.JdkHttpClient
 import dev.celastrina.core.source.LookupOutcome.Failure.Reason
 import dev.celastrina.core.testing.RecordedJellyfin
+import dev.celastrina.core.testing.VirtualClock
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
@@ -28,7 +29,9 @@ class MediaServerSourcesTest {
     @AfterEach
     fun stopServer() = jellyfin.close()
 
-    private fun service() = ConfigurationService(FileStorage(dir), JdkHttpClient(), appVersion = "1.2.3", projectTmdbKey = "")
+    private val clock = VirtualClock()
+
+    private fun service() = ConfigurationService(FileStorage(dir), JdkHttpClient(), appVersion = "1.2.3", projectTmdbKey = "", clock = clock)
 
     private fun movieNight(password: String = jellyfin.password, url: String = jellyfin.url) =
         NewSource(kind = "jellyfin", name = "Movie Night Jellyfin", url = url, username = jellyfin.username, password = password)
@@ -51,6 +54,8 @@ class MediaServerSourcesTest {
                 position = 2,
                 testState = TestState.Passing,
                 hasLogin = true,
+                addedFromComputerAt = clock.nowMillis(),
+                changedFromComputerAt = null,
             ),
             service().list().last(),
         )

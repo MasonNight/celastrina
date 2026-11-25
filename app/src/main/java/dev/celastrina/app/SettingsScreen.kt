@@ -23,9 +23,9 @@ import dev.celastrina.core.configuration.TmdbKeyInUse
 
 private val Dim = Color(0xFF9AA0AA)
 
-/** Settings: which TMDB key is in use, and the way to About. */
+/** Settings: which TMDB key is in use, and the ways to the Sources and About. */
 @Composable
-fun SettingsScreen(tmdbKey: TmdbKeyInUse, onAbout: () -> Unit) {
+fun SettingsScreen(tmdbKey: TmdbKeyInUse, onSources: () -> Unit, onAbout: () -> Unit) {
     val firstItem = remember { FocusRequester() }
     LaunchedEffect(Unit) { firstItem.requestFocus() }
     Column(Modifier.fillMaxSize().padding(horizontal = 96.dp, vertical = 48.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -36,10 +36,17 @@ fun SettingsScreen(tmdbKey: TmdbKeyInUse, onAbout: () -> Unit) {
         }
         ListItem(
             selected = false,
+            onClick = onSources,
+            headlineContent = { Text("Sources") },
+            supportingContent = { Text("Add, order, enable, rename or remove where Celastrina plays from") },
+            modifier = Modifier.widthIn(max = 640.dp).focusRequester(firstItem),
+        )
+        ListItem(
+            selected = false,
             onClick = onAbout,
             headlineContent = { Text("About") },
             supportingContent = { Text("Version and TMDB attribution") },
-            modifier = Modifier.widthIn(max = 640.dp).focusRequester(firstItem),
+            modifier = Modifier.widthIn(max = 640.dp),
         )
     }
 }

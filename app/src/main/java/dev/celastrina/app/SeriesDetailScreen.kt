@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,9 +43,10 @@ import dev.celastrina.core.catalogue.CatalogueUnavailable
 import dev.celastrina.core.catalogue.Episode
 import dev.celastrina.core.catalogue.Season
 import dev.celastrina.core.catalogue.SeriesDetails
+import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.source.Lookup
 import dev.celastrina.core.source.Stream
-import dev.celastrina.core.source.StreamLookup
+import kotlinx.coroutines.flow.StateFlow
 
 private sealed interface SeriesState {
     data object Loading : SeriesState
@@ -68,8 +70,8 @@ fun SeriesDetailScreen(
     tmdbId: Int,
     seasonNumber: Int?,
     catalogue: Catalogue,
-    streamLookup: StreamLookup,
-    onPlay: (season: Int, stream: Stream) -> Unit,
+    lookUp: (TitleReference) -> StateFlow<Lookup?>,
+    onPlay: (season: Int, request: PlayRequest) -> Unit,
 ) {
     var state by remember(tmdbId) { mutableStateOf<SeriesState>(SeriesState.Loading) }
     LaunchedEffect(tmdbId) {
@@ -82,7 +84,7 @@ fun SeriesDetailScreen(
     when (val s = state) {
         SeriesState.Loading -> Message("Loading…")
         is SeriesState.Failed -> Message(s.reason.message())
-        is SeriesState.Loaded -> SeriesDetail(s.details, seasonNumber, catalogue, streamLookup, onPlay)
+        is SeriesState.Loaded -> SeriesDetail(s.details, seasonNumber, catalogue, lookUp, onPlay)
     }
 }
 
@@ -91,22 +93,23 @@ private fun SeriesDetail(
     details: SeriesDetails,
     seasonNumber: Int?,
     catalogue: Catalogue,
-    streamLookup: StreamLookup,
-    onPlay: (season: Int, stream: Stream) -> Unit,
+    lookUp: (TitleReference) -> StateFlow<Lookup?>,
+    onPlay: (season: Int, request: PlayRequest) -> Unit,
 ) {
     var seasonIndex by remember(details) { mutableStateOf(details.seasons.indexOfFirst { it.number == seasonNumber }.coerceAtLeast(0)) }
     var picked by remember(details) { mutableStateOf<Episode?>(null) }
-    var lookup by remember(picked) { mutableStateOf<Lookup?>(null) }
+    val lookups = remember(picked) { picked?.let { lookUp(it.reference) } }
+    val lookup = lookups?.collectAsState()?.value
     var choosing by remember(picked) { mutableStateOf(false) }
     val season = details.seasons.getOrNull(seasonIndex)
-    LaunchedEffect(picked) {
-        picked?.let { episode -> streamLookup.watch(episode.reference).collect { lookup = it } }
+    fun play(stream: Stream, handPicked: Boolean) {
+        val episode = picked ?: return
+        onPlay(episode.reference.episode!!.season, PlayRequest(stream, handPicked, lookups ?: return))
     }
-    val play = { stream: Stream -> picked?.let { onPlay(it.reference.episode!!.season, stream) } ?: Unit }
 
     if (choosing) {
         BackHandler { choosing = false }
-        ChooseStreamScreen("${details.title.name} · ${picked?.label()}", lookup, onPick = play)
+        ChooseStreamScreen("${details.title.name} · ${picked?.label()}", lookup) { play(it, handPicked = true) }
         return
     }
 
@@ -139,7 +142,7 @@ private fun SeriesDetail(
             if (season != null) {
                 EpisodeRow(details, season, catalogue) { picked = it }
             }
-            PickedEpisode(picked, lookup, onPlay = play, onChoose = { choosing = true })
+            PickedEpisode(picked, lookup, onPlay = { play(it, handPicked = false) }, onChoose = { choosing = true })
         }
     }
 }
