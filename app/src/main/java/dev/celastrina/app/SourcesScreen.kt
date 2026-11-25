@@ -125,7 +125,8 @@ private fun SourceList(sources: List<SourceSummary>, message: String?, onAddSour
         if (sources.isEmpty()) {
             item(key = "none") { Text("No Sources. Add one to play something.", style = MaterialTheme.typography.bodyLarge, color = Dim) }
         }
-        items(sources, key = { it.id }) { source ->
+        // A lazy key must fit in a Bundle; SourceId reaches Compose boxed, so the key is its text.
+        items(sources, key = { it.id.value }) { source ->
             ListItem(
                 selected = false,
                 onClick = { onPick(source) },
