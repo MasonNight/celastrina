@@ -65,6 +65,38 @@ class ConfigurationProviderTest {
     }
 
     @Test
+    fun adding_a_server_that_cant_be_reached_replies_failure_with_its_id_and_keeps_it_failing() {
+        val add = """{"kind": "jellyfin", "name": "Provider Test Jellyfin", "url": "http://127.0.0.1:9", "username": "demo", "password": "secret"}"""
+        try {
+            val reply = contentCall("add", base64(add))
+
+            assertEquals(listOf("failure", "provider-test-jellyfin", "unreachable"), listOf(reply.string("result"), reply.string("id"), reply.string("reason")))
+            val listed = sources().single { it.string("id") == "provider-test-jellyfin" }
+            assertEquals("failing" to false, listed.string("test_state") to listed["has_login"]!!.jsonPrimitive.boolean)
+            assertTrue("secret" !in shell("run-as ${BuildConfig.APPLICATION_ID} cat files/core/sources.json"))
+        } finally {
+            contentCall("remove", base64("""{"id": "provider-test-jellyfin"}"""))
+        }
+    }
+
+    @Test
+    fun the_agent_sets_the_source_order() {
+        val add = """{"kind": "jellyfin", "name": "Provider Test Order", "url": "http://127.0.0.1:9", "username": "demo", "password": ""}"""
+        val before = sources().map { it.string("id") }
+        try {
+            contentCall("add", base64(add))
+
+            val reply = contentCall("set-order", base64("""{"ids": ["provider-test-order"]}"""))
+
+            assertEquals("ok", reply.string("result"))
+            assertEquals(listOf("provider-test-order") + before, sources().map { it.string("id") })
+            assertEquals("bad_argument", contentCall("set-order", base64("""{"ids": "provider-test-order"}""")).string("problem"))
+        } finally {
+            contentCall("remove", base64("""{"id": "provider-test-order"}"""))
+        }
+    }
+
+    @Test
     fun arguments_that_dont_decode_are_refused_with_a_reason() {
         val notBase64 = contentCall("update", "not-base64!")
         val notAnObject = contentCall("update", base64("""["internet-archive"]"""))
@@ -119,6 +151,8 @@ class ConfigurationProviderTest {
             client.close()
         }
     }
+
+    private fun sources() = contentCall("list")["sources"]!!.jsonArray.map { it.jsonObject }
 
     private fun contentCall(method: String, arg: String? = null): JsonObject {
         val output = shell("content call --uri content://$authority --method $method" + (arg?.let { " --arg $it" } ?: ""))

@@ -1,11 +1,11 @@
 package dev.celastrina.app
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,7 +30,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Button
 import androidx.tv.material3.Card
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Tab
@@ -43,7 +42,7 @@ import dev.celastrina.core.catalogue.CatalogueUnavailable
 import dev.celastrina.core.catalogue.Episode
 import dev.celastrina.core.catalogue.Season
 import dev.celastrina.core.catalogue.SeriesDetails
-import dev.celastrina.core.source.LookupOutcome
+import dev.celastrina.core.source.Lookup
 import dev.celastrina.core.source.Stream
 import dev.celastrina.core.source.StreamLookup
 
@@ -97,7 +96,19 @@ private fun SeriesDetail(
 ) {
     var seasonIndex by remember(details) { mutableStateOf(details.seasons.indexOfFirst { it.number == seasonNumber }.coerceAtLeast(0)) }
     var picked by remember(details) { mutableStateOf<Episode?>(null) }
+    var lookup by remember(picked) { mutableStateOf<Lookup?>(null) }
+    var choosing by remember(picked) { mutableStateOf(false) }
     val season = details.seasons.getOrNull(seasonIndex)
+    LaunchedEffect(picked) {
+        picked?.let { episode -> streamLookup.watch(episode.reference).collect { lookup = it } }
+    }
+    val play = { stream: Stream -> picked?.let { onPlay(it.reference.episode!!.season, stream) } ?: Unit }
+
+    if (choosing) {
+        BackHandler { choosing = false }
+        ChooseStreamScreen("${details.title.name} · ${picked?.label()}", lookup, onPick = play)
+        return
+    }
 
     Box(Modifier.fillMaxSize()) {
         AsyncImage(
@@ -128,7 +139,7 @@ private fun SeriesDetail(
             if (season != null) {
                 EpisodeRow(details, season, catalogue) { picked = it }
             }
-            PickedEpisode(picked, streamLookup) { stream -> picked?.let { onPlay(it.reference.episode!!.season, stream) } }
+            PickedEpisode(picked, lookup, onPlay = play, onChoose = { choosing = true })
         }
     }
 }
@@ -206,36 +217,14 @@ private fun EpisodeCard(episode: Episode, onClick: () -> Unit) {
     }
 }
 
-/** The picked episode, with Play once a Stream arrives. Picking an episode is what asks the Sources for it. */
+/** The picked episode, with Play, Choose Stream and its Lookup's status line. Picking an episode is what asks the Sources for it. */
 @Composable
-private fun PickedEpisode(episode: Episode?, streamLookup: StreamLookup, onPlay: (Stream) -> Unit) {
+private fun PickedEpisode(episode: Episode?, lookup: Lookup?, onPlay: (Stream) -> Unit, onChoose: () -> Unit) {
     Box(Modifier.fillMaxWidth().height(48.dp).padding(start = 48.dp), contentAlignment = Alignment.CenterStart) {
         if (episode == null) {
             Text("Pick an episode to find Streams for it.", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.7f))
-            return@Box
-        }
-        var streams by remember(episode) { mutableStateOf(emptyList<Stream>()) }
-        var lookupFinished by remember(episode) { mutableStateOf(false) }
-        LaunchedEffect(episode) {
-            streamLookup.lookUp(episode.reference).collect { answer ->
-                (answer.outcome as? LookupOutcome.Streams)?.let { streams = streams + it.streams }
-            }
-            lookupFinished = true
-        }
-        val play = remember { FocusRequester() }
-        val playable = streams.isNotEmpty()
-        LaunchedEffect(playable) { if (playable) play.requestFocus() }
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(episode.label(), style = MaterialTheme.typography.titleSmall)
-            if (playable) {
-                Button(onClick = { onPlay(streams.first()) }, modifier = Modifier.focusRequester(play)) { Text("Play") }
-            }
-            // Stopgap until the lookup status line (#27): just enough to say whether anything can play it.
-            when {
-                playable -> Unit
-                !lookupFinished -> Text("Looking for Streams…", style = MaterialTheme.typography.bodyMedium)
-                else -> Text("None of your Sources can play this episode.", style = MaterialTheme.typography.bodyMedium)
-            }
+        } else {
+            PlayRow(lookup, onPlay, onChoose, label = episode.label())
         }
     }
 }

@@ -4,6 +4,9 @@ package dev.celastrina.core.port
 interface HttpClient {
     /** Throws [java.io.IOException] when no response arrives at all. */
     suspend fun get(url: String, headers: Map<String, String> = emptyMap()): HttpResponse
+
+    /** Sends [json] as the body of a POST. Throws [java.io.IOException] when no response arrives at all. */
+    suspend fun postJson(url: String, json: String, headers: Map<String, String> = emptyMap()): HttpResponse
 }
 
 class HttpResponse(val status: Int, val body: ByteArray) {

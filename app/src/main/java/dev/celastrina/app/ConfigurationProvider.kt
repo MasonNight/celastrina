@@ -11,9 +11,12 @@ import android.os.Process
 import android.util.Base64
 import dev.celastrina.core.configuration.ChangedFrom
 import dev.celastrina.core.configuration.ConfigurationService
+import dev.celastrina.core.configuration.NewSource
+import dev.celastrina.core.configuration.SourceChanges
 import dev.celastrina.core.configuration.SourceSummary
 import dev.celastrina.core.configuration.Status
 import dev.celastrina.core.configuration.WriteOutcome
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -30,9 +33,13 @@ import kotlinx.serialization.json.put
  *     adb shell content call --uri content://dev.celastrina.configuration --method <command> [--arg <base64 JSON>]
  *     adb shell content query --uri content://dev.celastrina.configuration/<sources|status>
  *
- * Commands: `status`, `list`, `update` ({"id", "name"}), `enable`, `disable` and `remove` ({"id"}). Every reply is
- * one JSON object in the returned Bundle's `reply`, with `result` set to `ok`, `invalid` (with `problem` and
- * `message`) or `failure` (with `reason`). Only the `shell` user, root and Celastrina itself may call it.
+ * Commands: `status`, `list`, `add` ({"kind", "name", and for `jellyfin` or `emby` "url", "username", "password"}),
+ * `update` ({"id"} and any of "name", "url", "username", "password"), `set-order` ({"ids": [...]}, the Sources to
+ * put first), `enable`, `disable` and `remove` ({"id"}). Every reply is one JSON object in the returned Bundle's
+ * `reply`, with `result` set to `ok`, `invalid` (with `problem` and `message`) or `failure` (with `id`, `reason` and
+ * `message`: saved, but failing its connection test). `add` replies the Source's `id` either way. Writes that test a
+ * connection block until the test is done (a few seconds at most). Only the `shell` user, root and Celastrina itself
+ * may call it.
  */
 class ConfigurationProvider : ContentProvider() {
 
@@ -70,20 +77,32 @@ class ConfigurationProvider : ContentProvider() {
         return when (method) {
             "status" -> configuration.status().toJson()
             "list" -> ok { put("sources", JsonArray(configuration.list().map { it.toJson() })) }
-            "update" -> args.onlyFields("id", "name") ?: run {
-                val id = args.required("id") ?: return args.missing("id")
-                val name = args.required("name") ?: return args.missing("name")
-                configuration.rename(id, name, ChangedFrom.Computer).toJson()
+            "add" -> args.onlyFields("kind", "name", "url", "username", "password") ?: run {
+                val kind = args.string("kind") ?: return args.missing("kind")
+                val name = args.string("name") ?: return args.missing("name")
+                if (args.wrongType("url", "username", "password")) return invalid("bad_argument", "url, username and password must be strings.")
+                val source = NewSource(kind, name, args.string("url"), args.string("username"), args.string("password"))
+                runBlocking { configuration.add(source, ChangedFrom.Computer) }.toJson()
+            }
+            "update" -> args.onlyFields("id", "name", "url", "username", "password") ?: run {
+                val id = args.string("id") ?: return args.missing("id")
+                if (args.wrongType("name", "url", "username", "password")) return invalid("bad_argument", "name, url, username and password must be strings.")
+                val changes = SourceChanges(args.string("name"), args.string("url"), args.string("username"), args.string("password"))
+                runBlocking { configuration.update(id, changes, ChangedFrom.Computer) }.toJson()
+            }
+            "set-order" -> args.onlyFields("ids") ?: run {
+                val ids = args.strings("ids") ?: return invalid("bad_argument", "--arg needs \"ids\", a list of Source IDs.")
+                configuration.setOrder(ids, ChangedFrom.Computer).toJson()
             }
             "enable", "disable", "remove" -> args.onlyFields("id") ?: run {
-                val id = args.required("id") ?: return args.missing("id")
+                val id = args.string("id") ?: return args.missing("id")
                 when (method) {
-                    "enable" -> configuration.enable(id, ChangedFrom.Computer)
+                    "enable" -> runBlocking { configuration.enable(id, ChangedFrom.Computer) }
                     "disable" -> configuration.disable(id, ChangedFrom.Computer)
                     else -> configuration.remove(id, ChangedFrom.Computer)
                 }.toJson()
             }
-            else -> invalid("unknown_command", "There's no command $method. Commands: status, list, update, enable, disable, remove.")
+            else -> invalid("unknown_command", "There's no command $method. Commands: ${COMMANDS.joinToString()}.")
         }
     }
 
@@ -116,7 +135,15 @@ class ConfigurationProvider : ContentProvider() {
         }
 
         /** The string argument [name], or null when it's missing or not a string. */
-        fun required(name: String): String? = (fields[name] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+        fun string(name: String): String? = (fields[name] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+
+        /** True when any of [names] is given but isn't a string. */
+        fun wrongType(vararg names: String): Boolean = names.any { fields[it] != null && string(it) == null }
+
+        /** The argument [name] as a list of strings, or null when it isn't one. */
+        fun strings(name: String): List<String>? = (fields[name] as? JsonArray)?.map {
+            (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: return null
+        }
 
         fun missing(name: String) = invalid("bad_argument", "--arg needs \"$name\", a string.")
 
@@ -171,9 +198,18 @@ class ConfigurationProvider : ContentProvider() {
             put("has_login", hasLogin)
         }
 
+        val COMMANDS = listOf("status", "list", "add", "update", "set-order", "enable", "disable", "remove")
+
         fun WriteOutcome.toJson() = when (this) {
             WriteOutcome.Ok -> ok()
+            is WriteOutcome.Added -> ok { put("id", sourceId) }
             is WriteOutcome.Invalid -> invalid(problem.wire(), message)
+            is WriteOutcome.Failed -> buildJsonObject {
+                put("result", "failure")
+                put("id", sourceId)
+                put("reason", reason.wire())
+                put("message", message)
+            }
         }
 
         /** `UnknownSource` → `unknown_source`. */
