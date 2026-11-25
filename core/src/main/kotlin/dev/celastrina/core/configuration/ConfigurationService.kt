@@ -12,6 +12,9 @@ import dev.celastrina.core.source.jellyfin.MediaServer
 import dev.celastrina.core.source.jellyfin.MediaServerKinds
 import dev.celastrina.core.source.jellyfin.MediaServerLogin
 import dev.celastrina.core.source.slugOf
+import dev.celastrina.core.source.stremio.ManifestCheck
+import dev.celastrina.core.source.stremio.StremioAddon
+import dev.celastrina.core.source.stremio.StremioAddonKind
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -105,6 +108,7 @@ class ConfigurationService(
             when (val kind = kindOf(stored.kind)) {
                 InternetArchiveSource.Kind -> InternetArchiveSource(http, id = stored.id, name = stored.name)
                 in MediaServerKinds.all -> server(stored).source(stored.id, stored.name, kind!!, login(stored.id))
+                StremioAddonKind -> addon(stored).source(stored.id, stored.name, storage.read(manifestKey(stored.id))?.decodeToString())
                 else -> error("Unknown Source Kind ${stored.kind} for Source ${stored.id}")
             }
         }
@@ -122,10 +126,13 @@ class ConfigurationService(
         val name = new.name.trim()
         if (name.isEmpty()) return blankName()
         val url = if (kind == InternetArchiveSource.Kind) {
-            if (new.url != null || new.username != null || new.password != null) return unneededSetting()
+            if (new.url != null || new.username != null || new.password != null) return unneededSetting(kind)
             null
+        } else if (kind == StremioAddonKind) {
+            if (new.username != null || new.password != null) return unneededSetting(kind)
+            StremioAddon.manifestUrlOf(new.url) ?: return badUrl(kind)
         } else {
-            val url = serverAddress(new.url) ?: return badUrl()
+            val url = serverAddress(new.url) ?: return badUrl(kind)
             if (new.username.isNullOrBlank() || new.password == null) {
                 return invalid(WriteOutcome.Problem.MissingLogin, "A ${kind.name} Source needs a username and a password (which may be empty).")
             }
@@ -160,14 +167,15 @@ class ConfigurationService(
     suspend fun update(id: String, changes: SourceChanges, from: ChangedFrom): WriteOutcome {
         val newName = changes.name?.trim()
         if (newName != null && newName.isEmpty()) return blankName()
-        val newUrl = changes.url?.let { serverAddress(it) ?: return badUrl() }
+        val kind = synchronized(lock) { load().find { it.id == id }?.kind }?.let(::kindOf) ?: return unknownSource(id)
+        val takesUrl = kind in MediaServerKinds.all || kind == StremioAddonKind
+        val takesLogin = kind in MediaServerKinds.all
+        if ((changes.url != null && !takesUrl) || ((changes.username != null || changes.password != null) && !takesLogin)) return unneededSetting(kind)
+        val newUrl = changes.url?.let { (if (kind == StremioAddonKind) StremioAddon.manifestUrlOf(it) else serverAddress(it)) ?: return badUrl(kind) }
         val newUsername = changes.username?.trim()
         if (newUsername != null && (newUsername.isEmpty() || changes.password == null)) {
             return invalid(WriteOutcome.Problem.MissingLogin, "A new username needs its password too.")
         }
-        val serverSettings = changes.url != null || changes.username != null || changes.password != null
-        val kind = synchronized(lock) { load().find { it.id == id }?.kind } ?: return unknownSource(id)
-        if (serverSettings && kindOf(kind) !in MediaServerKinds.all) return unneededSetting()
         val outcome = change(id) { source ->
             val changed = source.copy(name = newName ?: source.name, url = newUrl ?: source.url, username = newUsername ?: source.username)
             val announcement = when {
@@ -217,6 +225,7 @@ class ConfigurationService(
     /** Removes the Source and its login for good. Removing one that is already gone is harmless. */
     fun remove(id: String, from: ChangedFrom): WriteOutcome = change(id, ifMissing = WriteOutcome.Ok) { source ->
         storage.delete(loginKey(id))
+        storage.delete(manifestKey(id))
         Edit(null, ConfigurationChange(ConfigurationChange.Action.Removed, source.name, from))
     }
 
@@ -226,6 +235,7 @@ class ConfigurationService(
      */
     private suspend fun test(id: String, logInWith: String?): WriteOutcome {
         val source = synchronized(lock) { load().find { it.id == id } } ?: return WriteOutcome.Ok
+        if (kindOf(source.kind) == StremioAddonKind) return testAddon(source)
         if (kindOf(source.kind) !in MediaServerKinds.all) return WriteOutcome.Ok
         val server = server(source)
         val saved = login(id)
@@ -246,6 +256,36 @@ class ConfigurationService(
             is ConnectionResult.Failed -> WriteOutcome.Failed(id, result.reason, failureMessage(source, result.reason, loggedIn = logInWith != null, hadLogin = saved != null))
         }
     }
+
+    /** Fetches the add-on's manifest, and keeps it for Lookups when it offers Streams. */
+    private suspend fun testAddon(source: StoredSource): WriteOutcome {
+        val check = addon(source).check()
+        synchronized(lock) {
+            val sources = load()
+            if (sources.none { it.id == source.id }) return WriteOutcome.Ok
+            if (check is ManifestCheck.Fetched) storage.write(manifestKey(source.id), check.manifest.encodeToByteArray()) else storage.delete(manifestKey(source.id))
+            val state = if (check is ManifestCheck.Fetched) TestState.Passing else TestState.Failing
+            save(sources.map { if (it.id == source.id) it.copy(testState = state) else it })
+        }
+        // An add-on's URL may hold its settings, even a key, so the messages never repeat it.
+        fun failed(reason: Reason, message: String) = WriteOutcome.Failed(source.id, reason, message)
+        return when (check) {
+            is ManifestCheck.Fetched -> WriteOutcome.Ok
+            ManifestCheck.NoStreams -> failed(Reason.SourceError, "${source.name} offers no Streams. Celastrina uses only an add-on's Streams.")
+            ManifestCheck.NotAManifest -> failed(Reason.SourceError, "${source.name} didn't answer with an add-on manifest. Check the URL.")
+            is ManifestCheck.Failed -> failed(
+                check.reason,
+                when (check.reason) {
+                    Reason.Unreachable -> "Can't reach the add-on ${source.name}."
+                    Reason.AuthRequired -> "${source.name} turned the URL down. Its settings may need making again."
+                    Reason.RateLimited -> "${source.name} is refusing requests for now. Try again later."
+                    Reason.SourceError -> "${source.name} didn't answer with an add-on manifest. Check the URL."
+                },
+            )
+        }
+    }
+
+    private fun addon(source: StoredSource) = StremioAddon(http, checkNotNull(source.url) { "Source ${source.id} has no URL" })
 
     private fun failureMessage(source: StoredSource, reason: Reason, loggedIn: Boolean, hadLogin: Boolean) = when (reason) {
         Reason.Unreachable -> "Can't reach ${source.name} at ${source.url}."
@@ -309,7 +349,7 @@ class ConfigurationService(
         val kind: String,
         val enabled: Boolean = true,
         val testState: TestState = TestState.Untested,
-        /** A Jellyfin or Emby server's address, without a trailing '/'. */
+        /** A Jellyfin or Emby server's address, without a trailing '/', or an add-on's manifest URL. */
         val url: String? = null,
         val username: String? = null,
     )
@@ -322,12 +362,14 @@ class ConfigurationService(
         private const val TMDB_KEY = "tmdb-key"
         private const val DEVICE_ID = "device-id"
         private const val INTERNET_ARCHIVE = "Internet Archive"
-        private val KINDS = listOf(InternetArchiveSource.Kind) + MediaServerKinds.all
+        private val KINDS = listOf(InternetArchiveSource.Kind) + MediaServerKinds.all + StremioAddonKind
         private val json = Json { ignoreUnknownKeys = true }
 
         private fun kindOf(id: String): SourceKind? = KINDS.find { it.id == id }
 
         private fun loginKey(id: String) = "login-$id.json"
+
+        private fun manifestKey(id: String) = "manifest-$id.json"
 
         /** [text] as a server address, `http(s)://host[:port][/path]` without a trailing '/', or null when it isn't one. */
         private fun serverAddress(text: String?): String? {
@@ -343,10 +385,17 @@ class ConfigurationService(
         private fun invalid(problem: WriteOutcome.Problem, message: String) = WriteOutcome.Invalid(problem, message)
         private fun blankName() = invalid(WriteOutcome.Problem.BlankName, "A Source needs a name.")
         private fun unknownSource(id: String) = invalid(WriteOutcome.Problem.UnknownSource, "There's no Source with the ID $id.")
-        private fun unneededSetting() = invalid(WriteOutcome.Problem.UnneededSetting, "The Internet Archive needs no URL or login.")
-        private fun badUrl() = invalid(
+        private fun unneededSetting(kind: SourceKind) = invalid(
+            WriteOutcome.Problem.UnneededSetting,
+            if (kind == StremioAddonKind) "A Stremio-compatible add-on needs only its manifest URL, no login." else "The ${kind.name} needs no URL or login.",
+        )
+        private fun badUrl(kind: SourceKind) = invalid(
             WriteOutcome.Problem.BadUrl,
-            "A Jellyfin or Emby Source needs the server's address, starting http:// or https://, such as http://192.168.1.20:8096.",
+            if (kind == StremioAddonKind) {
+                "A Stremio-compatible add-on Source needs its manifest URL, starting http:// or https:// and ending /manifest.json."
+            } else {
+                "A Jellyfin or Emby Source needs the server's address, starting http:// or https://, such as http://192.168.1.20:8096."
+            },
         )
     }
 }
@@ -365,7 +414,10 @@ enum class TmdbKeyInUse {
     None,
 }
 
-/** A Source to add. [kind] is a Source Kind's ID; Jellyfin and Emby need [url], [username] and [password]. */
+/**
+ * A Source to add. [kind] is a Source Kind's ID; Jellyfin and Emby need [url], [username] and [password], and a
+ * Stremio-compatible add-on needs its manifest URL as [url].
+ */
 data class NewSource(
     val kind: String,
     val name: String,

@@ -33,8 +33,8 @@ import kotlinx.serialization.json.put
  *     adb shell content call --uri content://dev.celastrina.configuration --method <command> [--arg <base64 JSON>]
  *     adb shell content query --uri content://dev.celastrina.configuration/<sources|status>
  *
- * Commands: `status`, `list`, `add` ({"kind", "name", and for `jellyfin` or `emby` "url", "username", "password"}),
- * `update` ({"id"} and any of "name", "url", "username", "password"), `set-order` ({"ids": [...]}, the Sources to
+ * Commands: `status`, `list`, `add` ({"kind", "name", and for `jellyfin` or `emby` "url", "username", "password", for
+ * `stremio` the add-on's manifest URL as "url"}), `update` ({"id"} and any of "name", "url", "username", "password"), `set-order` ({"ids": [...]}, the Sources to
  * put first), `enable`, `disable` and `remove` ({"id"}), `set-tmdb-key` ({"key"}) and `clear-tmdb-key`. `status` says
  * which TMDB key is in use (`project`, `override` or `none`), never the key. Every reply is one JSON object in the returned Bundle's
  * `reply`, with `result` set to `ok`, `invalid` (with `problem` and `message`) or `failure` (with `id`, `reason` and
