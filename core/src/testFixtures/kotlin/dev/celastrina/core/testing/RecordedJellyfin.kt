@@ -143,7 +143,8 @@ class RecordedJellyfin(
         }
         if (problem != null) return exchange.send(400, "The fake has no recording for this $problem: ${exchange.requestURI}", "text/plain")
         val kind = query.getValue("IncludeItemTypes").lowercase()
-        val recording = resourceOrNull("items-$kind-${slug(query.getValue("searchTerm"))}.json") ?: resource("items-movie-sintel.json")
+        // A search with no recording of its own gets the demo's empty answer, recorded searching for Sintel, which it lacks.
+        val recording = resourceOrNull("items-$kind-${slug(query.getValue("searchTerm"))}.json") ?: resource("items-no-match.json")
         exchange.send(200, recording, JSON)
     }
 
