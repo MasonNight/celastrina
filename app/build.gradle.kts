@@ -194,7 +194,9 @@ androidComponents {
             artifactsLoader.set(variant.artifacts.getBuiltArtifactsLoader())
             aapt2.set(
                 androidComponents.sdkComponents.sdkDirectory.map {
-                    it.file("build-tools/${android.buildToolsVersion}/aapt2")
+                    // The SDK ships aapt2.exe on Windows, where Build from source (INSTALL.md) may run.
+                    val aapt2Name = if (System.getProperty("os.name").startsWith("Windows")) "aapt2.exe" else "aapt2"
+                    it.file("build-tools/${android.buildToolsVersion}/$aapt2Name")
                 },
             )
         }
