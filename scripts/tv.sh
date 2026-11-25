@@ -5,12 +5,13 @@
 #   scripts/tv.sh install [apk]         install (default: the debug APK), keeping app data
 #   scripts/tv.sh launch                wake the display and start Celastrina Dev
 #   scripts/tv.sh open-movie <tmdb-id>  start Celastrina Dev on that Movie's detail screen
+#   scripts/tv.sh open-series <tmdb-id> start Celastrina Dev on that Series' detail screen
 #   scripts/tv.sh press <key>...        press remote keys, e.g. press DPAD_CENTER BACK
 #   scripts/tv.sh screenshot [out.png]  wake the display and save a screenshot (default: tv.png)
 #   scripts/tv.sh log                   Celastrina's crashes, log lines and player errors since the last
 #                                       launch, plus any presses on the real remote
 #
-# The TV is shared with the household. launch, open-movie and press refuse while someone is using it
+# The TV is shared with the household. launch, open-movie, open-series and press refuse while someone is using it
 # (another app is playing, or the real remote was pressed in the last 2 minutes); --force overrides.
 #
 # The TV's address is remembered in ~/.config/celastrina/tv. If it doesn't answer there, the script
@@ -119,6 +120,11 @@ case "${1:-}" in
     [ -n "${2:-}" ] || { echo "Usage: scripts/tv.sh open-movie <tmdb-id>" >&2; exit 2; }
     serial="$(connect_unless_busy)"
     start_app "$serial" -S --ei dev.celastrina.OPEN_MOVIE "$2"
+    ;;
+  open-series)
+    [ -n "${2:-}" ] || { echo "Usage: scripts/tv.sh open-series <tmdb-id>" >&2; exit 2; }
+    serial="$(connect_unless_busy)"
+    start_app "$serial" -S --ei dev.celastrina.OPEN_SERIES "$2"
     ;;
   press)
     [ -n "${2:-}" ] || { echo "Usage: scripts/tv.sh press <key>... (e.g. DPAD_CENTER, BACK)" >&2; exit 2; }
