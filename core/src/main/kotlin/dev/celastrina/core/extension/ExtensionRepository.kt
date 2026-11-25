@@ -32,7 +32,12 @@ data class AvailableExtension(
     val authors: List<String>,
     val languages: List<String>,
     val installed: Boolean,
-)
+    /** The version installed, or null when it isn't. */
+    val installedVersion: Int? = null,
+) {
+    /** Installed, and the Extension Repository lists a newer version. Updates are only ever made by hand. */
+    val updateAvailable: Boolean get() = installedVersion != null && version > installedVersion
+}
 
 /** One Extension as an Extension Repository's list gives it: where its code is, and the SHA-256 the code must have. */
 @Serializable

@@ -1,6 +1,8 @@
 package dev.celastrina.core.configuration
 
+import dev.celastrina.core.failover.FailoverMemory
 import dev.celastrina.core.port.FileStorage
+import dev.celastrina.core.source.Stream
 import dev.celastrina.core.port.HttpClient
 import dev.celastrina.core.port.HttpResponse
 import dev.celastrina.core.testing.VirtualClock
@@ -14,6 +16,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
 
 class ConfigurationServiceTest {
@@ -219,6 +222,22 @@ class ConfigurationServiceTest {
         assertEquals(emptyList(), afterRestart.sources())
         assertEquals(0, afterRestart.status().sources)
         assertEquals(listOf(ConfigurationChange(ConfigurationChange.Action.Removed, "Internet Archive", ChangedFrom.Computer)), announced)
+    }
+
+    @Test
+    fun `removing a Source forgets its Streams' Failover memory, and only its`() {
+        val memory = FailoverMemory(FileStorage(dir), clock)
+        val service = ConfigurationService(FileStorage(dir), offline, appVersion = "1.2.3", projectTmdbKey = PROJECT_KEY, clock = clock, failoverMemory = memory)
+        val archive = Stream(sourceId = "internet-archive", id = "a", url = "https://archive.org/a.mp4", delivery = Stream.Delivery.Progressive)
+        val other = Stream(sourceId = "movie-night", id = "b", url = "http://192.168.1.20/b.mp4", delivery = Stream.Delivery.Progressive)
+        memory.demote(archive)
+        memory.demote(other)
+
+        service.remove("internet-archive", ChangedFrom.Tv)
+
+        assertFalse(memory.isDemoted(archive))
+        assertTrue(FailoverMemory(FileStorage(dir), clock).isDemoted(other))
+        assertFalse(FailoverMemory(FileStorage(dir), clock).isDemoted(archive))
     }
 
     @Test

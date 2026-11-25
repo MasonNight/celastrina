@@ -15,6 +15,12 @@ interface ExtensionLoader {
      */
     fun classLoaderFor(key: String, code: ByteArray): ClassLoader
 
+    /**
+     * Deletes any code this loader kept on disk except [keys]': the Extensions removed or replaced by an update. Called
+     * when Celastrina starts, before any Extension is loaded, since code already loaded can't be unloaded.
+     */
+    fun keepOnly(keys: Set<String>) {}
+
     /** Runs [plugin]'s load hook the way its platform expects, which registers its providers. */
     fun start(plugin: BasePlugin) = plugin.load()
 

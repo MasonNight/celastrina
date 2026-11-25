@@ -5,11 +5,16 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.URLDecoder
+import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 
 /**
  * The HTTP fake for Extensions: one local server serving the test Extension Repository and standing in for the sites
@@ -29,6 +34,13 @@ class RecordedExtensionSites : AutoCloseable {
     /** Serve the `.cs3` with one byte changed, as a corrupted or substituted download would be. */
     @Volatile
     var tamperedCode = false
+
+    /**
+     * List version 2 of the test Extension, as its Repository would after its author released one. Version 2 is the
+     * same Extension with an extra file in its `.cs3`, so its code, and its SHA-256, differ from version 1's.
+     */
+    @Volatile
+    var newerVersion = false
 
     /** Answer the Archive with HTTP 500 and an HTML page, as it does when it's down. */
     @Volatile
@@ -84,9 +96,35 @@ class RecordedExtensionSites : AutoCloseable {
 
     private fun answerRepository(exchange: HttpExchange, name: String) {
         val file = File(repository, name).takeIf { it.isFile } ?: return exchange.send(404, ByteArray(0), "text/plain")
-        val bytes = file.readBytes()
+        val bytes = when {
+            !newerVersion -> file.readBytes()
+            name.endsWith(".cs3") -> newerCode(file)
+            name == "plugins.json" -> file.readText()
+                .replace("\"version\":1,", "\"version\":2,")
+                .replace(Regex("\"fileHash\":\"sha256-[0-9a-f]+\""), "\"fileHash\":\"sha256-${sha256(newerCode(File(repository, "InternetArchive.cs3")))}\"")
+                .encodeToByteArray()
+            else -> file.readBytes()
+        }
         if (tamperedCode && name.endsWith(".cs3")) bytes[bytes.size / 2] = (bytes[bytes.size / 2] + 1).toByte()
         exchange.send(200, bytes, if (name.endsWith(".json")) "application/json" else "application/octet-stream")
+    }
+
+    /** The `.cs3` [file] with one more file in it. */
+    private fun newerCode(file: File): ByteArray {
+        val out = ByteArrayOutputStream()
+        ZipOutputStream(out).use { zip ->
+            ZipInputStream(file.inputStream()).use { original ->
+                generateSequence { original.nextEntry }.forEach { entry ->
+                    zip.putNextEntry(ZipEntry(entry.name))
+                    original.copyTo(zip)
+                    zip.closeEntry()
+                }
+            }
+            zip.putNextEntry(ZipEntry("version-2.txt"))
+            zip.write("2".encodeToByteArray())
+            zip.closeEntry()
+        }
+        return out.toByteArray()
     }
 
     private fun answerSearch(exchange: HttpExchange) {
@@ -136,6 +174,8 @@ class RecordedExtensionSites : AutoCloseable {
         val SITES = setOf("archive.org", "query.wikidata.org")
         val SEARCHED_TITLE = Regex("""title:\("(.*)"\)""")
         val IMDB_ID = Regex("""wdt:P345 "(tt\d+)"""")
+
+        fun sha256(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
         fun slug(title: String) = title.lowercase().split(Regex("[^a-z0-9]+")).filter { it.isNotEmpty() }.joinToString("-")
     }
