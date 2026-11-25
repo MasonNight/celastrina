@@ -36,6 +36,23 @@ internal sealed interface ConnectionResult {
     data class Failed(val reason: Reason) : ConnectionResult
 }
 
+/** A step of logging in to a Jellyfin server with Quick Connect, which only Jellyfin offers. */
+internal sealed interface QuickConnectStep {
+    /** The server gave [code] for the Household to approve; [secret] asks after it. */
+    data class Started(val code: String, val secret: String) : QuickConnectStep
+
+    /** Not approved yet. */
+    data object Waiting : QuickConnectStep
+
+    /** Approved by [username], whose login it is. */
+    data class Connected(val login: MediaServerLogin, val username: String) : QuickConnectStep
+
+    /** The server has forgotten the code: it expired, or the server restarted. */
+    data object Expired : QuickConnectStep
+
+    data class Failed(val reason: Reason) : QuickConnectStep
+}
+
 /**
  * One Jellyfin or Emby server at [url] (no trailing '/'). [deviceId] names this TV to the server, which keeps one
  * session, and so one access token, per device and user.
@@ -61,6 +78,31 @@ internal class MediaServer(
     suspend fun check(login: MediaServerLogin): ConnectionResult = connect {
         checked(http.get("$url/Users/${login.userId}", mapOf(AUTHORIZATION to authorization(login.accessToken))))
         login
+    }
+
+    /** Asks the server for a Quick Connect code. A server with Quick Connect turned off answers login needed. */
+    suspend fun startQuickConnect(): QuickConnectStep = quickConnect {
+        val started = parse<QuickConnectResult>(checked(http.postJson("$url/QuickConnect/Initiate", "", mapOf(AUTHORIZATION to authorization(token = null)))))
+        QuickConnectStep.Started(started.code, started.secret)
+    }
+
+    /** Asks whether the code for [secret] has been approved, and logs in when it has. */
+    suspend fun continueQuickConnect(secret: String): QuickConnectStep = quickConnect {
+        val headers = mapOf(AUTHORIZATION to authorization(token = null))
+        val state = http.get("$url/QuickConnect/Connect?secret=${encode(secret)}", headers)
+        if (state.status == 404) return@quickConnect QuickConnectStep.Expired
+        if (!parse<QuickConnectResult>(checked(state)).authenticated) return@quickConnect QuickConnectStep.Waiting
+        val body = buildJsonObject { put("Secret", secret) }.toString()
+        val auth = parse<AuthenticationResult>(checked(http.postJson("$url/Users/AuthenticateWithQuickConnect", body, headers)))
+        QuickConnectStep.Connected(MediaServerLogin(userId = auth.user.id, accessToken = auth.accessToken), auth.user.name)
+    }
+
+    private suspend fun quickConnect(attempt: suspend () -> QuickConnectStep): QuickConnectStep = try {
+        attempt()
+    } catch (e: RequestFailed) {
+        QuickConnectStep.Failed(e.reason)
+    } catch (e: IOException) {
+        QuickConnectStep.Failed(Reason.Unreachable)
     }
 
     fun source(id: String, name: String, kind: SourceKind, login: MediaServerLogin?): Source = MediaServerSource(id, name, kind, login)
@@ -171,7 +213,14 @@ internal class MediaServer(
     private data class AuthenticationResult(@SerialName("AccessToken") val accessToken: String, @SerialName("User") val user: User)
 
     @Serializable
-    private data class User(@SerialName("Id") val id: String)
+    private data class User(@SerialName("Id") val id: String, @SerialName("Name") val name: String)
+
+    @Serializable
+    private data class QuickConnectResult(
+        @SerialName("Secret") val secret: String,
+        @SerialName("Code") val code: String,
+        @SerialName("Authenticated") val authenticated: Boolean,
+    )
 
     @Serializable
     private data class Items(@SerialName("Items") val items: List<Item> = emptyList())

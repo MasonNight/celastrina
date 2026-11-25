@@ -3,6 +3,7 @@ package dev.celastrina.core.configuration
 import dev.celastrina.core.port.FileStorage
 import dev.celastrina.core.port.HttpClient
 import dev.celastrina.core.port.HttpResponse
+import dev.celastrina.core.testing.VirtualClock
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import kotlinx.coroutines.flow.toList
@@ -13,6 +14,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.time.Duration.Companion.days
 
 class ConfigurationServiceTest {
 
@@ -25,8 +27,10 @@ class ConfigurationServiceTest {
         override suspend fun postJson(url: String, json: String, headers: Map<String, String>): HttpResponse = error("No network in these tests: $url")
     }
 
+    private val clock = VirtualClock()
+
     private fun service(projectTmdbKey: String = PROJECT_KEY) =
-        ConfigurationService(FileStorage(dir), offline, appVersion = "1.2.3", projectTmdbKey = projectTmdbKey)
+        ConfigurationService(FileStorage(dir), offline, appVersion = "1.2.3", projectTmdbKey = projectTmdbKey, clock = clock)
 
     @Test
     fun `a new Household's status shows the app version, the project TMDB key, one Source, no Extensions and the protocol version`() {
@@ -128,6 +132,8 @@ class ConfigurationServiceTest {
                     position = 1,
                     testState = TestState.Untested,
                     hasLogin = false,
+                    addedFromComputerAt = null,
+                    changedFromComputerAt = null,
                 ),
             ),
             service().list(),
@@ -213,6 +219,37 @@ class ConfigurationServiceTest {
         assertEquals(emptyList(), afterRestart.sources())
         assertEquals(0, afterRestart.status().sources)
         assertEquals(listOf(ConfigurationChange(ConfigurationChange.Action.Removed, "Internet Archive", ChangedFrom.Computer)), announced)
+    }
+
+    @Test
+    fun `a Source added from a computer is marked with when, and one added on the TV isn't`() = runTest {
+        val service = service()
+        val addedAt = clock.nowMillis()
+
+        service.add(NewSource(kind = "internet-archive", name = "Archive Two"), ChangedFrom.Computer)
+        service.add(NewSource(kind = "internet-archive", name = "Archive Three"), ChangedFrom.Tv)
+
+        assertEquals(
+            listOf(null, addedAt, null),
+            service().list().map { it.addedFromComputerAt },
+        )
+    }
+
+    @Test
+    fun `a Source changed from a computer is marked with when it last was, and changes on the TV or that change nothing leave it`() = runTest {
+        val service = service()
+        clock.advanceBy(1.days)
+        service.update("internet-archive", SourceChanges(name = "Archive.org"), ChangedFrom.Computer)
+        val renamedAt = clock.nowMillis()
+
+        clock.advanceBy(1.days)
+        service.update("internet-archive", SourceChanges(name = "Archive.org"), ChangedFrom.Computer)
+        service.disable("internet-archive", ChangedFrom.Tv)
+        assertEquals(renamedAt, service().list().single().changedFromComputerAt)
+
+        service.enable("internet-archive", ChangedFrom.Computer)
+        assertEquals(clock.nowMillis(), service().list().single().changedFromComputerAt)
+        assertEquals(null, service().list().single().addedFromComputerAt)
     }
 
     @Test
