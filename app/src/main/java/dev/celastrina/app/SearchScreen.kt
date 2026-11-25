@@ -134,7 +134,7 @@ private fun heading(results: SearchResults) = when (results) {
     is SearchResults.Found -> "Titles matching '${results.query}'"
     is SearchResults.NoMatches -> "No Titles match '${results.query}'"
     // Searches are never saved on the TV, so offline there's nothing to fall back on.
-    is SearchResults.Unavailable -> when (results.reason) {
+    is SearchResults.Unreadable -> when (results.reason) {
         CatalogueUnreadable.Reason.Unreachable -> "You're offline. Search works again once the TV is back online."
         else -> results.reason.message()
     }

@@ -59,14 +59,14 @@ class Search(private val catalogue: Catalogue, scope: CoroutineScope) {
     private suspend fun trending(): SearchResults = try {
         SearchResults.Trending(trending ?: catalogue.trending().also { trending = it })
     } catch (e: CatalogueUnreadable) {
-        SearchResults.Unavailable(e.reason)
+        SearchResults.Unreadable(e.reason)
     }
 
     private suspend fun find(query: String): SearchResults = try {
         val titles = catalogue.search(query)
         if (titles.isEmpty()) SearchResults.NoMatches(query) else SearchResults.Found(query, titles)
     } catch (e: CatalogueUnreadable) {
-        SearchResults.Unavailable(e.reason)
+        SearchResults.Unreadable(e.reason)
     }
 
     private companion object {
@@ -90,5 +90,5 @@ sealed interface SearchResults {
     data class NoMatches(val query: String) : SearchResults
 
     /** The Catalogue couldn't be read, for [reason]. */
-    data class Unavailable(val reason: CatalogueUnreadable.Reason) : SearchResults
+    data class Unreadable(val reason: CatalogueUnreadable.Reason) : SearchResults
 }

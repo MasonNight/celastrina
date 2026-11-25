@@ -185,13 +185,13 @@ class SearchTest {
             val search = Search(Catalogue(offline, tmdb.settings, Locale.US), backgroundScope)
 
             assertEquals(
-                SearchResults.Unavailable(CatalogueUnreadable.Reason.Unreachable),
+                SearchResults.Unreadable(CatalogueUnreadable.Reason.Unreachable),
                 search.results.first { it !is SearchResults.Loading },
             )
             "dune".forEach(search::type)
             advanceTimeBy(400)
             runCurrent()
-            assertEquals(SearchResults.Unavailable(CatalogueUnreadable.Reason.Unreachable), search.results.value)
+            assertEquals(SearchResults.Unreadable(CatalogueUnreadable.Reason.Unreachable), search.results.value)
         }
     }
 }
