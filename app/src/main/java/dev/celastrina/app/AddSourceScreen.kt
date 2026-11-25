@@ -50,7 +50,7 @@ private val ADDABLE_KINDS = listOf("jellyfin", "emby", "stremio")
  * a password. [onDone] goes back to the Sources, once a Source is saved.
  */
 @Composable
-fun AddSourceScreen(configuration: ConfigurationService, onDone: () -> Unit) {
+fun AddSourceScreen(configuration: ConfigurationService, onExtensions: () -> Unit, onDone: () -> Unit) {
     var kind by remember { mutableStateOf<String?>(null) }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 96.dp, vertical = 48.dp),
@@ -58,7 +58,7 @@ fun AddSourceScreen(configuration: ConfigurationService, onDone: () -> Unit) {
     ) {
         Text("Add Source", style = MaterialTheme.typography.headlineMedium)
         when (val chosen = kind) {
-            null -> KindChoice { kind = it }
+            null -> KindChoice(onExtensions) { kind = it }
             else -> {
                 BackHandler { kind = null }
                 SourceForm(chosen, configuration, onDone)
@@ -68,7 +68,7 @@ fun AddSourceScreen(configuration: ConfigurationService, onDone: () -> Unit) {
 }
 
 @Composable
-private fun KindChoice(onChoose: (String) -> Unit) {
+private fun KindChoice(onExtensions: () -> Unit, onChoose: (String) -> Unit) {
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { first.requestFocus() }
     Text("What kind of Source?", style = MaterialTheme.typography.titleMedium)
@@ -81,6 +81,14 @@ private fun KindChoice(onChoose: (String) -> Unit) {
             modifier = Modifier.widthIn(max = 800.dp).then(if (index == 0) Modifier.focusRequester(first) else Modifier),
         )
     }
+    // Extensions' Sources come from installing them, so this leads to the Extensions screen.
+    ListItem(
+        selected = false,
+        onClick = onExtensions,
+        headlineContent = { Text(kindName("extension")) },
+        supportingContent = { Text("From an Extension Repository you import. Extensions are unverified code from third parties.") },
+        modifier = Modifier.widthIn(max = 800.dp),
+    )
 }
 
 private fun kindHint(kind: String) = when (kind) {

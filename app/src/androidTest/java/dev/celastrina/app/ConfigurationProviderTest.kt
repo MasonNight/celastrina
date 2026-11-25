@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
@@ -50,6 +51,22 @@ class ConfigurationProviderTest {
         assertEquals("warning_not_acknowledged", reply.string("problem"))
         assertTrue("home network" in reply.string("warning"), reply.toString())
         assertEquals(1, reply["warning_version"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun the_agent_lists_updates_and_removes_extensions() {
+        val extensions = contentCall("extensions")
+        val removeUnknown = contentCall("remove-extension", base64("""{"name": "NoSuchExtension"}"""))
+        val removeUnknownRepository = contentCall("remove-repository", base64("""{"url": "https://example.org/no-such-repo.json"}"""))
+        val updateUnknown = contentCall("update-extension", base64("""{"name": "NoSuchExtension"}"""))
+        val noName = contentCall("remove-extension")
+
+        assertEquals("ok", extensions.string("result"))
+        assertTrue(extensions["updates_available"]!!.jsonPrimitive.int >= 0, extensions.toString())
+        assertTrue(extensions["repositories"] is JsonArray, extensions.toString())
+        assertEquals("ok" to "ok", removeUnknown.string("result") to removeUnknownRepository.string("result"))
+        assertEquals("unknown_extension", updateUnknown.string("problem"))
+        assertEquals("bad_argument", noName.string("problem"))
     }
 
     @Test

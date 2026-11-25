@@ -18,6 +18,7 @@ import dev.celastrina.core.configuration.SourceChanges
 import dev.celastrina.core.configuration.SourceSummary
 import dev.celastrina.core.configuration.Status
 import dev.celastrina.core.configuration.WriteOutcome
+import dev.celastrina.core.extension.ExtensionRepository
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonArray
@@ -44,6 +45,12 @@ import kotlinx.serialization.json.put
  * Repository's `repository` with its `extensions`; without the current warning version it answers `invalid` with
  * problem `warning_not_acknowledged`, the `warning` to show the person word for word, and its `warning_version`.
  * `install-extension` ({"repository": <its URL>, "name"}) answers the `ids` of the Sources its providers became.
+ * `extensions` answers every imported Extension Repository (`repositories`, each with its `extensions`, which say
+ * `installed`, `installed_version` and `update_available`) and `updates_available`, as of the last update check;
+ * `check-updates` checks every Repository now, then answers the same. Nothing updates by itself: `update-extension`
+ * ({"name"}) updates one, answering like `install-extension`, and `update-extensions` updates every one with an update,
+ * answering each one's reply in `extensions`. `remove-extension` ({"name"}) and `remove-repository` ({"url"}) take
+ * the Extensions' Sources out of the order at once; their code is gone after Celastrina next starts.
  *
  * `status` says
  * which TMDB key is in use (`project`, `override` or `none`), never the key. Every reply is one JSON object in the returned Bundle's
@@ -131,8 +138,34 @@ class ConfigurationProvider : ContentProvider() {
                 val name = args.string("name") ?: return args.missing("name")
                 runBlocking { configuration.installExtension(repository, name, ChangedFrom.Computer) }.toJson(repository, name)
             }
+            "extensions" -> args.onlyFields() ?: extensionsReply()
+            "check-updates" -> args.onlyFields() ?: run {
+                runBlocking { configuration.checkForUpdates(now = true) }
+                extensionsReply()
+            }
+            "update-extension" -> args.onlyFields("name") ?: run {
+                val name = args.string("name") ?: return args.missing("name")
+                runBlocking { configuration.updateExtension(name, ChangedFrom.Computer) }.toJson(repository = null, name)
+            }
+            "update-extensions" -> args.onlyFields() ?: run {
+                val outcomes = runBlocking { configuration.updateAllExtensions(ChangedFrom.Computer) }
+                ok { put("extensions", JsonArray(outcomes.map { (name, outcome) -> JsonObject(mapOf("name" to JsonPrimitive(name)) + outcome.toJson(repository = null, name)) })) }
+            }
+            "remove-extension" -> args.onlyFields("name") ?: run {
+                val name = args.string("name") ?: return args.missing("name")
+                configuration.removeExtension(name, ChangedFrom.Computer).toJson()
+            }
+            "remove-repository" -> args.onlyFields("url") ?: run {
+                val url = args.string("url") ?: return args.missing("url")
+                configuration.removeRepository(url, ChangedFrom.Computer).toJson()
+            }
             else -> invalid("unknown_command", "There's no command $method. Commands: ${COMMANDS.joinToString()}.")
         }
+    }
+
+    private fun extensionsReply() = ok {
+        put("updates_available", configuration.updatesAvailable())
+        put("repositories", JsonArray(configuration.repositories().map { it.toJson() }))
     }
 
     /** Lets in only `adb shell`, root and Celastrina itself: the trusted ADB connection is the only authentication. */
@@ -231,39 +264,40 @@ class ConfigurationProvider : ContentProvider() {
             put("test_state", testState.wire())
             put("has_login", hasLogin)
             problem?.let { put("problem", it) }
+            if (updateAvailable) put("update_available", true)
         }
 
         val COMMANDS = listOf(
             "status", "list", "add", "update", "set-order", "enable", "disable", "remove", "set-tmdb-key", "clear-tmdb-key",
-            "import-repository", "install-extension",
+            "import-repository", "install-extension", "extensions", "check-updates", "update-extension", "update-extensions",
+            "remove-extension", "remove-repository",
         )
 
-        fun ImportOutcome.toJson(url: String) = when (this) {
-            is ImportOutcome.Imported -> ok {
-                put(
-                    "repository",
-                    buildJsonObject {
-                        put("url", repository.url)
-                        put("name", repository.name)
-                        put(
-                            "extensions",
-                            JsonArray(
-                                repository.extensions.map {
-                                    buildJsonObject {
-                                        put("name", it.name)
-                                        put("display_name", it.displayName)
-                                        put("version", it.version)
-                                        put("description", it.description)
-                                        put("authors", JsonArray(it.authors.map(::JsonPrimitive)))
-                                        put("languages", JsonArray(it.languages.map(::JsonPrimitive)))
-                                        put("installed", it.installed)
-                                    }
-                                },
-                            ),
-                        )
+        fun ExtensionRepository.toJson() = buildJsonObject {
+            put("url", url)
+            put("name", name)
+            put(
+                "extensions",
+                JsonArray(
+                    extensions.map {
+                        buildJsonObject {
+                            put("name", it.name)
+                            put("display_name", it.displayName)
+                            put("version", it.version)
+                            put("description", it.description)
+                            put("authors", JsonArray(it.authors.map(::JsonPrimitive)))
+                            put("languages", JsonArray(it.languages.map(::JsonPrimitive)))
+                            put("installed", it.installed)
+                            put("installed_version", it.installedVersion)
+                            put("update_available", it.updateAvailable)
+                        }
                     },
-                )
-            }
+                ),
+            )
+        }
+
+        fun ImportOutcome.toJson(url: String) = when (this) {
+            is ImportOutcome.Imported -> ok { put("repository", repository.toJson()) }
             is ImportOutcome.WarningNotAcknowledged -> buildJsonObject {
                 put("result", "invalid")
                 put("problem", "warning_not_acknowledged")
@@ -280,12 +314,12 @@ class ConfigurationProvider : ContentProvider() {
             }
         }
 
-        fun InstallOutcome.toJson(repository: String, name: String) = when (this) {
+        fun InstallOutcome.toJson(repository: String?, name: String) = when (this) {
             is InstallOutcome.Installed -> ok { put("ids", JsonArray(sourceIds.map(::JsonPrimitive))) }
             is InstallOutcome.Invalid -> invalid(problem.wire(), message)
             is InstallOutcome.Failed -> buildJsonObject {
                 put("result", "failure")
-                put("repository", repository)
+                repository?.let { put("repository", it) }
                 put("name", name)
                 put("reason", reason.wire())
                 put("message", message)
