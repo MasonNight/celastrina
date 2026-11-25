@@ -16,7 +16,7 @@ class DexExtensionLoader(private val context: Context) : ExtensionLoader {
     private val dir get() = File(context.codeCacheDir, "extensions")
 
     override fun keepOnly(keys: Set<String>) {
-        dir.listFiles().orEmpty().filter { it.nameWithoutExtension !in keys }.forEach { it.delete() }
+        ExtensionLoader.deleteCodeExcept(dir, keys)
     }
 
     override fun classLoaderFor(key: String, code: ByteArray): ClassLoader {

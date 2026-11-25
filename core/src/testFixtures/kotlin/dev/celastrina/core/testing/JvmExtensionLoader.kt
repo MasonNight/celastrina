@@ -17,7 +17,7 @@ class JvmExtensionLoader(private val dir: File, private val missingClasses: Set<
     val loaded = mutableListOf<String>()
 
     override fun keepOnly(keys: Set<String>) {
-        dir.listFiles().orEmpty().filter { it.nameWithoutExtension !in keys }.forEach { it.delete() }
+        ExtensionLoader.deleteCodeExcept(dir, keys)
     }
 
     override fun classLoaderFor(key: String, code: ByteArray): ClassLoader {
