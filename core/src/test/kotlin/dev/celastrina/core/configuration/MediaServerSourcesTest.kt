@@ -198,6 +198,17 @@ class MediaServerSourcesTest {
     }
 
     @Test
+    fun `a second Source on the same server, such as another user's, keeps the first one logged in`() = runTest {
+        val service = service()
+        service.add(movieNight(), ChangedFrom.Computer)
+
+        assertEquals(WriteOutcome.Added("kids-jellyfin"), service.add(movieNight().copy(name = "Kids Jellyfin"), ChangedFrom.Computer))
+
+        assertEquals(WriteOutcome.Ok, service.enable("movie-night-jellyfin", ChangedFrom.Computer))
+        assertEquals(listOf(TestState.Passing, TestState.Passing), service().list().drop(1).map { it.testState })
+    }
+
+    @Test
     fun `removing a server deletes its login`() = runTest {
         val service = service()
         service.add(movieNight(), ChangedFrom.Computer)

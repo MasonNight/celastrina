@@ -218,8 +218,10 @@ class ConfigurationService(
         if (name.isEmpty()) return QuickConnect.Finished(blankName())
         val url = serverAddress(new.url) ?: return QuickConnect.Finished(badUrl(MediaServerKinds.Jellyfin))
         synchronized(lock) { nameTaken(name, load())?.let { return QuickConnect.Finished(it) } }
-        return when (val step = MediaServer(http, url, deviceId(), appVersion).startQuickConnect()) {
-            is QuickConnectStep.Started -> QuickConnect.Waiting(step.code, name, url, step.secret)
+        // The server is new, so this TV is a new device to it; the device ID is kept with the Source once it's added.
+        val deviceId = UUID.randomUUID().toString()
+        return when (val step = MediaServer(http, url, deviceId, appVersion).startQuickConnect()) {
+            is QuickConnectStep.Started -> QuickConnect.Waiting(step.code, name, url, step.secret, deviceId)
             is QuickConnectStep.Failed -> QuickConnect.Failed(step.reason, quickConnectFailure(name, url, step.reason, starting = true))
             else -> QuickConnect.Failed(Reason.SourceError, quickConnectFailure(name, url, Reason.SourceError, starting = true))
         }
@@ -232,7 +234,7 @@ class ConfigurationService(
      */
     suspend fun continueQuickConnect(waiting: QuickConnect.Waiting, from: ChangedFrom): QuickConnect {
         val (name, url) = waiting.name to waiting.url
-        return when (val step = MediaServer(http, url, deviceId(), appVersion).continueQuickConnect(waiting.secret)) {
+        return when (val step = MediaServer(http, url, waiting.deviceId, appVersion).continueQuickConnect(waiting.secret)) {
             QuickConnectStep.Waiting -> waiting
             QuickConnectStep.Expired -> QuickConnect.Failed(Reason.AuthRequired, "The Quick Connect code for $name has expired. Start again for a new code.")
             is QuickConnectStep.Failed -> QuickConnect.Failed(step.reason, quickConnectFailure(name, url, step.reason, starting = false))
@@ -242,6 +244,7 @@ class ConfigurationService(
                 is Saved.As -> {
                     synchronized(lock) {
                         val sources = load()
+                        storage.write(deviceIdKey(saved.id), waiting.deviceId.encodeToByteArray())
                         storage.write(loginKey(saved.id), json.encodeToString(MediaServerLogin.serializer(), step.login).encodeToByteArray())
                         save(sources.map { if (it.id == saved.id) it.copy(testState = TestState.Passing) else it })
                     }
@@ -360,6 +363,7 @@ class ConfigurationService(
     /** Removes the Source, its login and its Failover memory for good. Removing one that is already gone is harmless. */
     fun remove(id: String, from: ChangedFrom): WriteOutcome = change(id, from, ifMissing = WriteOutcome.Ok) { source ->
         storage.delete(loginKey(id))
+        storage.delete(deviceIdKey(id))
         storage.delete(manifestKey(id))
         failoverMemory?.forget(listOf(id))
         Edit(null, ConfigurationChange(ConfigurationChange.Action.Removed, source.name, from))
@@ -782,14 +786,23 @@ class ConfigurationService(
         Reason.SourceError -> "${source.name} answered, but not as a Jellyfin or Emby server does. Check the address."
     }
 
-    private fun server(source: StoredSource) = MediaServer(http, checkNotNull(source.url) { "Source ${source.id} has no URL" }, deviceId(), appVersion)
+    private fun server(source: StoredSource) = MediaServer(http, checkNotNull(source.url) { "Source ${source.id} has no URL" }, deviceId(source.id), appVersion)
 
     private fun login(id: String): MediaServerLogin? =
         storage.read(loginKey(id))?.let { json.decodeFromString(MediaServerLogin.serializer(), it.decodeToString()) }
 
-    /** Names this TV to Jellyfin and Emby servers, which keep one session per device: made once, then kept. */
-    private fun deviceId(): String = synchronized(lock) {
-        storage.read(DEVICE_ID)?.decodeToString() ?: UUID.randomUUID().toString().also { storage.write(DEVICE_ID, it.encodeToByteArray()) }
+    /**
+     * Names this TV to the Source [id]'s Jellyfin or Emby server. A server keeps one session per device, so each Source
+     * is its own device: a second Source on the same server, logging in, doesn't sign the first out. Made once, then
+     * kept. The one device ID an earlier Celastrina used for every Source goes to the first that asks with a login.
+     */
+    private fun deviceId(id: String): String = synchronized(lock) {
+        storage.read(deviceIdKey(id))?.decodeToString()?.let { return it }
+        val legacy = storage.read(LEGACY_DEVICE_ID)?.decodeToString()?.takeIf { login(id) != null }
+        val deviceId = legacy ?: UUID.randomUUID().toString()
+        storage.write(deviceIdKey(id), deviceId.encodeToByteArray())
+        if (legacy != null) storage.delete(LEGACY_DEVICE_ID)
+        deviceId
     }
 
     /** What an edit of one Source does: the changed Source (null to remove it) and its announcement, if anything changed. */
@@ -887,7 +900,8 @@ class ConfigurationService(
 
         private const val SOURCES = "sources.json"
         private const val TMDB_KEY = "tmdb-key"
-        private const val DEVICE_ID = "device-id"
+        /** Where an earlier Celastrina kept the one device ID it used for every Jellyfin and Emby Source. */
+        private const val LEGACY_DEVICE_ID = "device-id"
         private const val INTERNET_ARCHIVE = "Internet Archive"
         private val LEAVES_NOT_PLAYABLE = setOf(
             ConfigurationChange.Action.Reordered,
@@ -925,6 +939,8 @@ class ConfigurationService(
         private fun kindOf(id: String): SourceKind? = KINDS.find { it.id == id }
 
         private fun loginKey(id: String) = "login-$id.json"
+
+        private fun deviceIdKey(id: String) = "device-id-$id"
 
         private fun manifestKey(id: String) = "manifest-$id.json"
 
@@ -1043,6 +1059,7 @@ sealed interface QuickConnect {
         internal val name: String,
         internal val url: String,
         internal val secret: String,
+        internal val deviceId: String,
     ) : QuickConnect
 
     /** Done: the server was [added][WriteOutcome.Added], or the add was [refused][WriteOutcome.Invalid]. */
