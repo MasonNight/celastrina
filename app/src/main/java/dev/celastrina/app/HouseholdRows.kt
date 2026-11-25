@@ -90,7 +90,7 @@ private fun <T : Any> HouseholdRowOf(
     titleOf: (T) -> Title,
     card: @Composable (T, Modifier) -> Unit,
 ) {
-    val target = model.focusTarget?.takeIf { it.first == row }?.second
+    val target = model.focusTarget?.takeIf { it.first == row && !model.focusSearch }?.second
     val targetRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { if (model.focusTarget == null) model.focusTarget = row to titleOf(items.first()) }
     LaunchedEffect(target) { if (target != null) runCatching { targetRequester.requestFocus() } }

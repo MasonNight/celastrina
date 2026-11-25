@@ -41,6 +41,9 @@ class HomeModel(private val catalogue: Catalogue, private val scope: CoroutineSc
     /** The card to focus when home shows: the last Title opened, or the first card, by its [HomeRow] or [HouseholdRow]. */
     var focusTarget by mutableStateOf<Pair<Any, Title>?>(null)
 
+    /** Whether home shows with focus on the Search button instead, as it does coming back from search. */
+    var focusSearch by mutableStateOf(false)
+
     private val loadingMore = mutableSetOf<HomeRow>()
     private val heroes = object : LinkedHashMap<Title, Hero>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Title, Hero>) = size > HEROES_KEPT
