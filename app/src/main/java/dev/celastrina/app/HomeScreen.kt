@@ -243,6 +243,7 @@ private fun PosterCard(title: Title, modifier: Modifier, onFocus: () -> Unit, on
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
+            NotPlayableBadge(title, Modifier.align(Alignment.BottomStart).padding(6.dp))
         }
     }
 }

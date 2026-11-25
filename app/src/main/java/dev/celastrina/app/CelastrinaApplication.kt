@@ -3,6 +3,7 @@ package dev.celastrina.app
 import android.app.Application
 import android.util.Log
 import com.lagradost.api.setContext
+import dev.celastrina.core.catalogue.NotPlayableMemory
 import dev.celastrina.core.configuration.ConfigurationService
 import dev.celastrina.core.failover.FailoverMemory
 import dev.celastrina.core.port.Clock
@@ -31,9 +32,13 @@ class CelastrinaApplication : Application() {
             extensionLoader = DexExtensionLoader(applicationContext),
             logger = logger,
             failoverMemory = failoverMemory,
+            notPlayable = notPlayable,
         )
     }
 
     /** The Streams that failed on this TV in the last 24 hours, shared by Play's choice and every playback session. */
     val failoverMemory by lazy { FailoverMemory(storage, Clock.System) }
+
+    /** The Titles whose latest Lookup found every Source Not available, badged wherever they appear. */
+    val notPlayable by lazy { NotPlayableMemory(storage, Clock.System) }
 }
