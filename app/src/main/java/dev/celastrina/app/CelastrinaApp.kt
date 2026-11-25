@@ -54,6 +54,7 @@ private sealed interface Screen {
     data class Player(val request: PlayRequest, val back: Screen) : Screen
     data class Settings(val back: Screen) : Screen
     data class About(val back: Settings) : Screen
+    data class TmdbKey(val back: Settings) : Screen
     data class Sources(val back: Settings) : Screen
     data class AddSource(val back: Sources) : Screen
     data class Extensions(val back: Screen) : Screen
@@ -66,8 +67,8 @@ private sealed interface Screen {
  * Streams that arrive late, and can ask the Sources again when its Stream list may have expired. [failoverMemory] orders
  * Play's choice and Failover's candidates. [continueWatching] and [watchlist] are home's first two rows; a Continue
  * watching card resumes playback in one press. [configurationChanges] made from a computer show as notices over any screen.
- * The remote's Menu button ([menuPresses]) opens Settings from anywhere but the player; Settings shows [tmdbKey] and
- * leads to the Sources (where [configuration] adds and changes them), the Extensions and About.
+ * The remote's Menu button ([menuPresses]) opens Settings from anywhere but the player; Settings leads to the Sources
+ * (where [configuration] adds and changes them), the Extensions, the TMDB key ([tmdbKey] says which is in use) and About.
  */
 @Composable
 fun CelastrinaApp(
@@ -101,7 +102,7 @@ fun CelastrinaApp(
     LaunchedEffect(menuPresses) {
         menuPresses.collect {
             when (val s = screen) {
-                is Screen.Player, is Screen.Settings, is Screen.Sources, is Screen.AddSource, is Screen.Extensions -> Unit
+                is Screen.Player, is Screen.Settings, is Screen.Sources, is Screen.AddSource, is Screen.Extensions, is Screen.TmdbKey -> Unit
                 is Screen.About -> screen = s.back
                 else -> screen = Screen.Settings(back = s)
             }
@@ -179,6 +180,7 @@ fun CelastrinaApp(
                         updatesAvailable = remember(s) { configuration.updatesAvailable() },
                         onSources = { screen = Screen.Sources(back = s) },
                         onExtensions = { screen = Screen.Extensions(back = s) },
+                        onTmdbKey = { screen = Screen.TmdbKey(back = s) },
                     ) { screen = Screen.About(back = s) }
                 }
                 is Screen.Sources -> {
@@ -196,6 +198,10 @@ fun CelastrinaApp(
                 is Screen.About -> {
                     BackHandler { screen = s.back }
                     AboutScreen(appVersion)
+                }
+                is Screen.TmdbKey -> {
+                    BackHandler { screen = s.back }
+                    TmdbKeyScreen(tmdbKey, configuration) { screen = s.back }
                 }
             }
             ChangedFromComputerNotices(configurationChanges)

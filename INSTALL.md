@@ -447,7 +447,8 @@ key" or "TMDB rejected the key". Celastrina's home screen and search come from T
    The TV starts using it at once. Never repeat the key back; `status` never shows it either.
 
 To go back to the built-in key, when the person asks: `call clear-tmdb-key`, then `status` says `"tmdb_key":"project"`
-(or `none` in a build without one).
+(or `none` in a build without one). The person can also set or clear it themselves on the TV, under Menu → Settings →
+TMDB key.
 
 ### 9. End the job (Do)
 
