@@ -53,7 +53,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
 
     lint {
         warningsAsErrors = true
@@ -102,6 +101,8 @@ abstract class VerifyApk : DefaultTask() {
     }
 }
 
+kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
+
 androidComponents {
     onVariants { variant ->
         tasks.register<VerifyApk>("verify${variant.name.replaceFirstChar(Char::uppercase)}Apk") {
@@ -122,6 +123,8 @@ tasks.named("check") { dependsOn("verifyDebugApk") }
 
 dependencies {
     implementation(project(":core"))
+    // Bundled for Extensions to link against (ADR 0001); the app's shims extend it.
+    implementation(libs.cloudstream.library)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
 

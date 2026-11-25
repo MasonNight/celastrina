@@ -20,9 +20,12 @@ dependencies {
     signature(libs.android.signature.api25) { artifact { type = "signature" } }
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.cloudstream.library)
 
     testFixturesImplementation(libs.kotlinx.coroutines.core)
     testFixturesImplementation(libs.kotlinx.serialization.json)
+    testFixturesImplementation(libs.cloudstream.library)
+    testFixturesImplementation(libs.nicehttp)
 
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
@@ -31,4 +34,17 @@ dependencies {
     testImplementation(kotlin("test-junit5"))
 }
 
-tasks.test { useJUnitPlatform() }
+// The test Extension Repository (repo.json, plugins.json and the test Extension's .cs3), which the Extension tests import.
+val testRepository: Configuration by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+
+dependencies { testRepository(project(path = ":test-extension", configuration = "testRepositoryElements")) }
+
+tasks.test {
+    useJUnitPlatform()
+    inputs.files(testRepository).withPropertyName("testRepository")
+    val repository = testRepository
+    doFirst { systemProperty("celastrina.testRepository", repository.singleFile.path) }
+}

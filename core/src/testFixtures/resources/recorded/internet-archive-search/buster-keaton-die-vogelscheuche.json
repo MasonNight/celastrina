@@ -1,0 +1,19 @@
+{
+ "responseHeader": {
+  "status": 0,
+  "QTime": 157,
+  "params": {
+   "query": "title:&quot;Buster Keaton\\: Die Vogelscheuche&quot; AND mediatype:movies",
+   "qin": "title:(&quot;Buster Keaton: Die Vogelscheuche&quot;) AND mediatype:(movies)",
+   "fields": "identifier,title,year",
+   "wt": "json",
+   "rows": 20,
+   "start": 0
+  }
+ },
+ "response": {
+  "numFound": 0,
+  "start": 0,
+  "docs": []
+ }
+}

@@ -1,0 +1,60 @@
+{
+ "responseHeader": {
+  "status": 0,
+  "QTime": 105,
+  "params": {
+   "query": "title:&quot;Murder at Midnight&quot; AND mediatype:movies",
+   "qin": "title:(&quot;Murder at Midnight&quot;) AND mediatype:(movies)",
+   "fields": "identifier,title,year",
+   "wt": "json",
+   "rows": 20,
+   "start": 0
+  }
+ },
+ "response": {
+  "numFound": 8,
+  "start": 0,
+  "docs": [
+   {
+    "identifier": "wcatwma-KVC_-_A_Murder_At_Midnight",
+    "title": "KVC: A Murder At Midnight",
+    "year": 2013
+   },
+   {
+    "identifier": "MurderAtMidnightTheSecretOfXR3September301946_201706",
+    "title": "Murder At Midnight The Secret Of XR 3 ( September 30, 1946)",
+    "year": 2016
+   },
+   {
+    "identifier": "macsdca-Murder_at_Midnight",
+    "title": "Murder at Midnight",
+    "year": 2023
+   },
+   {
+    "identifier": "MurderAtMidnightTheManWhoWasDeathSeptember231946",
+    "title": "Murder At Midnight The Man Who Was Death ( September 23, 1946)",
+    "year": 2016
+   },
+   {
+    "identifier": "MurderAtMidnightWhereverIGoOctober71946",
+    "title": "Murder At Midnight Wherever I Go ( October 7, 1946)",
+    "year": 2016
+   },
+   {
+    "identifier": "MurderAtMidnightTheSecretOfXR3September301946",
+    "title": "Murder At Midnight The Secret Of XR 3 ( September 30, 1946)",
+    "year": 2016
+   },
+   {
+    "identifier": "Murder_at_Midnight_1931",
+    "title": "Murder at Midnight",
+    "year": 1931
+   },
+   {
+    "identifier": "MurderAtMidnightTheDeadHandSeptember161946",
+    "title": "Murder At Midnight The Dead Hand ( September 16, 1946)",
+    "year": 2016
+   }
+  ]
+ }
+}
