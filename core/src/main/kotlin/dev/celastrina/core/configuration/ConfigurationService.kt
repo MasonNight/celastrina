@@ -36,6 +36,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.net.URI
@@ -519,7 +520,7 @@ class ConfigurationService(
         }
     }
 
-    /** What making an Extension's Sources match its providers changed, as the announcements to make once it is saved. */
+    /** What making an Extension's Sources match the Sources it provides changed, as the announcements to make once it is saved. */
     private class Synced(val added: List<StoredSource>, val removed: List<StoredSource>, val from: ChangedFrom)
 
     private fun announce(synced: Synced) {
@@ -535,18 +536,18 @@ class ConfigurationService(
     private fun syncSources(name: String, provided: List<ProvidedSource>, from: ChangedFrom): Synced {
         val before = load()
         val providedNames = provided.map { it.name }.toSet()
-        val removed = before.filter { it.extension == name && it.provider !in providedNames }
+        val removed = before.filter { it.extension == name && it.nameInExtension !in providedNames }
         var sources = (before - removed.toSet()).map { stored ->
-            val now = provided.find { stored.extension == name && it.name == stored.provider } ?: return@map stored
+            val now = provided.find { stored.extension == name && it.name == stored.nameInExtension } ?: return@map stored
             stored.copy(titleKinds = now.titleKinds, imdb = now.imdb)
         }
-        val added = provided.filter { p -> sources.none { it.extension == name && it.provider == p.name } }.map { p ->
+        val added = provided.filter { p -> sources.none { it.extension == name && it.nameInExtension == p.name } }.map { p ->
             StoredSource(
                 id = uniqueId(slugOf("$name ${p.name}"), sources),
                 name = uniqueName(p.name, sources),
                 kind = EXTENSION_KIND,
                 extension = name,
-                provider = p.name,
+                nameInExtension = p.name,
                 titleKinds = p.titleKinds,
                 imdb = p.imdb,
                 addedFromComputerAt = clock.nowMillis().takeIf { from == ChangedFrom.Computer },
@@ -632,7 +633,7 @@ class ConfigurationService(
     /**
      * Installs the Extension [name] from the imported Extension Repository [repositoryUrl]. Its download must match the
      * list's SHA-256, and the Extension stays pinned to that Repository: one with the same name from another is refused.
-     * Each of its providers becomes a Source at the end of the order, enabled. Installing it again is harmless.
+     * Each Source it provides joins the end of the order, enabled. Installing it again is harmless.
      */
     suspend fun installExtension(repositoryUrl: String, name: String, from: ChangedFrom): InstallOutcome {
         val (repository, listed) = synchronized(lock) {
@@ -684,7 +685,7 @@ class ConfigurationService(
             name = stored.name,
             kind = ExtensionSource.kind(stored.titleKinds, stored.imdb),
             extension = installed.name,
-            providerName = checkNotNull(stored.provider) { "Source ${stored.id} names no provider" },
+            nameInExtension = checkNotNull(stored.nameInExtension) { "Source ${stored.id} has no name in its Extension" },
             host = extensionHost,
             providers = {
                 extensionHost.providers(installed.name, installed.sha256) {
@@ -857,9 +858,10 @@ class ConfigurationService(
         /** A Jellyfin or Emby server's address, without a trailing '/', or an add-on's manifest URL. */
         val url: String? = null,
         val username: String? = null,
-        /** For a Source from an Extension: the Extension's name, its provider's name, and what the provider plays. */
+        /** For a Source from an Extension: the Extension's name, the name it gives this Source, and what the Source plays. */
         val extension: String? = null,
-        val provider: String? = null,
+        // Stored as "provider", its name before the glossary's word was used.
+        @SerialName("provider") val nameInExtension: String? = null,
         val titleKinds: Set<Title.Kind> = emptySet(),
         val imdb: Boolean = false,
         val addedFromComputerAt: Long? = null,
@@ -1103,7 +1105,7 @@ sealed interface ImportOutcome {
 
 /** What installing an Extension answers. */
 sealed interface InstallOutcome {
-    /** Installed (or already was): the IDs of the Sources its providers became. */
+    /** Installed (or already was): the IDs of the Sources it provides. */
     data class Installed(val sourceIds: List<String>) : InstallOutcome
 
     data class Invalid(val problem: WriteOutcome.Problem, val message: String) : InstallOutcome

@@ -6,7 +6,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.celastrina.core.catalogue.Catalogue
-import dev.celastrina.core.catalogue.CatalogueUnavailable
+import dev.celastrina.core.catalogue.CatalogueUnreadable
 import dev.celastrina.core.catalogue.Hero
 import dev.celastrina.core.catalogue.HomeRow
 import dev.celastrina.core.catalogue.Row
@@ -19,7 +19,7 @@ import kotlinx.coroutines.withContext
 sealed interface RowState {
     data object Loading : RowState
     data class Loaded(val row: Row) : RowState
-    data class Failed(val reason: CatalogueUnavailable.Reason) : RowState
+    data class Failed(val reason: CatalogueUnreadable.Reason) : RowState
 }
 
 /**
@@ -70,7 +70,7 @@ class HomeModel(private val catalogue: Catalogue, private val scope: CoroutineSc
             try {
                 val row = offMain { catalogue.row(homeRow) }
                 if (!row.fromOfflineCache) rows[homeRow] = RowState.Loaded(row)
-            } catch (_: CatalogueUnavailable) {
+            } catch (_: CatalogueUnreadable) {
                 // Still offline: the row keeps what it shows.
             } finally {
                 refreshing.remove(homeRow)
@@ -83,7 +83,7 @@ class HomeModel(private val catalogue: Catalogue, private val scope: CoroutineSc
         scope.launch {
             rows[homeRow] = try {
                 RowState.Loaded(offMain { catalogue.row(homeRow) })
-            } catch (e: CatalogueUnavailable) {
+            } catch (e: CatalogueUnreadable) {
                 RowState.Failed(e.reason)
             }
         }
@@ -96,7 +96,7 @@ class HomeModel(private val catalogue: Catalogue, private val scope: CoroutineSc
         scope.launch {
             try {
                 rows[homeRow] = RowState.Loaded(offMain { catalogue.more(row) })
-            } catch (_: CatalogueUnavailable) {
+            } catch (_: CatalogueUnreadable) {
                 // The row keeps what it has; scrolling to its end again tries again.
             } finally {
                 loadingMore.remove(homeRow)
@@ -108,7 +108,7 @@ class HomeModel(private val catalogue: Catalogue, private val scope: CoroutineSc
     suspend fun showHero(title: Title) {
         val hero = heroes[title] ?: try {
             offMain { catalogue.hero(title) }.also { heroes[title] = it }
-        } catch (_: CatalogueUnavailable) {
+        } catch (_: CatalogueUnreadable) {
             return
         }
         this.hero = title to hero

@@ -84,13 +84,13 @@ class MovieDetailsTest {
     }
 
     @Test
-    fun `a Movie TMDB doesn't know makes the Catalogue unavailable with a reason`() = runTest {
+    fun `a Movie TMDB doesn't know makes the Catalogue unreadable, with a reason`() = runTest {
         RecordedTmdb(apiKey = "project-token").use { tmdb ->
-            val failure = assertFailsWith<CatalogueUnavailable> {
+            val failure = assertFailsWith<CatalogueUnreadable> {
                 Catalogue(JdkHttpClient(), tmdb.settings, Locale.US).movieDetails(tmdbId = 999_999_999)
             }
 
-            assertEquals(CatalogueUnavailable.Reason.ServiceError, failure.reason)
+            assertEquals(CatalogueUnreadable.Reason.ServiceError, failure.reason)
         }
     }
 }

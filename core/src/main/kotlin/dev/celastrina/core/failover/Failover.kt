@@ -232,7 +232,7 @@ class Failover(
                     while (now - stallStarts.first() > STALL_WINDOW.inWholeMilliseconds) stallStarts.removeFirst()
                     if (stallStarts.size >= STALLS_IN_WINDOW) return StreamFailure.RepeatedStalls
                 }
-                is PlayerEvent.Failed -> return StreamFailure.Error(event.error)
+                is PlayerEvent.Failed -> return StreamFailure.Fault(event.fault)
                 is PlayerEvent.Position -> Unit
             }
             if (!firstFrameShown && now - chosenAtMillis >= FIRST_FRAME_WITHIN.inWholeMilliseconds) return StreamFailure.NoFirstFrame
@@ -277,11 +277,11 @@ sealed interface PlayerEvent {
     data class Position(val millis: Long) : PlayerEvent
 
     /** The player gave up on the Stream. */
-    data class Failed(val error: PlayerError) : PlayerEvent
+    data class Failed(val fault: PlayerFault) : PlayerEvent
 }
 
 /** Why the player gave up on a Stream. */
-enum class PlayerError {
+enum class PlayerFault {
     /** An HTTP 4xx or 5xx. */
     Http,
 
@@ -307,7 +307,7 @@ sealed interface StreamFailure {
     /** 3 stalls within 2 minutes. */
     data object RepeatedStalls : StreamFailure
 
-    data class Error(val error: PlayerError) : StreamFailure
+    data class Fault(val fault: PlayerFault) : StreamFailure
 }
 
 /** What the player must do now that a Stream has failed. */

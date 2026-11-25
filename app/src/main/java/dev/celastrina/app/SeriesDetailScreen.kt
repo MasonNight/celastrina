@@ -39,7 +39,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import dev.celastrina.core.catalogue.Catalogue
-import dev.celastrina.core.catalogue.CatalogueUnavailable
+import dev.celastrina.core.catalogue.CatalogueUnreadable
 import dev.celastrina.core.catalogue.Episode
 import dev.celastrina.core.catalogue.Season
 import dev.celastrina.core.catalogue.SeriesDetails
@@ -55,13 +55,13 @@ import dev.celastrina.core.source.Stream
 private sealed interface SeriesState {
     data object Loading : SeriesState
     data class Loaded(val details: SeriesDetails) : SeriesState
-    data class Failed(val reason: CatalogueUnavailable.Reason) : SeriesState
+    data class Failed(val reason: CatalogueUnreadable.Reason) : SeriesState
 }
 
 private sealed interface EpisodesState {
     data object Loading : EpisodesState
     data class Loaded(val episodes: List<Episode>) : EpisodesState
-    data class Failed(val reason: CatalogueUnavailable.Reason) : EpisodesState
+    data class Failed(val reason: CatalogueUnreadable.Reason) : EpisodesState
 }
 
 /**
@@ -85,7 +85,7 @@ fun SeriesDetailScreen(
     LaunchedEffect(tmdbId) {
         state = try {
             SeriesState.Loaded(catalogue.seriesDetails(tmdbId))
-        } catch (e: CatalogueUnavailable) {
+        } catch (e: CatalogueUnreadable) {
             SeriesState.Failed(e.reason)
         }
     }
@@ -191,7 +191,7 @@ private fun EpisodeRow(details: SeriesDetails, season: Season, catalogue: Catalo
     LaunchedEffect(details, season) {
         state = try {
             EpisodesState.Loaded(catalogue.episodes(details, season))
-        } catch (e: CatalogueUnavailable) {
+        } catch (e: CatalogueUnreadable) {
             EpisodesState.Failed(e.reason)
         }
     }

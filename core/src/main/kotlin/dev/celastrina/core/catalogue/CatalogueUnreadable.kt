@@ -1,8 +1,8 @@
 package dev.celastrina.core.catalogue
 
 /** The Catalogue couldn't be read. [reason] says why, so screens can say something useful. */
-class CatalogueUnavailable(val reason: Reason, cause: Throwable? = null) :
-    Exception("Catalogue unavailable: $reason", cause) {
+class CatalogueUnreadable(val reason: Reason, cause: Throwable? = null) :
+    Exception("Catalogue unreadable: $reason", cause) {
 
     enum class Reason {
         /** There's no TMDB key: the build has no project key and the Household hasn't set one. */

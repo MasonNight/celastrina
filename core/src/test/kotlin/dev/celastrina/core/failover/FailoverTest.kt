@@ -251,13 +251,13 @@ class FailoverTest {
 
     @Test
     fun `an HTTP error, network error, unsupported format or decoder error the player reports fails the Stream`() {
-        listOf(PlayerError.Http, PlayerError.Network, PlayerError.UnsupportedFormat, PlayerError.Decoder, PlayerError.Other).forEach { error ->
+        listOf(PlayerFault.Http, PlayerFault.Network, PlayerFault.UnsupportedFormat, PlayerFault.Decoder, PlayerFault.Other).forEach { error ->
             val failover = playing(nightly1080, lookup(movieNight to listOf(nightly1080), archive to listOf(archiveMp4)))
 
             val step = failover.on(PlayerEvent.Failed(error))
 
             assertSwitchedTo(archiveMp4, step)
-            assertEquals(StreamFailure.Error(error), step.notice.reason)
+            assertEquals(StreamFailure.Fault(error), step.notice.reason)
         }
     }
 
@@ -374,7 +374,7 @@ class FailoverTest {
         val failover = playing(nightly1080, lookup(movieNight to listOf(nightly1080), archive to listOf(archiveMp4)))
         failover.report(42.minutes)
 
-        val step = failover.on(PlayerEvent.Failed(PlayerError.Http))
+        val step = failover.on(PlayerEvent.Failed(PlayerFault.Http))
 
         assertSwitchedTo(archiveMp4, step)
         assertEquals((42.minutes - 5.seconds).inWholeMilliseconds, step.startAtMillis)
@@ -392,7 +392,7 @@ class FailoverTest {
     fun `when the replacement never starts either, the next one resumes from the original failure point`() {
         val failover = playing(nightly1080, lookup(movieNight to listOf(nightly1080), archive to listOf(archiveMp4, archiveOgv)))
         failover.report(10.minutes)
-        failover.on(PlayerEvent.Failed(PlayerError.Http))
+        failover.on(PlayerEvent.Failed(PlayerFault.Http))
 
         val step = failover.report(15.seconds, started = false)
 
@@ -448,7 +448,7 @@ class FailoverTest {
     fun `each Failover is logged with what failed and why`() {
         val failover = playing(nightly1080, lookup(movieNight to listOf(nightly1080), archive to listOf(archiveMp4)))
 
-        failover.on(PlayerEvent.Failed(PlayerError.Http))
+        failover.on(PlayerEvent.Failed(PlayerFault.Http))
 
         assertTrue(logger.messages.any { "movie-night" in it && "1080" in it && "Http" in it && "internet-archive" in it }, "${logger.messages}")
     }
@@ -699,7 +699,7 @@ class FailoverTest {
         val failover = playing(nightly1080, lookup(movieNight to listOf(nightly1080)))
         assertIs<FailoverStep.GaveUp>(failover.failAndGetStep())
 
-        assertNull(failover.on(PlayerEvent.Failed(PlayerError.Http)))
+        assertNull(failover.on(PlayerEvent.Failed(PlayerFault.Http)))
         assertNull(failover.report(5.minutes))
         assertNull(failover.lookupChanged(lookup(movieNight to listOf(nightly1080, nightly720))))
     }
@@ -723,23 +723,23 @@ class FailoverTest {
             started = false,
         )
 
-        failover.failUnstarted(PlayerError.Decoder)
+        failover.failUnstarted(PlayerFault.Decoder)
         failover.report(15.seconds, started = false)
-        failover.failUnstarted(PlayerError.Network)
-        assertIs<FailoverStep.Waiting>(failover.failUnstarted(PlayerError.Network))
+        failover.failUnstarted(PlayerFault.Network)
+        assertIs<FailoverStep.Waiting>(failover.failUnstarted(PlayerFault.Network))
         val step = failover.report(45.seconds, started = false)
 
         assertIs<FailoverStep.GaveUp>(step)
         assertEquals(
             listOf(
-                SourceSummary("Movie Night Jellyfin", SourceSummary.State.StreamsFailed(listOf(StreamFailure.Error(PlayerError.Decoder), StreamFailure.NoFirstFrame), notTried = 0)),
+                SourceSummary("Movie Night Jellyfin", SourceSummary.State.StreamsFailed(listOf(StreamFailure.Fault(PlayerFault.Decoder), StreamFailure.NoFirstFrame), notTried = 0)),
                 SourceSummary("Friends' Emby", SourceSummary.State.NothingThisTvCanDecode),
                 SourceSummary("Empty Shelf", SourceSummary.State.NotAvailable),
                 SourceSummary("Offline Server", SourceSummary.State.LookupFailed(LookupOutcome.Failure.Reason.AuthRequired)),
                 SourceSummary("Slow Add-on", SourceSummary.State.StillLooking),
                 SourceSummary(
                     "Internet Archive",
-                    SourceSummary.State.StreamsFailed(listOf(StreamFailure.Error(PlayerError.Network), StreamFailure.Error(PlayerError.Network)), notTried = 0),
+                    SourceSummary.State.StreamsFailed(listOf(StreamFailure.Fault(PlayerFault.Network), StreamFailure.Fault(PlayerFault.Network)), notTried = 0),
                 ),
             ),
             step.sources,
@@ -757,8 +757,8 @@ class FailoverTest {
         assertIs<FailoverStep.GaveUp>(step)
         assertEquals(
             listOf(
-                SourceSummary("Movie Night Jellyfin", SourceSummary.State.StreamsFailed(listOf(StreamFailure.Error(PlayerError.Http)), notTried = 0)),
-                SourceSummary("Internet Archive", SourceSummary.State.StreamsFailed(List(4) { StreamFailure.Error(PlayerError.Http) }, notTried = 3)),
+                SourceSummary("Movie Night Jellyfin", SourceSummary.State.StreamsFailed(listOf(StreamFailure.Fault(PlayerFault.Http)), notTried = 0)),
+                SourceSummary("Internet Archive", SourceSummary.State.StreamsFailed(List(4) { StreamFailure.Fault(PlayerFault.Http) }, notTried = 3)),
             ),
             step.sources,
         )
@@ -808,7 +808,7 @@ class FailoverTest {
     private fun Failover.fail(): FailoverStep.Switch = failAndGetStep().also { assertIs<FailoverStep.Switch>(it) } as FailoverStep.Switch
 
     /** The current Stream fails at once, and the next one, if any, shows its first frame. */
-    private fun Failover.failAndGetStep(): FailoverStep? = on(PlayerEvent.Failed(PlayerError.Http)).also {
+    private fun Failover.failAndGetStep(): FailoverStep? = on(PlayerEvent.Failed(PlayerFault.Http)).also {
         if (it is FailoverStep.Switch) {
             position = it.startAtMillis
             on(PlayerEvent.FirstFrame)
@@ -816,7 +816,7 @@ class FailoverTest {
     }
 
     /** The current Stream fails at once, and the next one, if any, never shows a picture. */
-    private fun Failover.failUnstarted(error: PlayerError = PlayerError.Http): FailoverStep? = on(PlayerEvent.Failed(error))
+    private fun Failover.failUnstarted(error: PlayerFault = PlayerFault.Http): FailoverStep? = on(PlayerEvent.Failed(error))
 
     /** A Lookup asked now. Each Source's answer is a list of Streams, a [LookupOutcome], [AskingAgain], or null while it is still being asked. */
     private fun lookup(vararg sources: Pair<Source, Any?>) = Lookup(

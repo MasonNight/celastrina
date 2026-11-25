@@ -17,7 +17,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.darkColorScheme
 import dev.celastrina.core.catalogue.Catalogue
-import dev.celastrina.core.catalogue.CatalogueUnavailable
+import dev.celastrina.core.catalogue.CatalogueUnreadable
 import dev.celastrina.core.catalogue.Search
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.configuration.ConfigurationChange
@@ -235,9 +235,9 @@ private fun lookUpIn(scope: CoroutineScope, streamLookup: StreamLookup): (TitleR
     }
 }
 
-fun CatalogueUnavailable.Reason.message() = when (this) {
-    CatalogueUnavailable.Reason.NoKey -> "No TMDB key"
-    CatalogueUnavailable.Reason.Unreachable -> "You're offline, and this isn't saved on the TV yet."
-    CatalogueUnavailable.Reason.KeyRejected -> "TMDB rejected the key."
-    CatalogueUnavailable.Reason.ServiceError -> "TMDB isn't answering properly right now."
+fun CatalogueUnreadable.Reason.message() = when (this) {
+    CatalogueUnreadable.Reason.NoKey -> "No TMDB key"
+    CatalogueUnreadable.Reason.Unreachable -> "You're offline, and this isn't saved on the TV yet."
+    CatalogueUnreadable.Reason.KeyRejected -> "TMDB rejected the key."
+    CatalogueUnreadable.Reason.ServiceError -> "TMDB isn't answering properly right now."
 }

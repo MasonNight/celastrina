@@ -2,7 +2,7 @@ package dev.celastrina.app
 
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import dev.celastrina.core.failover.PlayerError
+import dev.celastrina.core.failover.PlayerFault
 import dev.celastrina.core.failover.PlayerEvent
 
 /**
@@ -33,16 +33,16 @@ class Media3FailoverEvents(private val player: Player, private val report: (Play
         if (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) report(PlayerEvent.Seeked)
     }
 
-    override fun onPlayerError(error: PlaybackException) = report(PlayerEvent.Failed(error.toPlayerError()))
+    override fun onPlayerError(error: PlaybackException) = report(PlayerEvent.Failed(error.toPlayerFault()))
 }
 
-private fun PlaybackException.toPlayerError(): PlayerError = when (errorCode) {
-    PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> PlayerError.Http
-    in 2000..2999 -> PlayerError.Network
+private fun PlaybackException.toPlayerFault(): PlayerFault = when (errorCode) {
+    PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> PlayerFault.Http
+    in 2000..2999 -> PlayerFault.Network
     in 3000..3999,
     PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
     PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
-    -> PlayerError.UnsupportedFormat
-    in 4000..4999 -> PlayerError.Decoder
-    else -> PlayerError.Other
+    -> PlayerFault.UnsupportedFormat
+    in 4000..4999 -> PlayerFault.Decoder
+    else -> PlayerFault.Other
 }

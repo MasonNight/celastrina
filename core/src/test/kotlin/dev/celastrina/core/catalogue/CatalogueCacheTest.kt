@@ -97,12 +97,12 @@ class CatalogueCacheTest {
             network.up = false
 
             assertEquals(
-                CatalogueUnavailable.Reason.Unreachable,
-                assertFailsWith<CatalogueUnavailable> { catalogue(tmdb).row(HomeRow.Movies) }.reason,
+                CatalogueUnreadable.Reason.Unreachable,
+                assertFailsWith<CatalogueUnreadable> { catalogue(tmdb).row(HomeRow.Movies) }.reason,
             )
             assertEquals(
-                CatalogueUnavailable.Reason.Unreachable,
-                assertFailsWith<CatalogueUnavailable> { catalogue(tmdb).seriesDetails(19885) }.reason,
+                CatalogueUnreadable.Reason.Unreachable,
+                assertFailsWith<CatalogueUnreadable> { catalogue(tmdb).seriesDetails(19885) }.reason,
             )
         }
     }
@@ -121,8 +121,8 @@ class CatalogueCacheTest {
 
             assertEquals("Sherlock", catalogue.seriesDetails(19885).title.name)
             assertEquals(
-                CatalogueUnavailable.Reason.Unreachable,
-                assertFailsWith<CatalogueUnavailable> { catalogue.movieDetails(10331) }.reason,
+                CatalogueUnreadable.Reason.Unreachable,
+                assertFailsWith<CatalogueUnreadable> { catalogue.movieDetails(10331) }.reason,
             )
             assertEquals(filesWithBoth - 1, dir.list()!!.size, "The Movie's details are deleted from the TV")
         }

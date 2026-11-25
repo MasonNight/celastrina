@@ -239,7 +239,7 @@ class Catalogue(
         freshForMillis: Long = TITLE_FRESH_FOR_MILLIS,
         cached: Boolean = true,
     ): Answer<T> {
-        if (tmdb.apiKey.isBlank()) throw CatalogueUnavailable(CatalogueUnavailable.Reason.NoKey)
+        if (tmdb.apiKey.isBlank()) throw CatalogueUnreadable(CatalogueUnreadable.Reason.NoKey)
         val cache = cache.takeIf { cached }
         val request = url(path, query.toList(), withKey = false)
         cache?.fresh(request, freshForMillis)?.let { fresh -> decodeOrNull<T>(fresh)?.let { return Answer(it) } }
@@ -248,17 +248,17 @@ class Catalogue(
         } catch (e: IOException) {
             // Offline, what's cached is better than nothing, however old.
             cache?.kept(request)?.let { kept -> decodeOrNull<T>(kept)?.let { return Answer(it, fromOfflineCache = true) } }
-            throw CatalogueUnavailable(CatalogueUnavailable.Reason.Unreachable, e)
+            throw CatalogueUnreadable(CatalogueUnreadable.Reason.Unreachable, e)
         }
         when {
-            response.status == 401 -> throw CatalogueUnavailable(CatalogueUnavailable.Reason.KeyRejected)
-            !response.isSuccessful -> throw CatalogueUnavailable(CatalogueUnavailable.Reason.ServiceError)
+            response.status == 401 -> throw CatalogueUnreadable(CatalogueUnreadable.Reason.KeyRejected)
+            !response.isSuccessful -> throw CatalogueUnreadable(CatalogueUnreadable.Reason.ServiceError)
         }
         val body = response.bodyText()
         val decoded = try {
             json.decodeFromString<T>(body)
         } catch (e: SerializationException) {
-            throw CatalogueUnavailable(CatalogueUnavailable.Reason.ServiceError, e)
+            throw CatalogueUnreadable(CatalogueUnreadable.Reason.ServiceError, e)
         }
         cache?.store(request, body)
         return Answer(decoded)

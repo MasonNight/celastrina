@@ -17,11 +17,11 @@ class NoTmdbKeyTest {
     }
 
     @Test
-    fun `a build without a TMDB key, and no key set by the Household, has a Catalogue unavailable for want of a key`() = runTest {
+    fun `a build without a TMDB key, and no key set by the Household, has a Catalogue unreadable for want of a key`() = runTest {
         val catalogue = Catalogue(unasked, TmdbSettings(apiKey = ""), Locale.US)
 
-        assertEquals(CatalogueUnavailable.Reason.NoKey, assertFailsWith<CatalogueUnavailable> { catalogue.row(HomeRow.Movies) }.reason)
-        assertEquals(CatalogueUnavailable.Reason.NoKey, assertFailsWith<CatalogueUnavailable> { catalogue.movieDetails(10331) }.reason)
-        assertEquals(CatalogueUnavailable.Reason.NoKey, assertFailsWith<CatalogueUnavailable> { catalogue.seriesDetails(19885) }.reason)
+        assertEquals(CatalogueUnreadable.Reason.NoKey, assertFailsWith<CatalogueUnreadable> { catalogue.row(HomeRow.Movies) }.reason)
+        assertEquals(CatalogueUnreadable.Reason.NoKey, assertFailsWith<CatalogueUnreadable> { catalogue.movieDetails(10331) }.reason)
+        assertEquals(CatalogueUnreadable.Reason.NoKey, assertFailsWith<CatalogueUnreadable> { catalogue.seriesDetails(19885) }.reason)
     }
 }

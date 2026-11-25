@@ -48,7 +48,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import dev.celastrina.core.catalogue.CatalogueUnavailable
+import dev.celastrina.core.catalogue.CatalogueUnreadable
 import dev.celastrina.core.catalogue.Hero
 import dev.celastrina.core.catalogue.HomeRow
 import dev.celastrina.core.catalogue.Title
@@ -93,7 +93,7 @@ fun HomeScreen(
     val listed by watchlist.titles.collectAsState()
     val allFailed by remember { derivedStateOf { model.rows.values.all { it is RowState.Failed } } }
     val offline by remember {
-        derivedStateOf { model.rows.values.any { it == RowState.Failed(CatalogueUnavailable.Reason.Unreachable) } }
+        derivedStateOf { model.rows.values.any { it == RowState.Failed(CatalogueUnreadable.Reason.Unreachable) } }
     }
     val fromOfflineCache by remember { derivedStateOf { model.rows.values.any { it is RowState.Loaded && it.row.fromOfflineCache } } }
     // Rows that couldn't reach TMDB, or showed what the cache kept, load afresh once the TV is back online.
@@ -106,7 +106,7 @@ fun HomeScreen(
     // Continue watching and the Watchlist are kept on the TV, so home shows them offline, each failed row saying why.
     if (allFailed && (watched.isEmpty() && listed.isEmpty() || !offline)) {
         val reason = (model.rows.values.first() as RowState.Failed).reason
-        if (reason == CatalogueUnavailable.Reason.Unreachable) {
+        if (reason == CatalogueUnreadable.Reason.Unreachable) {
             Message("You're offline", "Nothing is saved on this TV to show yet. Home fills in when the TV is back online.")
         } else {
             Message(reason.message())

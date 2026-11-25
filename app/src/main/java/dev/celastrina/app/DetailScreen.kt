@@ -33,7 +33,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import dev.celastrina.core.catalogue.Catalogue
-import dev.celastrina.core.catalogue.CatalogueUnavailable
+import dev.celastrina.core.catalogue.CatalogueUnreadable
 import dev.celastrina.core.catalogue.MovieDetails
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
@@ -50,7 +50,7 @@ import dev.celastrina.core.source.Stream
 private sealed interface DetailState {
     data object Loading : DetailState
     data class Loaded(val details: MovieDetails) : DetailState
-    data class Failed(val reason: CatalogueUnavailable.Reason) : DetailState
+    data class Failed(val reason: CatalogueUnreadable.Reason) : DetailState
 }
 
 /**
@@ -72,7 +72,7 @@ fun DetailScreen(
     LaunchedEffect(tmdbId) {
         state = try {
             DetailState.Loaded(catalogue.movieDetails(tmdbId))
-        } catch (e: CatalogueUnavailable) {
+        } catch (e: CatalogueUnreadable) {
             DetailState.Failed(e.reason)
         }
     }

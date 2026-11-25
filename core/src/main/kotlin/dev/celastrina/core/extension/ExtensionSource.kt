@@ -27,7 +27,7 @@ import java.text.Normalizer
 import kotlin.math.abs
 
 /**
- * One provider of an installed Extension, as a Source.
+ * One Source an installed Extension provides: one of its providers, as CloudStream calls them.
  *
  * A Title is matched only exactly: through `getLoadUrl` with its IMDb ID where the provider supports that, or else by
  * searching its title, then its original and alternative titles, keeping hits of the same kind whose name is the
@@ -40,7 +40,7 @@ internal class ExtensionSource(
     override val name: String,
     override val kind: SourceKind,
     private val extension: String,
-    private val providerName: String,
+    private val nameInExtension: String,
     private val host: ExtensionHost,
     private val providers: suspend () -> List<MainAPI>,
     /** Called when the Extension turns out to need classes or methods this Celastrina lacks. */
@@ -57,7 +57,7 @@ internal class ExtensionSource(
     }
 
     private suspend fun lookUpInExtension(title: TitleReference): LookupOutcome = try {
-        val provider = providers().find { it.name == providerName } ?: throw ExtensionFailure(LookupOutcome.Failure.Reason.SourceError, false)
+        val provider = providers().find { it.name == nameInExtension } ?: throw ExtensionFailure(LookupOutcome.Failure.Reason.SourceError, false)
         val page = match(provider, title)
         val data = page?.let { linkData(it, title) }
         if (page == null || data == null) LookupOutcome.NotAvailable else streams(provider, page.url, data)

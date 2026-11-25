@@ -40,7 +40,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
-import dev.celastrina.core.catalogue.CatalogueUnavailable
+import dev.celastrina.core.catalogue.CatalogueUnreadable
 import dev.celastrina.core.catalogue.Search
 import dev.celastrina.core.catalogue.SearchResults
 import dev.celastrina.core.catalogue.Title
@@ -135,7 +135,7 @@ private fun heading(results: SearchResults) = when (results) {
     is SearchResults.NoMatches -> "No Titles match '${results.query}'"
     // Searches are never saved on the TV, so offline there's nothing to fall back on.
     is SearchResults.Unavailable -> when (results.reason) {
-        CatalogueUnavailable.Reason.Unreachable -> "You're offline. Search works again once the TV is back online."
+        CatalogueUnreadable.Reason.Unreachable -> "You're offline. Search works again once the TV is back online."
         else -> results.reason.message()
     }
 }
