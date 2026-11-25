@@ -180,11 +180,21 @@ class FailoverTest {
     fun `resuming waits for the Source of the Stream that last worked, then plays that Stream`() {
         val lastWorked = WorkedStream("internet-archive", "mp4")
 
-        assertEquals(ResumeChoice.Waiting, lookup(movieNight to listOf(nightly1080), archive to null).resumeChoice(everythingDecodes, memory, lastWorked))
+        assertEquals(ResumeChoice.Waiting, lookup(movieNight to listOf(nightly1080), archive to null).resumeChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis()))
         assertEquals(
             ResumeChoice.Play(archiveMp4),
-            lookup(movieNight to listOf(nightly1080), archive to listOf(archiveOgv, archiveMp4)).resumeChoice(everythingDecodes, memory, lastWorked),
+            lookup(movieNight to listOf(nightly1080), archive to listOf(archiveOgv, archiveMp4)).resumeChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis()),
         )
+    }
+
+    @Test
+    fun `resuming waits at most 3 s for the Source of the Stream that last worked, then plays Play's choice`() {
+        val lastWorked = WorkedStream("internet-archive", "mp4")
+        // The Sources were asked just now; the Internet Archive is still being asked.
+        val stillAsking = lookup(movieNight to listOf(nightly1080), archive to null)
+
+        assertEquals(ResumeChoice.Waiting, stillAsking.resumeChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis() + 2_999))
+        assertEquals(ResumeChoice.Play(nightly1080), stillAsking.resumeChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis() + 3_000))
     }
 
     @Test
@@ -193,18 +203,18 @@ class FailoverTest {
 
         assertEquals(
             ResumeChoice.Play(nightly1080),
-            lookup(movieNight to listOf(nightly1080), archive to LookupOutcome.NotAvailable, friends to null).resumeChoice(everythingDecodes, memory, lastWorked),
+            lookup(movieNight to listOf(nightly1080), archive to LookupOutcome.NotAvailable, friends to null).resumeChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis()),
         )
         // Its Source was removed.
-        assertEquals(ResumeChoice.Play(nightly1080), lookup(movieNight to listOf(nightly1080)).resumeChoice(everythingDecodes, memory, lastWorked))
+        assertEquals(ResumeChoice.Play(nightly1080), lookup(movieNight to listOf(nightly1080)).resumeChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis()))
     }
 
     @Test
     fun `resuming with nothing to play waits for the Sources still being asked, then says so`() {
-        assertEquals(ResumeChoice.Waiting, lookup(movieNight to LookupOutcome.NotAvailable, archive to null).resumeChoice(everythingDecodes, memory, null))
+        assertEquals(ResumeChoice.Waiting, lookup(movieNight to LookupOutcome.NotAvailable, archive to null).resumeChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis()))
         assertEquals(
             ResumeChoice.NothingToPlay,
-            lookup(movieNight to LookupOutcome.NotAvailable, archive to LookupOutcome.NotAvailable).resumeChoice(everythingDecodes, memory, null),
+            lookup(movieNight to LookupOutcome.NotAvailable, archive to LookupOutcome.NotAvailable).resumeChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis()),
         )
     }
 
