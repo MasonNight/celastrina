@@ -102,10 +102,12 @@ class Catalogue(
      * Titles. Search asks only TMDB, never the Sources.
      */
     suspend fun search(query: String): List<Title> =
-        getJson<TmdbMixedPage>("/search/multi", "include_adult" to "false", "language" to language, "query" to query).titles()
+        // Never cached: what's searched for stays off the TV, so search leaves no history.
+        getJson<TmdbMixedPage>("/search/multi", "include_adult" to "false", "language" to language, "query" to query, cached = false).titles()
 
     /** This week's trending Movies and Series, mixed in TMDB's order: what search shows before anything is typed. */
-    suspend fun trending(): List<Title> = getJson<TmdbMixedPage>("/trending/all/week", "language" to language).titles()
+    suspend fun trending(): List<Title> =
+        getJson<TmdbMixedPage>("/trending/all/week", "language" to language, freshForMillis = ROW_FRESH_FOR_MILLIS).titles()
 
     private fun TmdbMixedPage.titles(): List<Title> = results.filterNot { it.adult }.mapNotNull { item ->
         when (item.mediaType) {
@@ -182,9 +184,15 @@ class Catalogue(
         }
     }
 
-    /** TMDB's answer at [path], from the cache while it's younger than [freshForMillis]. */
-    private suspend inline fun <reified T> getJson(path: String, vararg query: Pair<String, String>, freshForMillis: Long = TITLE_FRESH_FOR_MILLIS): T {
+    /** TMDB's answer at [path], from the cache while it's younger than [freshForMillis]. Unless [cached], it's neither read from nor kept in the cache. */
+    private suspend inline fun <reified T> getJson(
+        path: String,
+        vararg query: Pair<String, String>,
+        freshForMillis: Long = TITLE_FRESH_FOR_MILLIS,
+        cached: Boolean = true,
+    ): T {
         if (tmdb.apiKey.isBlank()) throw CatalogueUnavailable(CatalogueUnavailable.Reason.NoKey)
+        val cache = cache.takeIf { cached }
         val request = url(path, query.toList(), withKey = false)
         cache?.fresh(request, freshForMillis)?.let { fresh -> decodeOrNull<T>(fresh)?.let { return it } }
         val response = try {

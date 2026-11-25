@@ -1,14 +1,18 @@
 package dev.celastrina.core.catalogue
 
+import dev.celastrina.core.port.FileStorage
 import dev.celastrina.core.port.HttpClient
 import dev.celastrina.core.port.HttpResponse
 import dev.celastrina.core.port.JdkHttpClient
 import dev.celastrina.core.testing.RecordedTmdb
+import dev.celastrina.core.testing.VirtualClock
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
 import java.io.IOException
 import java.util.Locale
 import kotlin.test.Test
@@ -46,6 +50,20 @@ class SearchTest {
             )
             // The 2020 Hungarian animated short is a Cartoon, worked out as for home's rows.
             assertEquals(Category.Cartoons, titles.single { it.tmdbId == 697620 }.category)
+        }
+    }
+
+    @Test
+    fun `search leaves no history, as nothing it finds is kept on the TV, so searching again asks TMDB again`(@TempDir dir: File) = runTest {
+        RecordedTmdb(apiKey = "project-token").use { tmdb ->
+            val http = WatchedHttp(JdkHttpClient())
+            val catalogue = Catalogue(http, tmdb.settings, Locale.US, CatalogueCache(FileStorage(dir), VirtualClock()))
+
+            catalogue.search("dune")
+            catalogue.search("dune")
+
+            assertEquals(listOf("dune", "dune"), http.searches)
+            assertEquals(emptyList(), dir.listFiles().orEmpty().map { it.name })
         }
     }
 
