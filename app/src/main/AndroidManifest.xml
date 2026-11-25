@@ -8,8 +8,11 @@
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
+    <!-- Household Sources are mostly plain http:// on the home network (Jellyfin and Emby at :8096, self-hosted add-ons
+         and Extension Repositories), which Android refuses by default since API 28. -->
     <application
         android:name=".CelastrinaApplication"
+        android:usesCleartextTraffic="true"
         android:label="${appName}"
         android:icon="@android:drawable/sym_def_app_icon"
         android:banner="@android:drawable/sym_def_app_icon"
