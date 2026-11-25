@@ -198,8 +198,8 @@ internal class ExtensionSettings(
     }
 
     /**
-     * Makes the Extension [name]'s Sources match the Sources it [provided]: each new one joins the end of the order,
-     * enabled, and one it no longer provides leaves it. The rest stay where they are. Call it holding the lock.
+     * Makes the Extension [name]'s Sources match the Sources it [provided]: each new one joins the order above the Internet
+     * Archive, enabled, and one it no longer provides leaves it. The rest stay where they are. Call it holding the lock.
      */
     private fun syncSources(name: String, provided: List<ProvidedSource>, from: ChangedFrom): Synced {
         val before = load()
@@ -219,8 +219,9 @@ internal class ExtensionSettings(
                 titleKinds = p.titleKinds,
                 imdb = p.imdb,
                 addedFromComputerAt = clock.nowMillis().takeIf { from == ChangedFrom.Computer },
-            ).also { sources = sources + it }
+            )
         }
+        sources = withAdded(sources, added)
         if (sources != before) save(sources)
         return Synced(added, removed, from)
     }

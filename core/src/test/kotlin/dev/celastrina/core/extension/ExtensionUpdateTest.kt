@@ -96,7 +96,7 @@ class ExtensionUpdateTest {
         assertEquals(2, extension.version)
         assertEquals(1, extension.installedVersion)
         assertTrue(extension.updateAvailable)
-        assertTrue(restarted.list().last().updateAvailable)
+        assertTrue(restarted.list().first().updateAvailable)
         assertEquals(1, loader.loaded.size, "The newer code was loaded")
         assertEquals(1, sites.requests.count { it.endsWith(".cs3") }, "The newer code was downloaded")
     }
@@ -157,7 +157,7 @@ class ExtensionUpdateTest {
     }
 
     @Test
-    fun `an update that adds a provider adds its Source at the end of the order`() = runTest {
+    fun `an update that adds a provider adds its Source above the Internet Archive`() = runTest {
         val service = installed()
         sites.newerVersion = true
         sites.newerProviders = listOf("Internet Archive (test)", "Archive Shorts (test)")
@@ -169,7 +169,7 @@ class ExtensionUpdateTest {
 
         assertEquals(InstallOutcome.Installed(listOf(EXTENSION_SOURCE, SHORTS_SOURCE).map(::SourceId)), outcome)
         val restarted = service()
-        assertEquals(listOf("internet-archive", EXTENSION_SOURCE, SHORTS_SOURCE), restarted.list().map { it.id.value })
+        assertEquals(listOf(EXTENSION_SOURCE, SHORTS_SOURCE, "internet-archive"), restarted.list().map { it.id.value })
         assertIs<LookupOutcome.Streams>(restarted.sources().single { it.id.value == SHORTS_SOURCE }.lookUp(nightOfTheLivingDead))
         assertTrue(ConfigurationChange(ConfigurationChange.Action.Added, "Archive Shorts (test)", ChangedFrom.Tv) in announced)
     }
@@ -186,7 +186,7 @@ class ExtensionUpdateTest {
         val outcome = service.updateExtension("InternetArchive", ChangedFrom.Tv)
 
         assertEquals(InstallOutcome.Installed(listOf(SHORTS_SOURCE).map(::SourceId)), outcome)
-        assertEquals(listOf("internet-archive", SHORTS_SOURCE), service().list().map { it.id.value })
+        assertEquals(listOf(SHORTS_SOURCE, "internet-archive"), service().list().map { it.id.value })
         assertTrue(ConfigurationChange(ConfigurationChange.Action.Removed, "Internet Archive (test)", ChangedFrom.Tv) in announced)
     }
 

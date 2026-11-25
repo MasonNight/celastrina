@@ -121,8 +121,8 @@ class ExtensionFailureTest {
 
         updated.recheckExtensions()
 
-        assertEquals(listOf("internet-archive", EXTENSION_SOURCE), updated.list().map { it.id.value })
-        assertEquals(null, updated.list().last().problem)
+        assertEquals(listOf(EXTENSION_SOURCE, "internet-archive"), updated.list().map { it.id.value })
+        assertEquals(null, updated.list().first().problem)
         assertIs<LookupOutcome.Streams>(updated.extensionSource().lookUp(nightOfTheLivingDead))
     }
 

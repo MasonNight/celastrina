@@ -252,6 +252,6 @@ class StremioSourceTest {
     private suspend fun added(addon: String, name: String): Source {
         val service = service()
         service.add(NewSource("stremio", name, addons.manifestUrl(addon)), ChangedFrom.Computer)
-        return service.sources().last()
+        return service.sources().first()
     }
 }
