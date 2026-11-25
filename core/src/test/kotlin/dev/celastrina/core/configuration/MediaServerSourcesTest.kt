@@ -40,7 +40,7 @@ class MediaServerSourcesTest {
     private fun storedText() = dir.walk().filter { it.isFile }.joinToString("\n") { it.readText() }
 
     @Test
-    fun `adding a Jellyfin server logs in, keeps the token but never the password, and puts it last in the order`() = runTest {
+    fun `adding a Jellyfin server logs in, keeps the token but never the password, and puts it above the Internet Archive`() = runTest {
         val service = service()
         val announced = announcementsOf(service)
 
@@ -52,15 +52,15 @@ class MediaServerSourcesTest {
                 name = "Movie Night Jellyfin",
                 kind = "jellyfin",
                 enabled = true,
-                position = 2,
+                position = 1,
                 testState = TestState.Passing,
                 hasLogin = true,
                 addedFromComputerAt = clock.nowMillis(),
                 changedFromComputerAt = null,
             ),
-            service().list().last(),
+            service().list().first(),
         )
-        assertEquals(listOf("internet-archive", "movie-night-jellyfin"), service().sources().map { it.id.value })
+        assertEquals(listOf("movie-night-jellyfin", "internet-archive"), service().sources().map { it.id.value })
         assertTrue(RecordedJellyfin.ACCESS_TOKEN in storedText())
         assertFalse(jellyfin.password in storedText(), "The password was saved")
         assertEquals(listOf(ConfigurationChange(ConfigurationChange.Action.Added, "Movie Night Jellyfin", ChangedFrom.Computer)), announced)
@@ -71,7 +71,7 @@ class MediaServerSourcesTest {
         val outcome = service().add(movieNight(password = "hunter2"), ChangedFrom.Computer)
 
         assertEquals(WriteOutcome.Failed(SourceId("movie-night-jellyfin"), Reason.AuthRequired, "Movie Night Jellyfin turned down the username or password."), outcome)
-        val saved = service().list().last()
+        val saved = service().list().first()
         assertEquals(Triple("movie-night-jellyfin", TestState.Failing, false), Triple(saved.id.value, saved.testState, saved.hasLogin))
         assertFalse("hunter2" in storedText(), "The password was saved")
     }
@@ -84,7 +84,7 @@ class MediaServerSourcesTest {
         val outcome = service().add(movieNight(url = gone), ChangedFrom.Computer)
 
         assertEquals(WriteOutcome.Failed(SourceId("movie-night-jellyfin"), Reason.Unreachable, "Can't reach Movie Night Jellyfin at $gone."), outcome)
-        assertEquals(TestState.Failing, service().list().last().testState)
+        assertEquals(TestState.Failing, service().list().first().testState)
     }
 
     @Test
@@ -109,7 +109,7 @@ class MediaServerSourcesTest {
             service.add(movieNight().copy(url = "http://192.168.1.20:8096"), ChangedFrom.Computer),
         )
         assertEquals(WriteOutcome.Added(SourceId("movie-night-jellyfin-2")), service.add(movieNight().copy(name = "Movie-Night Jellyfin"), ChangedFrom.Computer))
-        assertEquals(listOf("internet-archive", "movie-night-jellyfin", "movie-night-jellyfin-2"), service().list().map { it.id.value })
+        assertEquals(listOf("movie-night-jellyfin", "movie-night-jellyfin-2", "internet-archive"), service().list().map { it.id.value })
     }
 
     @Test
@@ -144,7 +144,7 @@ class MediaServerSourcesTest {
         val loginNeeded = WriteOutcome.Failed(SourceId("movie-night-jellyfin"), Reason.AuthRequired, "Den turned down the saved login. Log in again.")
         assertEquals(loginNeeded, renamed)
         assertEquals(loginNeeded, enabled)
-        assertEquals(TestState.Failing, service().list().last().testState)
+        assertEquals(TestState.Failing, service().list().first().testState)
     }
 
     @Test
@@ -155,7 +155,7 @@ class MediaServerSourcesTest {
         val outcome = service.update(SourceId("movie-night-jellyfin"), SourceChanges(password = jellyfin.password), ChangedFrom.Computer)
 
         assertEquals(WriteOutcome.Ok, outcome)
-        val fixed = service().list().last()
+        val fixed = service().list().first()
         assertEquals(TestState.Passing to true, fixed.testState to fixed.hasLogin)
     }
 
@@ -206,7 +206,7 @@ class MediaServerSourcesTest {
         assertEquals(WriteOutcome.Added(SourceId("kids-jellyfin")), service.add(movieNight().copy(name = "Kids Jellyfin"), ChangedFrom.Computer))
 
         assertEquals(WriteOutcome.Ok, service.enable(SourceId("movie-night-jellyfin"), ChangedFrom.Computer))
-        assertEquals(listOf(TestState.Passing, TestState.Passing), service().list().drop(1).map { it.testState })
+        assertEquals(listOf(TestState.Passing, TestState.Passing), service().list().dropLast(1).map { it.testState })
     }
 
     @Test

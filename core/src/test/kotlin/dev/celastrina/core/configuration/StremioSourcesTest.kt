@@ -34,7 +34,7 @@ class StremioSourcesTest {
     private fun storedText() = dir.walk().filter { it.isFile }.joinToString("\n") { it.readText() }
 
     @Test
-    fun `adding an add-on by its manifest URL fetches the manifest, and puts it last in the order`() = runTest {
+    fun `adding an add-on by its manifest URL fetches the manifest, and puts it above the Internet Archive, which stays last`() = runTest {
         val outcome = service().add(household(), ChangedFrom.Computer)
 
         assertEquals(WriteOutcome.Added(SourceId("household-archive")), outcome)
@@ -44,15 +44,27 @@ class StremioSourcesTest {
                 name = "Household Archive",
                 kind = "stremio",
                 enabled = true,
-                position = 2,
+                position = 1,
                 testState = TestState.Passing,
                 hasLogin = false,
                 addedFromComputerAt = clock.nowMillis(),
                 changedFromComputerAt = null,
             ),
-            service().list().last(),
+            service().list().first(),
         )
+        assertEquals(listOf("household-archive", "internet-archive"), service().list().map { it.id.value })
         assertEquals(listOf("/household/manifest.json"), addons.requests)
+    }
+
+    @Test
+    fun `once the Household has moved the Internet Archive up, a new Source joins the end of the order`() = runTest {
+        val service = service()
+        service.add(household(), ChangedFrom.Computer)
+        service.setOrder(listOf(SourceId("internet-archive")), ChangedFrom.Computer)
+
+        service.add(household().copy(name = "Den Add-on"), ChangedFrom.Computer)
+
+        assertEquals(listOf("internet-archive", "household-archive", "den-add-on"), service().list().map { it.id.value })
     }
 
     @Test
@@ -63,7 +75,7 @@ class StremioSourcesTest {
             WriteOutcome.Failed(SourceId("cinemeta"), Reason.SourceError, "Cinemeta offers no Streams. Celastrina uses only an add-on's Streams."),
             outcome,
         )
-        assertEquals(TestState.Failing, service().list().last().testState)
+        assertEquals(TestState.Failing, service().list().first().testState)
     }
 
     @Test
@@ -83,7 +95,7 @@ class StremioSourcesTest {
         val outcome = service().add(household(), ChangedFrom.Computer)
 
         assertEquals(WriteOutcome.Failed(SourceId("household-archive"), Reason.Unreachable, "Can't reach the add-on Household Archive."), outcome)
-        assertEquals(TestState.Failing, service().list().last().testState)
+        assertEquals(TestState.Failing, service().list().first().testState)
     }
 
     @Test
@@ -122,7 +134,7 @@ class StremioSourcesTest {
         val outcome = service.update(SourceId("household-archive"), SourceChanges(url = addons.manifestUrl(RecordedStremio.CINEMETA)), ChangedFrom.Computer)
 
         assertEquals(Reason.SourceError, (outcome as WriteOutcome.Failed).reason)
-        assertEquals(TestState.Failing, service().list().last().testState)
+        assertEquals(TestState.Failing, service().list().first().testState)
         assertEquals(
             WriteOutcome.Problem.UnneededSetting,
             (service.update(SourceId("household-archive"), SourceChanges(username = "demo", password = "x"), ChangedFrom.Computer) as WriteOutcome.Invalid).problem,

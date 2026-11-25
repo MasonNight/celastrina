@@ -57,7 +57,7 @@ internal class SourceSettings(
     }
 
     /**
-     * Adds a Source at the end of the order and answers its ID in [WriteOutcome.Added]. A Jellyfin or Emby server is
+     * Adds a Source above the Internet Archive, which stays last, and answers its ID in [WriteOutcome.Added]. A Jellyfin or Emby server is
      * logged in to straight away, and only the access token is kept. Adding the same Source again is harmless.
      */
     suspend fun add(new: NewSource, from: ChangedFrom): WriteOutcome {
@@ -110,7 +110,7 @@ internal class SourceSettings(
 
     /**
      * Asks whether the Household has approved [waiting]'s code yet, answering [QuickConnect.Waiting] until it has.
-     * Once approved, the server is added at the end of the order with the approving user's login, and answers
+     * Once approved, the server is added above the Internet Archive with the approving user's login, and answers
      * [WriteOutcome.Added].
      */
     suspend fun continueQuickConnect(waiting: QuickConnect.Waiting, from: ChangedFrom): QuickConnect {
@@ -141,7 +141,7 @@ internal class SourceSettings(
     }
 
     /**
-     * Saves a new Source at the end of the order, untested, and announces it. The same Source again is harmless and
+     * Saves a new Source above the Internet Archive, untested, and announces it. The same Source again is harmless and
      * answers its ID; another Source with the same name is refused.
      */
     private fun saveNew(name: String, kind: SourceKind, url: String?, username: String?, from: ChangedFrom): Saved {
@@ -152,7 +152,7 @@ internal class SourceSettings(
                 sameName == null -> {
                     val id = uniqueId(SourceId.of(name), sources)
                     val addedAt = clock.nowMillis().takeIf { from == ChangedFrom.Computer }
-                    save(sources + StoredSource(id = id, name = name, kind = kind.id, url = url, username = username, addedFromComputerAt = addedAt))
+                    save(withAdded(sources, listOf(StoredSource(id = id, name = name, kind = kind.id, url = url, username = username, addedFromComputerAt = addedAt))))
                     Saved.As(id)
                 }
                 sameName.kind == kind.id && sameName.url == url && sameName.username == username -> return Saved.As(sameName.id)

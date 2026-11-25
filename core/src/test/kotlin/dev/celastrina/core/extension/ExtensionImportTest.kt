@@ -128,7 +128,7 @@ class ExtensionImportTest {
     }
 
     @Test
-    fun `installing an Extension makes each provider a Source at the end of the order, enabled`() = runTest {
+    fun `installing an Extension makes each provider a Source above the Internet Archive, enabled`() = runTest {
         val service = service()
         service.imported()
         val announced = mutableListOf<ConfigurationChange>()
@@ -144,15 +144,15 @@ class ExtensionImportTest {
                 name = "Internet Archive (test)",
                 kind = "extension",
                 enabled = true,
-                position = 2,
+                position = 1,
                 testState = TestState.Untested,
                 hasLogin = false,
                 addedFromComputerAt = clock.nowMillis(),
                 changedFromComputerAt = null,
             ),
-            restarted.list().last(),
+            restarted.list().first(),
         )
-        assertEquals(listOf("internet-archive", "internetarchive-internet-archive-test"), restarted.sources().map { it.id.value })
+        assertEquals(listOf("internetarchive-internet-archive-test", "internet-archive"), restarted.sources().map { it.id.value })
         assertEquals(1, restarted.status().extensions)
         assertTrue(restarted.repository(sites.repositoryUrl)!!.extensions.single().installed)
         assertEquals(listOf(ConfigurationChange(ConfigurationChange.Action.Added, "Internet Archive (test)", ChangedFrom.Computer)), announced)
@@ -166,7 +166,7 @@ class ExtensionImportTest {
         val id = SourceId("internetarchive-internet-archive-test")
 
         assertEquals(WriteOutcome.Ok, service.update(id, SourceChanges(name = "Archive films"), ChangedFrom.Tv))
-        assertEquals(id to "Archive films", service().list().last().let { it.id to it.name })
+        assertEquals(id to "Archive films", service().list().first().let { it.id to it.name })
         assertEquals(
             WriteOutcome.Problem.UnneededSetting,
             assertIs<WriteOutcome.Invalid>(service.update(id, SourceChanges(url = "https://example.org"), ChangedFrom.Tv)).problem,

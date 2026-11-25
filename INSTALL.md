@@ -351,9 +351,10 @@ Then **Do** `call list` every 5 seconds, for up to 5 minutes, until a `jellyfin`
 TV says Quick Connect is turned off, the server's administrator can turn it on in the Jellyfin dashboard
 (**Dashboard → General → Quick Connect**), or the person can log in with the password instead.
 
-**Verify.** `add` replies `ok` with the new Source's `id`. `call list` shows it last in the order, `enabled`,
-`test_state` `passing` and, for Jellyfin or Emby, `has_login` `true`. Tell the person ("Home Jellyfin is added, after
-the Internet Archive, and its connection test passed."). If the reply is `failure`, the Source is saved but failing:
+**Verify.** `add` replies `ok` with the new Source's `id`. `call list` shows it just above the Internet Archive,
+which stays last, `enabled`, `test_state` `passing` and, for Jellyfin or Emby, `has_login` `true`. Tell the person
+("Home Jellyfin is added, before the Internet Archive, and its connection test passed.").
+If the reply is `failure`, the Source is saved but failing:
 go to [A failed connection test](#a-failed-connection-test). If it's `invalid`, nothing was saved: see
 [Replies](#replies).
 
@@ -586,9 +587,9 @@ For each one picked, by its `name`:
 call install-extension '{"repository":"<repository url>","name":"<name>"}'
 ```
 
-`ok` replies `ids`: the Sources the Extension became, added enabled at the end of the order. `failure` (with `reason`
-and `message`) means it isn't usable: it couldn't be downloaded (`unreachable`), or didn't load or needs a newer
-Celastrina (`source_error`). Pass the `message` on in plain words. Installing one that's already installed is harmless.
+`ok` replies `ids`: the Sources the Extension became, added enabled just above the Internet Archive. `failure`
+(with `reason` and `message`) means it isn't usable: it couldn't be downloaded (`unreachable`), or didn't load or needs
+a newer Celastrina (`source_error`). Pass the `message` on in plain words. Installing one that's already installed is harmless.
 
 **Verify** with `call list` (its Sources are last, `kind` `extension`) and `status` (`extensions` went up). Tell the
 person which Sources were added, by name. If they want them elsewhere in the order, do [Add or change

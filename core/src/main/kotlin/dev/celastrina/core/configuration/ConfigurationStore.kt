@@ -32,6 +32,19 @@ internal class ConfigurationStore(val storage: Storage) {
     fun uniqueId(id: SourceId, sources: List<StoredSource>): SourceId =
         generateSequence(1) { it + 1 }.map { if (it == 1) id else SourceId("$id-$it") }.first { candidate -> sources.none { it.id == candidate } }
 
+    /**
+     * [sources] with [added] joining the order: above the Internet Archive Sources at the bottom, so the Archive, a test
+     * Source, stays last. Once the Household has moved the Archive up, or when [added] is itself an Archive, they join
+     * the end.
+     */
+    fun withAdded(sources: List<StoredSource>, added: List<StoredSource>): List<StoredSource> {
+        if (added.any { it.isArchive }) return sources + added
+        val archivesAtBottom = sources.takeLastWhile { it.isArchive }
+        return sources.dropLast(archivesAtBottom.size) + added + archivesAtBottom
+    }
+
+    private val StoredSource.isArchive get() = kind == InternetArchiveSource.Kind.id
+
     fun save(sources: List<StoredSource>) {
         storage.write(SOURCES, json.encodeToString(StoredSources.serializer(), StoredSources(sources)).encodeToByteArray())
     }
@@ -54,6 +67,7 @@ internal abstract class StoreAccess(protected val store: ConfigurationStore) {
     protected fun saveExtensions(extensions: StoredExtensions) = store.saveExtensions(extensions)
     protected fun uniqueId(id: SourceId, sources: List<StoredSource>) = store.uniqueId(id, sources)
     protected fun uniqueName(name: String, sources: List<StoredSource>) = store.uniqueName(name, sources)
+    protected fun withAdded(sources: List<StoredSource>, added: List<StoredSource>) = store.withAdded(sources, added)
     protected fun login(id: SourceId) = store.login(id)
 }
 

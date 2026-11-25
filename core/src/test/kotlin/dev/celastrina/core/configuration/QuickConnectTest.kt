@@ -43,10 +43,10 @@ class QuickConnectTest {
         jellyfin.approveQuickConnect()
 
         assertEquals(QuickConnect.Finished(WriteOutcome.Added(SourceId("den"))), service.continueQuickConnect(started, ChangedFrom.Tv))
-        val den = service().list().last()
+        val den = service().list().first()
         assertEquals(Triple("den", TestState.Passing, true), Triple(den.id.value, den.testState, den.hasLogin))
         assertTrue(RecordedJellyfin.ACCESS_TOKEN in storedText())
-        assertEquals(listOf("internet-archive", "den"), service().sources().map { it.id.value })
+        assertEquals(listOf("den", "internet-archive"), service().sources().map { it.id.value })
     }
 
     @Test
