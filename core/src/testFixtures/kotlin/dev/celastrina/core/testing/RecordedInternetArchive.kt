@@ -3,6 +3,11 @@ package dev.celastrina.core.testing
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import dev.celastrina.core.source.internetarchive.InternetArchiveSettings
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.URLDecoder
@@ -11,8 +16,11 @@ import java.net.URLDecoder
  * The HTTP fake for the Internet Archive Source Kind: one local server standing in for both the Wikidata Query
  * Service (`/sparql`) and the Archive's metadata API (`/metadata/<identifier>`), replaying recorded responses.
  *
- * A SPARQL query gets the recording for the first of its IDs (TMDB, then IMDb, then Wikidata) that has one, or
- * Wikidata's recorded empty result when none has. Every Archive item a test reaches must be recorded.
+ * A SPARQL query must be exactly the adapter's: a UNION of one clause per ID scheme it knows (TMDB, IMDb, Wikidata),
+ * each written as the Query Service expects, then the Archive ID and copyright status. Anything else is answered
+ * HTTP 400, as the Query Service answers a query it can't parse. It gets every clause's recording joined, as a UNION
+ * does, so each clause the adapter writes is tested by the recordings for its ID. A clause with no recording matches
+ * nothing. Every Archive item a test reaches must be recorded.
  */
 class RecordedInternetArchive(
     /** Answer every Wikidata query with HTTP 429, as the Query Service does to a client over its limits. */
@@ -36,11 +44,23 @@ class RecordedInternetArchive(
             return exchange.send(429, "Too Many Requests", "text/plain")
         }
         val query = exchange.queryParameter("query").orEmpty()
-        val recording = ID_SCHEMES
-            .mapNotNull { (scheme, pattern) -> pattern.find(query)?.let { "recorded/wikidata/$scheme-${it.groupValues[1]}.json" } }
-            .firstNotNullOfOrNull(::resourceOrNull)
-            ?: resource("recorded/wikidata/no-match.json")
-        exchange.send(200, recording, "application/sparql-results+json;charset=utf-8")
+        val clauses = QUERY.matchEntire(query)?.groupValues?.get(1)?.split(" UNION ")
+        val recordings = clauses?.map { clause ->
+            val (scheme, id) = CLAUSES.firstNotNullOfOrNull { (scheme, pattern) -> pattern.matchEntire(clause)?.let { scheme to it.groupValues[1] } }
+                ?: return exchange.send(400, "The fake can't read the clause $clause", "text/plain")
+            resourceOrNull("recorded/wikidata/$scheme-$id.json") ?: resource("recorded/wikidata/no-match.json")
+        } ?: return exchange.send(400, "The fake can't read the query $query", "text/plain")
+        exchange.send(200, union(recordings), "application/sparql-results+json;charset=utf-8")
+    }
+
+    /** The recorded results joined into one, as a UNION of their queries answers. */
+    private fun union(recordings: List<String>): String {
+        val results = recordings.map { Json.parseToJsonElement(it).jsonObject }
+        val bindings = results.flatMap { it.getValue("results").jsonObject.getValue("bindings").jsonArray }
+        return buildJsonObject {
+            put("head", results.first().getValue("head"))
+            put("results", buildJsonObject { put("bindings", JsonArray(bindings)) })
+        }.toString()
     }
 
     private fun answerMetadata(exchange: HttpExchange) {
@@ -71,10 +91,14 @@ class RecordedInternetArchive(
     override fun close() = server.stop(0)
 
     private companion object {
-        val ID_SCHEMES = listOf(
-            "tmdb" to Regex("""wdt:P4947 "(\d+)""""),
-            "imdb" to Regex("""wdt:P345 "(tt\d+)""""),
-            "wikidata" to Regex("""wd:(Q\d+)"""),
+        val QUERY = Regex(
+            """SELECT \?film \?archiveId \?copyrightStatus WHERE \{ (.+) \?film wdt:P724 \?archiveId \. """ +
+                """OPTIONAL \{ \?film wdt:P6216 \?copyrightStatus \. \} \}""",
+        )
+        val CLAUSES = listOf(
+            "tmdb" to Regex("""\{ \?film wdt:P4947 "(\d+)" \. \}"""),
+            "imdb" to Regex("""\{ \?film wdt:P345 "(tt\d+)" \. \}"""),
+            "wikidata" to Regex("""\{ VALUES \?film \{ wd:(Q\d+) \} \}"""),
         )
     }
 }
