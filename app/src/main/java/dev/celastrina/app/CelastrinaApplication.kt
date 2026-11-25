@@ -5,6 +5,8 @@ import android.util.Log
 import com.lagradost.api.setContext
 import dev.celastrina.core.configuration.ConfigurationService
 import dev.celastrina.core.failover.FailoverMemory
+import dev.celastrina.core.household.ContinueWatching
+import dev.celastrina.core.household.Watchlist
 import dev.celastrina.core.port.Clock
 import dev.celastrina.core.port.FileStorage
 import dev.celastrina.core.port.JdkHttpClient
@@ -36,4 +38,9 @@ class CelastrinaApplication : Application() {
 
     /** The Streams that failed on this TV in the last 24 hours, shared by Play's choice and every playback session. */
     val failoverMemory by lazy { FailoverMemory(storage, Clock.System) }
+
+    /** Where playback got to in each Title and episode, and the Stream that last worked for it. */
+    val continueWatching by lazy { ContinueWatching(storage, Clock.System) }
+
+    val watchlist by lazy { Watchlist(storage) }
 }

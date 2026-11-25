@@ -44,6 +44,8 @@ class MainActivity : ComponentActivity() {
                 newStreamLookup = { StreamLookup(app.configuration.sources(), app.logger) },
                 logger = app.logger,
                 failoverMemory = app.failoverMemory,
+                continueWatching = app.continueWatching,
+                watchlist = app.watchlist,
                 configurationChanges = app.configuration.changes,
                 configuration = app.configuration,
                 tmdbKey = tmdbKey,
