@@ -14,6 +14,9 @@
 # The TV is shared with the household. launch, open-movie, open-series and press refuse while someone is using it
 # (another app is playing, or the real remote was pressed in the last 2 minutes); --force overrides.
 #
+# CELASTRINA_ADB_SERIAL=<serial> (e.g. emulator-5554) drives that device instead of finding the TV, so agents can
+# test on an Android TV emulator and leave the household TV alone.
+#
 # The TV's address is remembered in ~/.config/celastrina/tv. If it doesn't answer there, the script
 # scans the local /24 for ADB on port 5555, keeps the host whose model matches CELASTRINA_TV_MODEL
 # (default AFTTI43), and remembers the new address.
@@ -45,6 +48,7 @@ scan() {
 
 connect() {
   local ip
+  if [ -n "${CELASTRINA_ADB_SERIAL:-}" ]; then echo "$CELASTRINA_ADB_SERIAL"; return; fi
   ip="$(cat "$ADDRESS_FILE" 2>/dev/null || true)"
   if [ -n "$ip" ] && try_address "$ip"; then echo "$ip:5555"; return; fi
   for ip in $(scan); do
