@@ -2,6 +2,7 @@ package dev.celastrina.core.extension
 
 import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.configuration.ChangedFrom
+import dev.celastrina.core.configuration.SourceChanges
 import dev.celastrina.core.configuration.ConfigurationChange
 import dev.celastrina.core.configuration.ConfigurationService
 import dev.celastrina.core.configuration.ImportOutcome
@@ -155,6 +156,21 @@ class ExtensionImportTest {
         assertEquals(1, restarted.status().extensions)
         assertTrue(restarted.repository(sites.repositoryUrl)!!.extensions.single().installed)
         assertEquals(listOf(ConfigurationChange(ConfigurationChange.Action.Added, "Internet Archive (test)", ChangedFrom.Computer)), announced)
+    }
+
+    @Test
+    fun `an Extension's Source can be renamed, but takes no URL or login`() = runTest {
+        val service = service()
+        service.imported()
+        service.installExtension(sites.repositoryUrl, "InternetArchive", ChangedFrom.Computer)
+        val id = SourceId("internetarchive-internet-archive-test")
+
+        assertEquals(WriteOutcome.Ok, service.update(id, SourceChanges(name = "Archive films"), ChangedFrom.Tv))
+        assertEquals(id to "Archive films", service().list().last().let { it.id to it.name })
+        assertEquals(
+            WriteOutcome.Problem.UnneededSetting,
+            assertIs<WriteOutcome.Invalid>(service.update(id, SourceChanges(url = "https://example.org"), ChangedFrom.Tv)).problem,
+        )
     }
 
     @Test

@@ -5,39 +5,39 @@ import dev.celastrina.core.source.LookupOutcome.Failure.Reason
 import dev.celastrina.core.source.Source
 import dev.celastrina.core.source.jellyfin.ConnectionResult
 import dev.celastrina.core.source.jellyfin.MediaServer
-import dev.celastrina.core.source.jellyfin.MediaServerKinds
 import dev.celastrina.core.source.jellyfin.MediaServerLogin
 import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.source.stremio.ManifestCheck
 import dev.celastrina.core.source.stremio.StremioAddon
-import dev.celastrina.core.source.stremio.StremioAddonKind
 import java.util.UUID
 
 /**
  * Tests Sources' connections and keeps what a test brings back: a Jellyfin or Emby server's login, or an add-on's
  * manifest. The Internet Archive and Extensions have nothing to test.
  */
-internal class ConnectionTests(store: ConfigurationStore, private val http: HttpClient, private val appVersion: String) : StoreAccess(store) {
+internal class ConnectionTests(store: ConfigurationStore, val http: HttpClient, private val appVersion: String) : StoreAccess(store) {
 
-    fun quickConnectFailure(name: String, url: String, reason: Reason, starting: Boolean) = when (reason) {
-        Reason.Unreachable -> "Can't reach $name at $url."
-        Reason.AuthRequired -> if (starting) {
+    fun quickConnectFailure(name: String, url: String, reason: Reason, starting: Boolean) = failureMessage(
+        name,
+        reason,
+        unreachable = "Can't reach $name at $url.",
+        authRequired = if (starting) {
             "Quick Connect is turned off on $name. Turn it on in the server's dashboard, or log in with a username and password."
         } else {
             "$name turned down the Quick Connect login. Start again for a new code."
-        }
-        Reason.RateLimited -> "$name is refusing requests for now. Try again later."
-        Reason.SourceError -> "$name answered, but doesn't offer Quick Connect as a Jellyfin server does. Check the address, or log in with a username and password."
-    }
+        },
+        sourceError = "$name answered, but doesn't offer Quick Connect as a Jellyfin server does. Check the address, or log in with a username and password.",
+    )
 
-    /**
-     * Tests the Source [id]'s connection and saves how it went: a Jellyfin or Emby server logs in again with
-     * [logInWith] when given, and otherwise checks the saved login. The Internet Archive has nothing to test.
-     */
+    /** Tests the Source [id]'s connection, as its Kind does, and saves how it went. */
     suspend fun test(id: SourceId, logInWith: String?): WriteOutcome {
         val source = synchronized(lock) { load().find { it.id == id } } ?: return WriteOutcome.Ok
-        if (kindOf(source.kind) == StremioAddonKind) return testAddon(source)
-        if (kindOf(source.kind) !in MediaServerKinds.all) return WriteOutcome.Ok
+        return ConfiguredKind.of(source.kind)?.test(this, source, logInWith) ?: WriteOutcome.Ok
+    }
+
+    /** Logs a Jellyfin or Emby server in again with [logInWith] when given, and otherwise checks the saved login. */
+    suspend fun testServer(source: StoredSource, logInWith: String?): WriteOutcome {
+        val id = source.id
         val server = server(source)
         val saved = login(id)
         val result = when {
@@ -54,7 +54,7 @@ internal class ConnectionTests(store: ConfigurationStore, private val http: Http
         }
         return when (result) {
             is ConnectionResult.Connected -> WriteOutcome.Ok
-            is ConnectionResult.Failed -> WriteOutcome.Failed(id, result.reason, failureMessage(source, result.reason, loggedIn = logInWith != null, hadLogin = saved != null))
+            is ConnectionResult.Failed -> WriteOutcome.Failed(id, result.reason, serverFailure(source, result.reason, loggedIn = logInWith != null, hadLogin = saved != null))
         }
     }
 
@@ -76,28 +76,36 @@ internal class ConnectionTests(store: ConfigurationStore, private val http: Http
             ManifestCheck.NotAManifest -> failed(Reason.SourceError, "${source.name} didn't answer with an add-on manifest. Check the URL.")
             is ManifestCheck.Failed -> failed(
                 check.reason,
-                when (check.reason) {
-                    Reason.Unreachable -> "Can't reach the add-on ${source.name}."
-                    Reason.AuthRequired -> "${source.name} turned the URL down. Its settings may need making again."
-                    Reason.RateLimited -> "${source.name} is refusing requests for now. Try again later."
-                    Reason.SourceError -> "${source.name} didn't answer with an add-on manifest. Check the URL."
-                },
+                failureMessage(
+                    source.name,
+                    check.reason,
+                    unreachable = "Can't reach the add-on ${source.name}.",
+                    authRequired = "${source.name} turned the URL down. Its settings may need making again.",
+                    sourceError = "${source.name} didn't answer with an add-on manifest. Check the URL.",
+                ),
             )
         }
     }
 
     fun addon(source: StoredSource) = StremioAddon(http, checkNotNull(source.url) { "Source ${source.id} has no URL" })
 
-    fun failureMessage(source: StoredSource, reason: Reason, loggedIn: Boolean, hadLogin: Boolean) = when (reason) {
-        Reason.Unreachable -> "Can't reach ${source.name} at ${source.url}."
-        Reason.AuthRequired -> when {
+    private fun serverFailure(source: StoredSource, reason: Reason, loggedIn: Boolean, hadLogin: Boolean) = failureMessage(
+        source.name,
+        reason,
+        unreachable = "Can't reach ${source.name} at ${source.url}.",
+        authRequired = when {
             loggedIn -> "${source.name} turned down the username or password."
             hadLogin -> "${source.name} turned down the saved login. Log in again."
             else -> "${source.name} has no login yet. Log in again with its password."
-        }
-        Reason.RateLimited -> "${source.name} is refusing requests for now. Try again later."
-        Reason.SourceError -> "${source.name} answered, but not as a Jellyfin or Emby server does. Check the address."
-    }
+        },
+        sourceError = "${source.name} answered, but not as a Jellyfin or Emby server does. Check the address.",
+    )
+
+    /** The login a test last saved for the Source [id], if any. */
+    fun savedLogin(id: SourceId) = login(id)
+
+    /** The manifest a test last saved for the add-on Source [id], if any. */
+    fun savedManifest(id: SourceId) = storage.read(manifestKey(id))?.decodeToString()
 
     fun server(source: StoredSource) = MediaServer(http, checkNotNull(source.url) { "Source ${source.id} has no URL" }, deviceId(source.id), appVersion)
 

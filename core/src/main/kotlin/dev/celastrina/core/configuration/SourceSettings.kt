@@ -6,14 +6,11 @@ import dev.celastrina.core.port.HttpClient
 import dev.celastrina.core.source.LookupOutcome.Failure.Reason
 import dev.celastrina.core.source.Source
 import dev.celastrina.core.source.SourceKind
-import dev.celastrina.core.source.internetarchive.InternetArchiveSource
 import dev.celastrina.core.source.jellyfin.MediaServer
 import dev.celastrina.core.source.jellyfin.MediaServerKinds
 import dev.celastrina.core.source.jellyfin.MediaServerLogin
 import dev.celastrina.core.source.jellyfin.QuickConnectStep
 import dev.celastrina.core.source.SourceId
-import dev.celastrina.core.source.stremio.StremioAddon
-import dev.celastrina.core.source.stremio.StremioAddonKind
 import java.util.UUID
 
 /** The Household's Sources: adding, changing, ordering and removing them, and the Sources Lookups ask. */
@@ -54,12 +51,8 @@ internal class SourceSettings(
     fun sources(): List<Source> = synchronized(lock) {
         load().filter { it.enabled }.mapNotNull { stored ->
             if (stored.extension != null) return@mapNotNull extensions.source(stored)
-            when (val kind = kindOf(stored.kind)) {
-                InternetArchiveSource.Kind -> InternetArchiveSource(http, id = stored.id, name = stored.name)
-                in MediaServerKinds.all -> connection.server(stored).source(stored.id, stored.name, kind!!, login(stored.id))
-                StremioAddonKind -> connection.addon(stored).source(stored.id, stored.name, storage.read(manifestKey(stored.id))?.decodeToString())
-                else -> error("Unknown Source Kind ${stored.kind} for Source ${stored.id}")
-            }
+            val configured = checkNotNull(ConfiguredKind.of(stored.kind)) { "Unknown Source Kind ${stored.kind} for Source ${stored.id}" }
+            configured.source(connection, stored)
         }
     }
 
@@ -68,24 +61,19 @@ internal class SourceSettings(
      * logged in to straight away, and only the access token is kept. Adding the same Source again is harmless.
      */
     suspend fun add(new: NewSource, from: ChangedFrom): WriteOutcome {
-        val kind = kindOf(new.kind) ?: return invalid(
+        val configured = ConfiguredKind.of(new.kind) ?: return invalid(
             WriteOutcome.Problem.UnknownKind,
-            "There's no Source Kind ${new.kind}. Kinds: ${KINDS.joinToString { it.id }}.",
+            "There's no Source Kind ${new.kind}. Kinds: ${ConfiguredKind.all.joinToString { it.kind.id }}.",
         )
+        val kind = configured.kind
         val name = new.name.trim()
         if (name.isEmpty()) return blankName()
-        val url = if (kind == InternetArchiveSource.Kind) {
-            if (new.url != null || new.username != null || new.password != null) return unneededSetting(kind)
-            null
-        } else if (kind == StremioAddonKind) {
-            if (new.username != null || new.password != null) return unneededSetting(kind)
-            StremioAddon.manifestUrlOf(new.url) ?: return badUrl(kind)
-        } else {
-            val url = serverAddress(new.url) ?: return badUrl(kind)
-            if (new.username.isNullOrBlank() || new.password == null) {
-                return invalid(WriteOutcome.Problem.MissingLogin, "A ${kind.name} Source needs a username and a password (which may be empty).")
-            }
-            url
+        if ((new.url != null && !configured.takesUrl) || ((new.username != null || new.password != null) && !configured.takesLogin)) {
+            return unneededSetting(configured)
+        }
+        val url = if (configured.takesUrl) configured.addressOf(new.url) ?: return badUrl(configured) else null
+        if (configured.takesLogin && (new.username.isNullOrBlank() || new.password == null)) {
+            return invalid(WriteOutcome.Problem.MissingLogin, "A ${kind.name} Source needs a username and a password (which may be empty).")
         }
         val id = when (val saved = saveNew(name, kind, url, new.username?.trim(), from)) {
             is Saved.As -> saved.id
@@ -103,12 +91,13 @@ internal class SourceSettings(
      * is saved until the code is approved.
      */
     suspend fun startQuickConnect(new: NewSource): QuickConnect {
-        if (kindOf(new.kind) != MediaServerKinds.Jellyfin) {
+        if (new.kind != MediaServerKinds.Jellyfin.id) {
             return QuickConnect.Finished(invalid(WriteOutcome.Problem.QuickConnectUnsupported, "Quick Connect is only for Jellyfin servers. Log in with a username and password instead."))
         }
         val name = new.name.trim()
         if (name.isEmpty()) return QuickConnect.Finished(blankName())
-        val url = serverAddress(new.url) ?: return QuickConnect.Finished(badUrl(MediaServerKinds.Jellyfin))
+        val jellyfin = checkNotNull(ConfiguredKind.of(MediaServerKinds.Jellyfin.id))
+        val url = jellyfin.addressOf(new.url) ?: return QuickConnect.Finished(badUrl(jellyfin))
         synchronized(lock) { nameTaken(name, load())?.let { return QuickConnect.Finished(it) } }
         // The server is new, so this TV is a new device to it; the device ID is kept with the Source once it's added.
         val deviceId = UUID.randomUUID().toString()
@@ -186,11 +175,15 @@ internal class SourceSettings(
     suspend fun update(id: SourceId, changes: SourceChanges, from: ChangedFrom): WriteOutcome {
         val newName = changes.name?.trim()
         if (newName != null && newName.isEmpty()) return blankName()
-        val kind = synchronized(lock) { load().find { it.id == id }?.kind }?.let(::kindOf) ?: return unknownSource(id)
-        val takesUrl = kind in MediaServerKinds.all || kind == StremioAddonKind
-        val takesLogin = kind in MediaServerKinds.all
-        if ((changes.url != null && !takesUrl) || ((changes.username != null || changes.password != null) && !takesLogin)) return unneededSetting(kind)
-        val newUrl = changes.url?.let { (if (kind == StremioAddonKind) StremioAddon.manifestUrlOf(it) else serverAddress(it)) ?: return badUrl(kind) }
+        val stored = synchronized(lock) { load().find { it.id == id } } ?: return unknownSource(id)
+        // An Extension's Source has no settings but its name.
+        val configured = ConfiguredKind.of(stored.kind)
+        val takesUrl = configured?.takesUrl == true
+        val takesLogin = configured?.takesLogin == true
+        if ((changes.url != null && !takesUrl) || ((changes.username != null || changes.password != null) && !takesLogin)) {
+            return unneededSetting(configured)
+        }
+        val newUrl = changes.url?.let { configured!!.addressOf(it) ?: return badUrl(configured) }
         val newUsername = changes.username?.trim()
         if (newUsername != null && (newUsername.isEmpty() || changes.password == null)) {
             return invalid(WriteOutcome.Problem.MissingLogin, "A new username needs its password too.")
