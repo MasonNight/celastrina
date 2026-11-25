@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -28,6 +29,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -42,7 +44,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Card
+import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
@@ -70,13 +74,24 @@ private const val OFFLINE_RETRY_MILLIS = 15_000L
 /** How close to a row's end focus may get before the row loads more. */
 private const val LOAD_MORE_WITHIN = 8
 
+/** How many frames the Search button tries to take focus over, coming back from search. */
+private const val FOCUS_ATTEMPTS = 10
+
 /**
  * Home, Variant A "Hero + stacked rows": the focused Title's backdrop, logo, metadata and blurb fill the top, above
  * the Continue watching, Watchlist, Movies, Series, Anime and Cartoons rows. [onOpen] gets the row (a [HomeRow] or
- * [HouseholdRow]) and the Title; a Continue watching card goes to [onResume] instead.
+ * [HouseholdRow]) and the Title; a Continue watching card goes to [onResume] instead. The Search button in the hero's
+ * top-left, reached by pressing Up, calls [onSearch].
  */
 @Composable
-fun HomeScreen(model: HomeModel, continueWatching: ContinueWatching, watchlist: Watchlist, onResume: (Watched) -> Unit, onOpen: (Any, Title) -> Unit) {
+fun HomeScreen(
+    model: HomeModel,
+    continueWatching: ContinueWatching,
+    watchlist: Watchlist,
+    onSearch: () -> Unit,
+    onResume: (Watched) -> Unit,
+    onOpen: (Any, Title) -> Unit,
+) {
     val watched by continueWatching.row.collectAsState()
     val listed by watchlist.titles.collectAsState()
     val allFailed by remember { derivedStateOf { model.rows.values.all { it is RowState.Failed } } }
@@ -113,7 +128,8 @@ fun HomeScreen(model: HomeModel, continueWatching: ContinueWatching, watchlist: 
     Box(Modifier.fillMaxSize().background(Background)) {
         HeroBackdrop(model.hero?.second, Modifier.align(Alignment.TopEnd).fillMaxWidth().fillMaxHeight(0.62f))
         Column(Modifier.fillMaxSize()) {
-            HeroText(model.hero, Modifier.padding(start = 48.dp, top = 32.dp, end = 48.dp).fillMaxWidth(0.45f).height(200.dp))
+            SearchButton(model.focusSearch, Modifier.padding(start = 48.dp, top = 20.dp), onSearch)
+            HeroText(model.hero, Modifier.padding(start = 48.dp, top = 4.dp, end = 48.dp).fillMaxWidth(0.45f).height(176.dp))
             LazyColumn(
                 state = model.columnState,
                 contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp),
@@ -125,7 +141,7 @@ fun HomeScreen(model: HomeModel, continueWatching: ContinueWatching, watchlist: 
                         homeRow = homeRow,
                         state = model.rows[homeRow] ?: RowState.Loading,
                         listState = model.rowStates.getValue(homeRow),
-                        focusTarget = model.focusTarget,
+                        focusTarget = model.focusTarget.takeUnless { model.focusSearch },
                         onLoadMore = { model.loadMore(homeRow) },
                         onFocus = { focused.value = it },
                         onOpen = { onOpen(homeRow, it) },
@@ -134,6 +150,36 @@ fun HomeScreen(model: HomeModel, continueWatching: ContinueWatching, watchlist: 
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SearchButton(focused: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val requester = remember { FocusRequester() }
+    var hasFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(focused) {
+        if (!focused) return@LaunchedEffect
+        // Coming back to home, the button may not be ready to take focus on the first frame; keep asking for a few.
+        repeat(FOCUS_ATTEMPTS) {
+            withFrameNanos { }
+            if (hasFocus) return@LaunchedEffect
+            runCatching { requester.requestFocus() }
+        }
+    }
+    Surface(
+        onClick = onClick,
+        modifier = modifier.focusRequester(requester).onFocusChanged { hasFocus = it.isFocused },
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
+        // Styled from onFocusChanged, not the Surface's own focus state: coming back from search, Compose focuses the
+        // button in the frame it appears, before the Surface listens for focus, so it would look unfocused.
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (hasFocus) Color.White else Color(0x66000000),
+            contentColor = if (hasFocus) Color.Black else Color.White,
+            focusedContainerColor = Color.White,
+            focusedContentColor = Color.Black,
+        ),
+    ) {
+        Text("\uD83D\uDD0D  Search", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
     }
 }
 
