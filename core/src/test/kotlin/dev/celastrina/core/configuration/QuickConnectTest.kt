@@ -1,7 +1,8 @@
 package dev.celastrina.core.configuration
 
-import dev.celastrina.core.port.FileStorage
-import dev.celastrina.core.port.JdkHttpClient
+import dev.celastrina.core.source.SourceId
+import dev.celastrina.core.adapter.FileStorage
+import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.source.LookupOutcome.Failure.Reason
 import dev.celastrina.core.testing.RecordedJellyfin
 import kotlinx.coroutines.test.runTest
@@ -37,15 +38,15 @@ class QuickConnectTest {
         val started = assertIs<QuickConnect.Waiting>(service.startQuickConnect(den()))
         assertEquals(RecordedJellyfin.QUICK_CONNECT_CODE, started.code)
         assertIs<QuickConnect.Waiting>(service.continueQuickConnect(started, ChangedFrom.Tv))
-        assertEquals(listOf("internet-archive"), service().list().map { it.id }, "Saved before it was approved")
+        assertEquals(listOf("internet-archive"), service().list().map { it.id.value }, "Saved before it was approved")
 
         jellyfin.approveQuickConnect()
 
-        assertEquals(QuickConnect.Finished(WriteOutcome.Added("den")), service.continueQuickConnect(started, ChangedFrom.Tv))
+        assertEquals(QuickConnect.Finished(WriteOutcome.Added(SourceId("den"))), service.continueQuickConnect(started, ChangedFrom.Tv))
         val den = service().list().last()
-        assertEquals(Triple("den", TestState.Passing, true), Triple(den.id, den.testState, den.hasLogin))
+        assertEquals(Triple("den", TestState.Passing, true), Triple(den.id.value, den.testState, den.hasLogin))
         assertTrue(RecordedJellyfin.ACCESS_TOKEN in storedText())
-        assertEquals(listOf("internet-archive", "den"), service().sources().map { it.id })
+        assertEquals(listOf("internet-archive", "den"), service().sources().map { it.id.value })
     }
 
     @Test
@@ -55,7 +56,7 @@ class QuickConnectTest {
         jellyfin.approveQuickConnect()
         service.continueQuickConnect(started, ChangedFrom.Tv)
 
-        assertEquals(WriteOutcome.Ok, service.update("den", SourceChanges(password = jellyfin.password), ChangedFrom.Tv))
+        assertEquals(WriteOutcome.Ok, service.update(SourceId("den"), SourceChanges(password = jellyfin.password), ChangedFrom.Tv))
     }
 
     @Test

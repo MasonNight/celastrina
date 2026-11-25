@@ -14,8 +14,8 @@ import dev.celastrina.core.failover.FailoverMemory
 import dev.celastrina.core.household.ContinueWatching
 import dev.celastrina.core.household.Watchlist
 import dev.celastrina.core.port.Clock
-import dev.celastrina.core.port.FileStorage
-import dev.celastrina.core.port.JdkHttpClient
+import dev.celastrina.core.adapter.FileStorage
+import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.port.Logger
 import java.io.File
 import java.lang.ref.WeakReference

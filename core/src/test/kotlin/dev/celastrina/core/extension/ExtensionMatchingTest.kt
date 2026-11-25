@@ -1,12 +1,13 @@
 package dev.celastrina.core.extension
 
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.configuration.ChangedFrom
 import dev.celastrina.core.configuration.ConfigurationService
 import dev.celastrina.core.configuration.InstallOutcome
-import dev.celastrina.core.port.FileStorage
-import dev.celastrina.core.port.JdkHttpClient
+import dev.celastrina.core.adapter.FileStorage
+import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.source.LookupOutcome
 import dev.celastrina.core.source.Source
 import dev.celastrina.core.source.Stream
@@ -45,7 +46,7 @@ class ExtensionMatchingTest {
         )
         service.importRepository(sites.repositoryUrl, ExtensionWarning.VERSION, ChangedFrom.Computer)
         assertIs<InstallOutcome.Installed>(service.installExtension(sites.repositoryUrl, "InternetArchive", ChangedFrom.Computer))
-        return service.sources().single { it.id == "internetarchive-internet-archive-test" }
+        return service.sources().single { it.id == SourceId("internetarchive-internet-archive-test") }
     }
 
     private suspend fun streamsFor(title: TitleReference): List<Stream> =
@@ -68,7 +69,7 @@ class ExtensionMatchingTest {
 
         assertEquals(
             Stream(
-                sourceId = "internetarchive-internet-archive-test",
+                sourceId = SourceId("internetarchive-internet-archive-test"),
                 id = streams.first().id,
                 url = "https://archive.org/download/Night.Of.The.Living.Dead_1080p/NightOfTheLivingDead_PS3.mp4",
                 delivery = Stream.Delivery.Progressive,

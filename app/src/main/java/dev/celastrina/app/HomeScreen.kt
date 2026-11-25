@@ -11,9 +11,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -49,9 +47,8 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
-import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
-import dev.celastrina.core.catalogue.CatalogueUnavailable
+import dev.celastrina.core.catalogue.CatalogueUnreadable
 import dev.celastrina.core.catalogue.Hero
 import dev.celastrina.core.catalogue.HomeRow
 import dev.celastrina.core.catalogue.Title
@@ -96,11 +93,12 @@ fun HomeScreen(
     val listed by watchlist.titles.collectAsState()
     val allFailed by remember { derivedStateOf { model.rows.values.all { it is RowState.Failed } } }
     val offline by remember {
-        derivedStateOf { model.rows.values.any { it == RowState.Failed(CatalogueUnavailable.Reason.Unreachable) } }
+        derivedStateOf { model.rows.values.any { it == RowState.Failed(CatalogueUnreadable.Reason.Unreachable) } }
     }
-    // Rows that couldn't reach TMDB, and had nothing cached, load once the TV is back online.
-    LaunchedEffect(offline) {
-        while (offline) {
+    val fromOfflineCache by remember { derivedStateOf { model.rows.values.any { it is RowState.Loaded && it.row.fromOfflineCache } } }
+    // Rows that couldn't reach TMDB, or showed what the cache kept, load afresh once the TV is back online.
+    LaunchedEffect(offline || fromOfflineCache) {
+        while (offline || fromOfflineCache) {
             delay(OFFLINE_RETRY_MILLIS)
             model.retryFailed()
         }
@@ -108,7 +106,7 @@ fun HomeScreen(
     // Continue watching and the Watchlist are kept on the TV, so home shows them offline, each failed row saying why.
     if (allFailed && (watched.isEmpty() && listed.isEmpty() || !offline)) {
         val reason = (model.rows.values.first() as RowState.Failed).reason
-        if (reason == CatalogueUnavailable.Reason.Unreachable) {
+        if (reason == CatalogueUnreadable.Reason.Unreachable) {
             Message("You're offline", "Nothing is saved on this TV to show yet. Home fills in when the TV is back online.")
         } else {
             Message(reason.message())
@@ -218,21 +216,7 @@ private fun HeroText(shown: Pair<Title, Hero>?, modifier: Modifier) {
 
 /** The Title's logo, or its name as text when there is no logo or it won't load. */
 @Composable
-private fun HeroLogo(hero: Hero) {
-    var logoFailed by remember(hero.logoUrl) { mutableStateOf(false) }
-    if (hero.logoUrl == null || logoFailed) {
-        Text(hero.name, style = MaterialTheme.typography.headlineMedium, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
-    } else {
-        AsyncImage(
-            model = hero.logoUrl,
-            contentDescription = hero.name,
-            contentScale = ContentScale.Fit,
-            alignment = Alignment.BottomStart,
-            onState = { if (it is AsyncImagePainter.State.Error) logoFailed = true },
-            modifier = Modifier.heightIn(max = 90.dp).widthIn(max = 360.dp),
-        )
-    }
-}
+private fun HeroLogo(hero: Hero) = TitleLogo(hero.name, hero.logoUrl, MaterialTheme.typography.headlineMedium, maxHeight = 90.dp, maxWidth = 360.dp)
 
 private fun metadataLine(title: Title, hero: Hero): String = listOfNotNull(
     hero.year?.toString(),
@@ -273,7 +257,7 @@ private fun TitleRow(
                 }
                 val target = focusTarget?.takeIf { it.first == homeRow }?.second
                 val targetRequester = remember { FocusRequester() }
-                LaunchedEffect(target) { if (target != null) runCatching { targetRequester.requestFocus() } }
+                LaunchedEffect(target) { if (target != null) runCatching { targetRequester.requestFocusOnceShown() } }
                 LazyRow(
                     state = listState,
                     modifier = Modifier.focusRestorer(),

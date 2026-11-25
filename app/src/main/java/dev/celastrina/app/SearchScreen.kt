@@ -23,6 +23,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -39,7 +40,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
-import dev.celastrina.core.catalogue.CatalogueUnavailable
+import dev.celastrina.core.catalogue.CatalogueUnreadable
 import dev.celastrina.core.catalogue.Search
 import dev.celastrina.core.catalogue.SearchResults
 import dev.celastrina.core.catalogue.Title
@@ -69,6 +70,7 @@ fun SearchScreen(search: Search, gridState: LazyGridState, opened: Title?, onOpe
     }
     val focusOpened = opened != null && opened in titles
     LaunchedEffect(Unit) {
+        withFrameNanos { }
         runCatching { if (focusOpened) openedCard.requestFocus() else firstKey.requestFocus() }
             .onFailure { runCatching { firstKey.requestFocus() } }
     }
@@ -132,8 +134,8 @@ private fun heading(results: SearchResults) = when (results) {
     is SearchResults.Found -> "Titles matching '${results.query}'"
     is SearchResults.NoMatches -> "No Titles match '${results.query}'"
     // Searches are never saved on the TV, so offline there's nothing to fall back on.
-    is SearchResults.Unavailable -> when (results.reason) {
-        CatalogueUnavailable.Reason.Unreachable -> "You're offline. Search works again once the TV is back online."
+    is SearchResults.Unreadable -> when (results.reason) {
+        CatalogueUnreadable.Reason.Unreachable -> "You're offline. Search works again once the TV is back online."
         else -> results.reason.message()
     }
 }

@@ -27,7 +27,7 @@ import androidx.tv.material3.Text
 import dev.celastrina.core.failover.FailoverMemory
 import dev.celastrina.core.failover.FailoverStep
 import dev.celastrina.core.failover.GiveUpReason
-import dev.celastrina.core.failover.PlayerError
+import dev.celastrina.core.failover.PlayerFault
 import dev.celastrina.core.failover.SourceSummary
 import dev.celastrina.core.failover.StreamFailure
 import dev.celastrina.core.source.Stream
@@ -49,7 +49,7 @@ fun GiveUpScreen(title: String, gaveUp: FailoverStep.GaveUp, lookup: TitleLookup
     val retry = remember { FocusRequester() }
     val choose = remember { FocusRequester() }
     val retryWith = current?.firstChoice(failoverMemory)
-    LaunchedEffect(retryWith != null) { (if (retryWith != null) retry else choose).requestFocus() }
+    LaunchedEffect(retryWith != null) { (if (retryWith != null) retry else choose).requestFocusOnceShown() }
     Column(
         Modifier.fillMaxSize().background(Color.Black).padding(horizontal = 48.dp, vertical = 40.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -95,11 +95,11 @@ private fun StreamFailure.message(): String = when (this) {
     StreamFailure.NoFirstFrame -> "no picture within 15 s"
     StreamFailure.LongStall -> "stalled for over 20 s"
     StreamFailure.RepeatedStalls -> "stalled 3 times in 2 minutes"
-    is StreamFailure.Error -> when (error) {
-        PlayerError.Http -> "an HTTP error"
-        PlayerError.Network -> "a network error"
-        PlayerError.UnsupportedFormat -> "a format this TV can't play"
-        PlayerError.Decoder -> "a decoder error"
-        PlayerError.Other -> "a player error"
+    is StreamFailure.Fault -> when (fault) {
+        PlayerFault.Http -> "an HTTP error"
+        PlayerFault.Network -> "a network error"
+        PlayerFault.UnsupportedFormat -> "a format this TV can't play"
+        PlayerFault.Decoder -> "a decoder error"
+        PlayerFault.Other -> "a player error"
     }
 }

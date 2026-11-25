@@ -1,5 +1,6 @@
 package dev.celastrina.core.configuration
 
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.failover.FailoverMemory
@@ -7,7 +8,7 @@ import dev.celastrina.core.household.ContinueWatching
 import dev.celastrina.core.household.Watching
 import dev.celastrina.core.household.Watchlist
 import dev.celastrina.core.household.WorkedStream
-import dev.celastrina.core.port.FileStorage
+import dev.celastrina.core.adapter.FileStorage
 import dev.celastrina.core.source.Stream
 import dev.celastrina.core.port.HttpClient
 import dev.celastrina.core.port.HttpResponse
@@ -134,7 +135,7 @@ class ConfigurationServiceTest {
         assertEquals(
             listOf(
                 SourceSummary(
-                    id = "internet-archive",
+                    id = SourceId("internet-archive"),
                     name = "Internet Archive",
                     kind = "internet-archive",
                     enabled = true,
@@ -154,10 +155,10 @@ class ConfigurationServiceTest {
         val service = service()
         val announced = announcementsOf(service)
 
-        assertEquals(WriteOutcome.Ok, service.update("internet-archive", SourceChanges(name = "  Archive.org  "), ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Ok, service.update(SourceId("internet-archive"), SourceChanges(name = "  Archive.org  "), ChangedFrom.Computer))
 
         val afterRestart = service().list().single()
-        assertEquals("internet-archive" to "Archive.org", afterRestart.id to afterRestart.name)
+        assertEquals("internet-archive" to "Archive.org", afterRestart.id.value to afterRestart.name)
         assertEquals("Archive.org", service().sources().single().name)
         assertEquals(
             listOf(ConfigurationChange(ConfigurationChange.Action.Renamed, "Archive.org", ChangedFrom.Computer, previousName = "Internet Archive")),
@@ -168,10 +169,10 @@ class ConfigurationServiceTest {
     @Test
     fun `renaming to the same name again is harmless and announces nothing`() = runTest {
         val service = service()
-        service.update("internet-archive", SourceChanges(name = "Archive.org"), ChangedFrom.Computer)
+        service.update(SourceId("internet-archive"), SourceChanges(name = "Archive.org"), ChangedFrom.Computer)
         val announced = announcementsOf(service)
 
-        assertEquals(WriteOutcome.Ok, service.update("internet-archive", SourceChanges(name = "Archive.org"), ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Ok, service.update(SourceId("internet-archive"), SourceChanges(name = "Archive.org"), ChangedFrom.Computer))
 
         assertEquals(emptyList(), announced)
     }
@@ -182,11 +183,11 @@ class ConfigurationServiceTest {
 
         assertEquals(
             WriteOutcome.Invalid(WriteOutcome.Problem.BlankName, "A Source needs a name."),
-            service.update("internet-archive", SourceChanges(name = " "), ChangedFrom.Computer),
+            service.update(SourceId("internet-archive"), SourceChanges(name = " "), ChangedFrom.Computer),
         )
         assertEquals(
             WriteOutcome.Invalid(WriteOutcome.Problem.UnknownSource, "There's no Source with the ID jellyfin."),
-            service.update("jellyfin", SourceChanges(name = "Jellyfin"), ChangedFrom.Computer),
+            service.update(SourceId("jellyfin"), SourceChanges(name = "Jellyfin"), ChangedFrom.Computer),
         )
         assertEquals(listOf("Internet Archive"), service().list().map { it.name })
     }
@@ -196,16 +197,16 @@ class ConfigurationServiceTest {
         val service = service()
         val announced = announcementsOf(service)
 
-        assertEquals(WriteOutcome.Ok, service.disable("internet-archive", ChangedFrom.Computer))
-        assertEquals(WriteOutcome.Ok, service.disable("internet-archive", ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Ok, service.disable(SourceId("internet-archive"), ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Ok, service.disable(SourceId("internet-archive"), ChangedFrom.Computer))
 
         assertEquals(listOf(false), service().list().map { it.enabled })
         assertEquals(emptyList(), service().sources())
 
-        assertEquals(WriteOutcome.Ok, service.enable("internet-archive", ChangedFrom.Tv))
-        assertEquals(WriteOutcome.Ok, service.enable("internet-archive", ChangedFrom.Tv))
+        assertEquals(WriteOutcome.Ok, service.enable(SourceId("internet-archive"), ChangedFrom.Tv))
+        assertEquals(WriteOutcome.Ok, service.enable(SourceId("internet-archive"), ChangedFrom.Tv))
 
-        assertEquals(listOf("internet-archive"), service().sources().map { it.id })
+        assertEquals(listOf("internet-archive"), service().sources().map { it.id.value })
         assertEquals(
             listOf(
                 ConfigurationChange(ConfigurationChange.Action.Disabled, "Internet Archive", ChangedFrom.Computer),
@@ -220,8 +221,8 @@ class ConfigurationServiceTest {
         val service = service()
         val announced = announcementsOf(service)
 
-        assertEquals(WriteOutcome.Ok, service.remove("internet-archive", ChangedFrom.Computer))
-        assertEquals(WriteOutcome.Ok, service.remove("internet-archive", ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Ok, service.remove(SourceId("internet-archive"), ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Ok, service.remove(SourceId("internet-archive"), ChangedFrom.Computer))
 
         val afterRestart = service()
         assertEquals(emptyList(), afterRestart.list())
@@ -234,12 +235,12 @@ class ConfigurationServiceTest {
     fun `removing a Source forgets its Streams' Failover memory, and only its`() {
         val memory = FailoverMemory(FileStorage(dir), clock)
         val service = ConfigurationService(FileStorage(dir), offline, appVersion = "1.2.3", projectTmdbKey = PROJECT_KEY, clock = clock, failoverMemory = memory)
-        val archive = Stream(sourceId = "internet-archive", id = "a", url = "https://archive.org/a.mp4", delivery = Stream.Delivery.Progressive)
-        val other = Stream(sourceId = "movie-night", id = "b", url = "http://192.168.1.20/b.mp4", delivery = Stream.Delivery.Progressive)
+        val archive = Stream(sourceId = SourceId("internet-archive"), id = "a", url = "https://archive.org/a.mp4", delivery = Stream.Delivery.Progressive)
+        val other = Stream(sourceId = SourceId("movie-night"), id = "b", url = "http://192.168.1.20/b.mp4", delivery = Stream.Delivery.Progressive)
         memory.demote(archive)
         memory.demote(other)
 
-        service.remove("internet-archive", ChangedFrom.Tv)
+        service.remove(SourceId("internet-archive"), ChangedFrom.Tv)
 
         assertFalse(memory.isDemoted(archive))
         assertTrue(FailoverMemory(FileStorage(dir), clock).isDemoted(other))
@@ -252,15 +253,15 @@ class ConfigurationServiceTest {
         val watchlist = Watchlist(FileStorage(dir))
         val theMatrix = Title(603, Title.Kind.Movie, "The Matrix", 1999, posterUrl = null, category = null)
         val watching = Watching(theMatrix, TitleReference(Title.Kind.Movie, 603, "tt0133093", null, "The Matrix", "The Matrix", emptyList(), 1999), null, null)
-        val archive = Stream(sourceId = "internet-archive", id = "a", url = "https://archive.org/a.mp4", delivery = Stream.Delivery.Progressive)
+        val archive = Stream(sourceId = SourceId("internet-archive"), id = "a", url = "https://archive.org/a.mp4", delivery = Stream.Delivery.Progressive)
         continueWatching.save(watching, archive, positionMillis = 600_000, durationMillis = 8_160_000)
         watchlist.add(theMatrix)
 
-        service().remove("internet-archive", ChangedFrom.Tv)
+        service().remove(SourceId("internet-archive"), ChangedFrom.Tv)
 
         val afterRestart = ContinueWatching(FileStorage(dir), clock)
         assertEquals(listOf(watching), afterRestart.row.value.map { it.watching })
-        assertEquals(WorkedStream("internet-archive", "a"), afterRestart.of(watching.reference)?.lastWorked)
+        assertEquals(WorkedStream(SourceId("internet-archive"), "a"), afterRestart.of(watching.reference)?.lastWorked)
         assertEquals(listOf(theMatrix), Watchlist(FileStorage(dir)).titles.value)
     }
 
@@ -282,15 +283,15 @@ class ConfigurationServiceTest {
     fun `a Source changed from a computer is marked with when it last was, and changes on the TV or that change nothing leave it`() = runTest {
         val service = service()
         clock.advanceBy(1.days)
-        service.update("internet-archive", SourceChanges(name = "Archive.org"), ChangedFrom.Computer)
+        service.update(SourceId("internet-archive"), SourceChanges(name = "Archive.org"), ChangedFrom.Computer)
         val renamedAt = clock.nowMillis()
 
         clock.advanceBy(1.days)
-        service.update("internet-archive", SourceChanges(name = "Archive.org"), ChangedFrom.Computer)
-        service.disable("internet-archive", ChangedFrom.Tv)
+        service.update(SourceId("internet-archive"), SourceChanges(name = "Archive.org"), ChangedFrom.Computer)
+        service.disable(SourceId("internet-archive"), ChangedFrom.Tv)
         assertEquals(renamedAt, service().list().single().changedFromComputerAt)
 
-        service.enable("internet-archive", ChangedFrom.Computer)
+        service.enable(SourceId("internet-archive"), ChangedFrom.Computer)
         assertEquals(clock.nowMillis(), service().list().single().changedFromComputerAt)
         assertEquals(null, service().list().single().addedFromComputerAt)
     }
@@ -299,8 +300,8 @@ class ConfigurationServiceTest {
     fun `enabling or disabling a Source that doesn't exist is refused`() = runTest {
         val unknown = WriteOutcome.Invalid(WriteOutcome.Problem.UnknownSource, "There's no Source with the ID jellyfin.")
 
-        assertEquals(unknown, service().enable("jellyfin", ChangedFrom.Computer))
-        assertEquals(unknown, service().disable("jellyfin", ChangedFrom.Computer))
+        assertEquals(unknown, service().enable(SourceId("jellyfin"), ChangedFrom.Computer))
+        assertEquals(unknown, service().disable(SourceId("jellyfin"), ChangedFrom.Computer))
     }
 
     private companion object {

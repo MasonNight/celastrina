@@ -180,7 +180,7 @@ private fun ExtensionList(
     onPickExtension: (ExtensionRepository, AvailableExtension) -> Unit,
 ) {
     val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) { first.requestFocus() }
+    LaunchedEffect(Unit) { first.requestFocusOnceShown() }
     LazyColumn(contentPadding = PaddingValues(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (updates > 0) {
             item(key = "updates") {
@@ -232,7 +232,7 @@ private fun ExtensionList(
 @Composable
 private fun ImportWarning(onCancel: () -> Unit, onImport: () -> Unit) {
     val cancel = remember { FocusRequester() }
-    LaunchedEffect(Unit) { cancel.requestFocus() }
+    LaunchedEffect(Unit) { cancel.requestFocusOnceShown() }
     Text(ExtensionWarning.TEXT, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.widthIn(max = 800.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = onCancel, modifier = Modifier.focusRequester(cancel)) { Text("Cancel") }
@@ -257,7 +257,7 @@ private fun ExtensionActions(
         if (extension.authors.isNotEmpty()) Text("By ${extension.authors.joinToString()}", color = Dim)
     }
     val first = remember { FocusRequester() }
-    LaunchedEffect(extension.installed, extension.updateAvailable, confirming) { first.requestFocus() }
+    LaunchedEffect(extension.installed, extension.updateAvailable, confirming) { first.requestFocusOnceShown() }
     when {
         !extension.installed -> Button(onClick = onInstall, modifier = Modifier.focusRequester(first)) { Text("Install") }
         confirming -> {
@@ -284,7 +284,7 @@ private fun ExtensionActions(
 @Composable
 private fun RepositoryActions(repository: ExtensionRepository, onKeep: () -> Unit, onRemove: () -> Unit) {
     val keep = remember { FocusRequester() }
-    LaunchedEffect(Unit) { keep.requestFocus() }
+    LaunchedEffect(Unit) { keep.requestFocusOnceShown() }
     Text(repository.name, style = MaterialTheme.typography.titleLarge)
     Text(repository.url, color = Dim)
     val installed = repository.extensions.filter { it.installed }

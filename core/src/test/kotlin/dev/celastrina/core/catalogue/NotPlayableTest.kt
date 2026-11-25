@@ -1,11 +1,12 @@
 package dev.celastrina.core.catalogue
 
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.configuration.ChangedFrom
 import dev.celastrina.core.configuration.ConfigurationService
 import dev.celastrina.core.configuration.NewSource
 import dev.celastrina.core.configuration.SourceChanges
 import dev.celastrina.core.configuration.WriteOutcome
-import dev.celastrina.core.port.FileStorage
+import dev.celastrina.core.adapter.FileStorage
 import dev.celastrina.core.port.HttpClient
 import dev.celastrina.core.port.HttpResponse
 import dev.celastrina.core.source.IdScheme
@@ -106,7 +107,7 @@ class NotPlayableTest {
         val before = memory.revision.value
         lookUp(nightOfTheLivingDead, LookupOutcome.NotAvailable)
         val recorded = memory.revision.value
-        configuration().disable("internet-archive", ChangedFrom.Tv)
+        configuration().disable(SourceId("internet-archive"), ChangedFrom.Tv)
 
         assertNotEquals(before, recorded)
         assertNotEquals(recorded, memory.revision.value)
@@ -119,18 +120,18 @@ class NotPlayableTest {
 
     @Test
     fun `changing a Source forgets every Not playable Title`() = runTest {
-        assertSourceChangeForgets { update("internet-archive", SourceChanges(name = "Archive.org"), ChangedFrom.Computer) }
+        assertSourceChangeForgets { update(SourceId("internet-archive"), SourceChanges(name = "Archive.org"), ChangedFrom.Computer) }
     }
 
     @Test
     fun `disabling or enabling a Source forgets every Not playable Title`() = runTest {
-        assertSourceChangeForgets { disable("internet-archive", ChangedFrom.Tv) }
-        assertSourceChangeForgets { enable("internet-archive", ChangedFrom.Tv) }
+        assertSourceChangeForgets { disable(SourceId("internet-archive"), ChangedFrom.Tv) }
+        assertSourceChangeForgets { enable(SourceId("internet-archive"), ChangedFrom.Tv) }
     }
 
     @Test
     fun `removing a Source forgets every Not playable Title, its own results with them`() = runTest {
-        assertSourceChangeForgets { remove("internet-archive", ChangedFrom.Computer) }
+        assertSourceChangeForgets { remove(SourceId("internet-archive"), ChangedFrom.Computer) }
     }
 
     @Test
@@ -173,7 +174,7 @@ class NotPlayableTest {
         StreamLookup(sources, RecordingLogger(), clock, notPlayable = memory).watch(title).collect()
     }
 
-    private fun stream() = Stream(sourceId = "source-0", id = "film", url = "https://example.org/film.mp4", delivery = Stream.Delivery.Progressive)
+    private fun stream() = Stream(sourceId = SourceId("source-0"), id = "film", url = "https://example.org/film.mp4", delivery = Stream.Delivery.Progressive)
 
     private fun referenceTo(title: Title) = TitleReference(
         kind = title.kind,
@@ -186,8 +187,9 @@ class NotPlayableTest {
         year = title.year,
     )
 
-    private class FakeSource(override val id: String, private val answer: LookupOutcome) : Source {
-        override val name = id
+    private class FakeSource(name: String, private val answer: LookupOutcome) : Source {
+        override val id = SourceId(name)
+        override val name = name
         override val kind = SourceKind("Shelf", idSchemes = setOf(IdScheme.Tmdb), titleKinds = setOf(Title.Kind.Movie, Title.Kind.Series))
         override suspend fun lookUp(title: TitleReference) = answer
     }

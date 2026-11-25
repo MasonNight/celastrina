@@ -1,9 +1,9 @@
 package dev.celastrina.core.catalogue
 
-import dev.celastrina.core.port.FileStorage
+import dev.celastrina.core.adapter.FileStorage
 import dev.celastrina.core.port.HttpClient
 import dev.celastrina.core.port.HttpResponse
-import dev.celastrina.core.port.JdkHttpClient
+import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.testing.RecordedTmdb
 import dev.celastrina.core.testing.VirtualClock
 import kotlinx.coroutines.test.runTest
@@ -14,6 +14,8 @@ import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 
@@ -75,18 +77,32 @@ class CatalogueCacheTest {
     }
 
     @Test
+    fun `a row shown from what was cached while offline says so, so home can load it afresh once the network is back`() = runTest {
+        RecordedTmdb(apiKey = "project-token").use { tmdb ->
+            assertFalse(catalogue(tmdb).row(HomeRow.Movies).fromOfflineCache)
+            clock.advanceBy(30.days)
+            network.up = false
+
+            assertTrue(catalogue(tmdb).row(HomeRow.Movies).fromOfflineCache)
+
+            network.up = true
+            assertFalse(catalogue(tmdb).row(HomeRow.Movies).fromOfflineCache)
+        }
+    }
+
+    @Test
     fun `with the network down, what was never cached is unavailable because TMDB is unreachable`() = runTest {
         RecordedTmdb(apiKey = "project-token").use { tmdb ->
             catalogue(tmdb).movieDetails(10331)
             network.up = false
 
             assertEquals(
-                CatalogueUnavailable.Reason.Unreachable,
-                assertFailsWith<CatalogueUnavailable> { catalogue(tmdb).row(HomeRow.Movies) }.reason,
+                CatalogueUnreadable.Reason.Unreachable,
+                assertFailsWith<CatalogueUnreadable> { catalogue(tmdb).row(HomeRow.Movies) }.reason,
             )
             assertEquals(
-                CatalogueUnavailable.Reason.Unreachable,
-                assertFailsWith<CatalogueUnavailable> { catalogue(tmdb).seriesDetails(19885) }.reason,
+                CatalogueUnreadable.Reason.Unreachable,
+                assertFailsWith<CatalogueUnreadable> { catalogue(tmdb).seriesDetails(19885) }.reason,
             )
         }
     }
@@ -105,8 +121,8 @@ class CatalogueCacheTest {
 
             assertEquals("Sherlock", catalogue.seriesDetails(19885).title.name)
             assertEquals(
-                CatalogueUnavailable.Reason.Unreachable,
-                assertFailsWith<CatalogueUnavailable> { catalogue.movieDetails(10331) }.reason,
+                CatalogueUnreadable.Reason.Unreachable,
+                assertFailsWith<CatalogueUnreadable> { catalogue.movieDetails(10331) }.reason,
             )
             assertEquals(filesWithBoth - 1, dir.list()!!.size, "The Movie's details are deleted from the TV")
         }

@@ -6,6 +6,9 @@ package dev.celastrina.core.catalogue
  */
 data class SeriesDetails(
     val title: Title,
+    /** The title logo in the TV's language, else English; null when there's none, and the name is shown as text. */
+    val logoUrl: String?,
+    /** The backdrop without text, where TMDB has one. */
     val backdropUrl: String?,
     val genres: List<String>,
     val synopsis: String,

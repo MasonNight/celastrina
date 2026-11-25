@@ -7,8 +7,10 @@ import dev.celastrina.core.port.HttpResponse
 import dev.celastrina.core.source.IdScheme
 import dev.celastrina.core.source.LookupOutcome
 import dev.celastrina.core.source.Source
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.source.SourceKind
 import dev.celastrina.core.source.Stream
+import dev.celastrina.core.source.failureReason
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -37,7 +39,7 @@ data class InternetArchiveSettings(
 class InternetArchiveSource(
     private val http: HttpClient,
     private val settings: InternetArchiveSettings = InternetArchiveSettings(),
-    override val id: String = "internet-archive",
+    override val id: SourceId = SourceId("internet-archive"),
     override val name: String = "Internet Archive",
 ) : Source {
 
@@ -102,10 +104,7 @@ class InternetArchiveSource(
         } catch (e: IOException) {
             throw LookupFailed(LookupOutcome.Failure.Reason.Unreachable)
         }
-        when {
-            response.status == 429 -> throw LookupFailed(LookupOutcome.Failure.Reason.RateLimited)
-            !response.isSuccessful -> throw LookupFailed(LookupOutcome.Failure.Reason.SourceError)
-        }
+        response.failureReason()?.let { throw LookupFailed(it) }
         return parse { json.parseToJsonElement(response.bodyText()) }
     }
 

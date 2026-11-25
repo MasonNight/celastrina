@@ -8,8 +8,10 @@ import dev.celastrina.core.source.IdScheme
 import dev.celastrina.core.source.LookupOutcome
 import dev.celastrina.core.source.LookupOutcome.Failure.Reason
 import dev.celastrina.core.source.Source
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.source.SourceKind
 import dev.celastrina.core.source.Stream
+import dev.celastrina.core.source.failureReason
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -105,7 +107,7 @@ internal class MediaServer(
         QuickConnectStep.Failed(Reason.Unreachable)
     }
 
-    fun source(id: String, name: String, kind: SourceKind, login: MediaServerLogin?): Source = MediaServerSource(id, name, kind, login)
+    fun source(id: SourceId, name: String, kind: SourceKind, login: MediaServerLogin?): Source = MediaServerSource(id, name, kind, login)
 
     private suspend fun connect(attempt: suspend () -> MediaServerLogin): ConnectionResult = try {
         ConnectionResult.Connected(attempt())
@@ -116,7 +118,7 @@ internal class MediaServer(
     }
 
     private inner class MediaServerSource(
-        override val id: String,
+        override val id: SourceId,
         override val name: String,
         override val kind: SourceKind,
         private val login: MediaServerLogin?,
@@ -192,12 +194,7 @@ internal class MediaServer(
     }
 
     /** Answers [response] if it succeeded, otherwise throws why the server can't help. */
-    private fun checked(response: HttpResponse): HttpResponse = when {
-        response.isSuccessful -> response
-        response.status == 401 || response.status == 403 -> throw RequestFailed(Reason.AuthRequired)
-        response.status == 429 -> throw RequestFailed(Reason.RateLimited)
-        else -> throw RequestFailed(Reason.SourceError)
-    }
+    private fun checked(response: HttpResponse): HttpResponse = response.failureReason()?.let { throw RequestFailed(it) } ?: response
 
     private inline fun <reified T> parse(response: HttpResponse): T = try {
         json.decodeFromString<T>(response.bodyText())

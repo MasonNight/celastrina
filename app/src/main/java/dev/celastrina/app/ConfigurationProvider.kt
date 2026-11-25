@@ -19,6 +19,7 @@ import dev.celastrina.core.configuration.SourceChanges
 import dev.celastrina.core.configuration.SourceSummary
 import dev.celastrina.core.configuration.Status
 import dev.celastrina.core.configuration.WriteOutcome
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.extension.ExtensionRepository
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.SerializationException
@@ -110,14 +111,14 @@ class ConfigurationProvider : ContentProvider() {
                 val id = args.string("id") ?: return args.missing("id")
                 if (args.wrongType("name", "url", "username", "password")) return invalid("bad_argument", "name, url, username and password must be strings.")
                 val changes = SourceChanges(args.string("name"), args.string("url"), args.string("username"), args.string("password"))
-                runBlocking { configuration.update(id, changes, ChangedFrom.Computer) }.toJson()
+                runBlocking { configuration.update(SourceId(id), changes, ChangedFrom.Computer) }.toJson()
             }
             "set-order" -> run {
                 val ids = args.strings("ids") ?: return invalid("bad_argument", "--arg needs \"ids\", a list of Source IDs.")
-                configuration.setOrder(ids, ChangedFrom.Computer).toJson()
+                configuration.setOrder(ids.map(::SourceId), ChangedFrom.Computer).toJson()
             }
             "enable", "disable", "remove" -> run {
-                val id = args.string("id") ?: return args.missing("id")
+                val id = SourceId(args.string("id") ?: return args.missing("id"))
                 when (method) {
                     "enable" -> runBlocking { configuration.enable(id, ChangedFrom.Computer) }
                     "disable" -> configuration.disable(id, ChangedFrom.Computer)
@@ -260,7 +261,7 @@ class ConfigurationProvider : ContentProvider() {
         }
 
         fun SourceSummary.toJson(): JsonElement = buildJsonObject {
-            put("id", id)
+            put("id", id.value)
             put("name", name)
             put("kind", kind)
             put("enabled", enabled)
@@ -313,7 +314,7 @@ class ConfigurationProvider : ContentProvider() {
         }
 
         fun InstallOutcome.toJson(repository: String?, name: String) = when (this) {
-            is InstallOutcome.Installed -> ok { put("ids", JsonArray(sourceIds.map(::JsonPrimitive))) }
+            is InstallOutcome.Installed -> ok { put("ids", JsonArray(sourceIds.map { JsonPrimitive(it.value) })) }
             is InstallOutcome.Invalid -> invalid(problem.wire(), message)
             is InstallOutcome.Failed -> buildJsonObject {
                 put("result", "failure")
@@ -326,11 +327,11 @@ class ConfigurationProvider : ContentProvider() {
 
         fun WriteOutcome.toJson() = when (this) {
             WriteOutcome.Ok -> ok()
-            is WriteOutcome.Added -> ok { put("id", sourceId) }
+            is WriteOutcome.Added -> ok { put("id", sourceId.value) }
             is WriteOutcome.Invalid -> invalid(problem.wire(), message)
             is WriteOutcome.Failed -> buildJsonObject {
                 put("result", "failure")
-                put("id", sourceId)
+                put("id", sourceId.value)
                 put("reason", reason.wire())
                 put("message", message)
             }

@@ -1,6 +1,8 @@
 package dev.celastrina.core.catalogue
 
 import dev.celastrina.core.port.HttpClient
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -30,66 +32,77 @@ class Catalogue(
     /** What home's hero shows while [title] has focus. */
     suspend fun hero(title: Title): Hero {
         val path = if (title.kind == Title.Kind.Movie) "/movie/${title.tmdbId}" else "/tv/${title.tmdbId}"
-        val details = getJson<TmdbHeroDetails>(
-            path,
-            "append_to_response" to "images,translations",
-            "include_image_language" to listOf(locale.language, ENGLISH, "null").filter { it.isNotEmpty() }.distinct().joinToString(","),
-            "language" to language,
-        )
-        val translations = details.translations?.translations.orEmpty()
-        val inTvLanguage = translations.filter { it.language == locale.language }
-        val inEnglish = translations.filter { it.language == ENGLISH }.sortedByDescending { it.country == "US" }
-        val logos = details.images?.logos.orEmpty()
+        val details = getJson<TmdbHeroDetails>(path, "append_to_response" to "images,translations", "include_image_language" to imageLanguages, "language" to language)
+        val localized = localized(details.name, details.overview, details.backdropPath, details.images, details.translations)
         return Hero(
-            // TMDB gives the original name when it has none in the TV's language; English reads better than that.
-            name = details.name.takeIf { inTvLanguage.any { it.data.name.isNotBlank() } }
-                ?: inEnglish.map { it.data.name }.firstOrNull { it.isNotBlank() }
-                ?: details.name,
-            logoUrl = imageUrl(
-                LOGO_SIZE,
-                (logos.firstOrNull { it.language == locale.language } ?: logos.firstOrNull { it.language == ENGLISH })?.filePath,
-            ),
-            backdropUrl = imageUrl(
-                BACKDROP_SIZE,
-                details.images?.backdrops.orEmpty().firstOrNull { it.language == null }?.filePath ?: details.backdropPath,
-            ),
+            name = localized.name,
+            logoUrl = localized.logoUrl,
+            backdropUrl = localized.backdropUrl,
             year = yearOf(details.releaseDate ?: details.firstAirDate),
             runtimeMinutes = details.runtime?.takeIf { it > 0 },
             seasonCount = details.numberOfSeasons,
             genres = details.genres.map { it.name },
-            blurb = details.overview?.takeIf { it.isNotBlank() }
-                ?: inEnglish.map { it.data.overview.orEmpty() }.firstOrNull { it.isNotBlank() }
-                ?: "",
+            blurb = localized.overview,
         )
     }
+
+    /** The image languages TMDB is asked for: the TV's, English, and none (textless). */
+    private val imageLanguages = listOf(locale.language, ENGLISH, "null").filter { it.isNotEmpty() }.distinct().joinToString(",")
+
+    /**
+     * A Title's name, overview, title logo and backdrop as the TV shows them: in the TV's language where TMDB has them,
+     * else in English (story 9). The backdrop is the first without text, as TMDB ranks them.
+     */
+    private fun localized(name: String, overview: String?, backdropPath: String?, images: TmdbImages?, translations: TmdbTranslations?): Localized {
+        val all = translations?.translations.orEmpty()
+        val inTvLanguage = all.filter { it.language == locale.language }
+        val inEnglish = all.filter { it.language == ENGLISH }.sortedByDescending { it.country == "US" }
+        val logos = images?.logos.orEmpty()
+        return Localized(
+            // TMDB gives the original name when it has none in the TV's language; English reads better than that.
+            name = name.takeIf { inTvLanguage.any { it.data.name.isNotBlank() } }
+                ?: inEnglish.map { it.data.name }.firstOrNull { it.isNotBlank() }
+                ?: name,
+            overview = overview?.takeIf { it.isNotBlank() }
+                ?: inEnglish.map { it.data.overview.orEmpty() }.firstOrNull { it.isNotBlank() }
+                ?: "",
+            logoUrl = imageUrl(LOGO_SIZE, (logos.firstOrNull { it.language == locale.language } ?: logos.firstOrNull { it.language == ENGLISH })?.filePath),
+            backdropUrl = imageUrl(BACKDROP_SIZE, images?.backdrops.orEmpty().firstOrNull { it.language == null }?.filePath ?: backdropPath),
+        )
+    }
+
+    private class Localized(val name: String, val overview: String, val logoUrl: String?, val backdropUrl: String?)
 
     /** The detail screen's view of the Movie with TMDB ID [tmdbId], with the Title reference for its Sources. */
     suspend fun movieDetails(tmdbId: Int): MovieDetails {
         val movie = getJson<TmdbMovieDetails>(
             "/movie/$tmdbId",
-            "append_to_response" to "external_ids,alternative_titles",
+            "append_to_response" to DETAILS_APPENDED,
+            "include_image_language" to imageLanguages,
             "language" to language,
         )
+        val localized = localized(movie.title, movie.overview, movie.backdropPath, movie.images, movie.translations)
         val title = Title(
             tmdbId = movie.id,
             kind = Title.Kind.Movie,
-            name = movie.title,
+            name = localized.name,
             year = yearOf(movie.releaseDate),
             posterUrl = imageUrl(POSTER_SIZE, movie.posterPath),
             category = HomeRows.categoryOf(movie.genres.map { it.id }, movie.originalLanguage),
         )
         return MovieDetails(
             title = title,
-            backdropUrl = imageUrl(BACKDROP_SIZE, movie.backdropPath),
+            logoUrl = localized.logoUrl,
+            backdropUrl = localized.backdropUrl,
             runtimeMinutes = movie.runtime?.takeIf { it > 0 },
             genres = movie.genres.map { it.name },
-            synopsis = movie.overview.orEmpty(),
+            synopsis = localized.overview,
             reference = TitleReference(
                 kind = Title.Kind.Movie,
                 tmdbId = movie.id,
                 imdbId = movie.externalIds?.imdbId?.takeIf { it.isNotBlank() },
                 wikidataId = movie.externalIds?.wikidataId?.takeIf { it.isNotBlank() },
-                title = movie.title,
+                title = localized.name,
                 originalTitle = movie.originalTitle ?: movie.title,
                 alternativeTitles = movie.alternativeTitles?.titles.orEmpty().map { it.title }.distinct(),
                 year = title.year,
@@ -98,12 +111,31 @@ class Catalogue(
     }
 
     /**
-     * The Movies and Series TMDB finds for [query], in its relevance order: its first page, without people or adult
-     * Titles. Search asks only TMDB, never the Sources.
+     * The Movies and Series TMDB finds for [query]: the first page of its Movie search and of its TV search, without adult
+     * Titles, and never people. Each keeps TMDB's relevance order, and the two are mixed by taking the more popular of
+     * their next results each time. Search asks only TMDB, never the Sources.
      */
-    suspend fun search(query: String): List<Title> =
+    suspend fun search(query: String): List<Title> = coroutineScope {
         // Never cached: what's searched for stays off the TV, so search leaves no history.
-        getJson<TmdbMixedPage>("/search/multi", "include_adult" to "false", "language" to language, "query" to query, cached = false).titles()
+        fun searchOf(kind: Title.Kind, path: String) = async {
+            getJson<TmdbListPage>(path, "include_adult" to "false", "language" to language, "query" to query, cached = false)
+                .results.filterNot { it.adult }.map { Listed(it.toTitle(kind), it.popularity) }
+        }
+        val movies = searchOf(Title.Kind.Movie, "/search/movie")
+        val series = searchOf(Title.Kind.Series, "/search/tv")
+        mergedByPopularity(movies.await(), series.await()).map { it.title }
+    }
+
+    /** [a] and [b] in one list, each in its own order, taking the more popular of their next Titles each time. */
+    private fun mergedByPopularity(a: List<Listed>, b: List<Listed>): List<Listed> {
+        val merged = ArrayList<Listed>(a.size + b.size)
+        var i = 0
+        var j = 0
+        while (i < a.size || j < b.size) {
+            merged += if (j >= b.size || (i < a.size && a[i].popularity >= b[j].popularity)) a[i++] else b[j++]
+        }
+        return merged
+    }
 
     /** This week's trending Movies and Series, mixed in TMDB's order: what search shows before anything is typed. */
     suspend fun trending(): List<Title> =
@@ -118,10 +150,12 @@ class Catalogue(
     }
 
     private suspend fun listPage(source: ListSource, page: Int): HomeRows.ListPage {
-        val list = getJson<TmdbListPage>(source.path, *source.query.toTypedArray(), "language" to language, "page" to "$page", freshForMillis = ROW_FRESH_FOR_MILLIS)
+        val answer = answerOf<TmdbListPage>(source.path, *source.query.toTypedArray(), "language" to language, "page" to "$page", freshForMillis = ROW_FRESH_FOR_MILLIS)
+        val list = answer.value
         return HomeRows.ListPage(
             titles = list.results.map { Listed(it.toTitle(source.kind), it.popularity) },
             nextPage = (page + 1).takeIf { it <= minOf(list.totalPages, TMDB_LAST_PAGE) },
+            fromOfflineCache = answer.fromOfflineCache,
         )
     }
 
@@ -132,30 +166,33 @@ class Catalogue(
     suspend fun seriesDetails(tmdbId: Int): SeriesDetails {
         val series = getJson<TmdbSeriesDetails>(
             "/tv/$tmdbId",
-            "append_to_response" to "external_ids,alternative_titles",
+            "append_to_response" to DETAILS_APPENDED,
+            "include_image_language" to imageLanguages,
             "language" to language,
         )
+        val localized = localized(series.name, series.overview, series.backdropPath, series.images, series.translations)
         val seasons = series.seasons.map { Season(it.seasonNumber, it.name, it.episodeCount) }
         val title = Title(
             tmdbId = series.id,
             kind = Title.Kind.Series,
-            name = series.name,
+            name = localized.name,
             year = yearOf(series.firstAirDate),
             posterUrl = imageUrl(POSTER_SIZE, series.posterPath),
             category = HomeRows.categoryOf(series.genres.map { it.id }, series.originalLanguage),
         )
         return SeriesDetails(
             title = title,
-            backdropUrl = imageUrl(BACKDROP_SIZE, series.backdropPath),
+            logoUrl = localized.logoUrl,
+            backdropUrl = localized.backdropUrl,
             genres = series.genres.map { it.name },
-            synopsis = series.overview.orEmpty(),
+            synopsis = localized.overview,
             seasons = seasons.filterNot { it.isSpecials } + seasons.filter { it.isSpecials },
             reference = TitleReference(
                 kind = Title.Kind.Series,
                 tmdbId = series.id,
                 imdbId = series.externalIds?.imdbId?.takeIf { it.isNotBlank() },
                 wikidataId = series.externalIds?.wikidataId?.takeIf { it.isNotBlank() },
-                title = series.name,
+                title = localized.name,
                 originalTitle = series.originalName ?: series.name,
                 alternativeTitles = series.alternativeTitles?.results.orEmpty().map { it.title }.distinct(),
                 year = title.year,
@@ -190,30 +227,41 @@ class Catalogue(
         vararg query: Pair<String, String>,
         freshForMillis: Long = TITLE_FRESH_FOR_MILLIS,
         cached: Boolean = true,
-    ): T {
-        if (tmdb.apiKey.isBlank()) throw CatalogueUnavailable(CatalogueUnavailable.Reason.NoKey)
+    ): T = answerOf<T>(path, *query, freshForMillis = freshForMillis, cached = cached).value
+
+    /** An answer from TMDB, or from the cache; [fromOfflineCache] when it's what the cache kept because TMDB couldn't be reached. */
+    private class Answer<T>(val value: T, val fromOfflineCache: Boolean = false)
+
+    /** As [getJson], saying whether the answer came from the cache because TMDB couldn't be reached. */
+    private suspend inline fun <reified T> answerOf(
+        path: String,
+        vararg query: Pair<String, String>,
+        freshForMillis: Long = TITLE_FRESH_FOR_MILLIS,
+        cached: Boolean = true,
+    ): Answer<T> {
+        if (tmdb.apiKey.isBlank()) throw CatalogueUnreadable(CatalogueUnreadable.Reason.NoKey)
         val cache = cache.takeIf { cached }
         val request = url(path, query.toList(), withKey = false)
-        cache?.fresh(request, freshForMillis)?.let { fresh -> decodeOrNull<T>(fresh)?.let { return it } }
+        cache?.fresh(request, freshForMillis)?.let { fresh -> decodeOrNull<T>(fresh)?.let { return Answer(it) } }
         val response = try {
             http.get(url(path, query.toList()), authHeaders())
         } catch (e: IOException) {
             // Offline, what's cached is better than nothing, however old.
-            cache?.kept(request)?.let { kept -> decodeOrNull<T>(kept)?.let { return it } }
-            throw CatalogueUnavailable(CatalogueUnavailable.Reason.Unreachable, e)
+            cache?.kept(request)?.let { kept -> decodeOrNull<T>(kept)?.let { return Answer(it, fromOfflineCache = true) } }
+            throw CatalogueUnreadable(CatalogueUnreadable.Reason.Unreachable, e)
         }
         when {
-            response.status == 401 -> throw CatalogueUnavailable(CatalogueUnavailable.Reason.KeyRejected)
-            !response.isSuccessful -> throw CatalogueUnavailable(CatalogueUnavailable.Reason.ServiceError)
+            response.status == 401 -> throw CatalogueUnreadable(CatalogueUnreadable.Reason.KeyRejected)
+            !response.isSuccessful -> throw CatalogueUnreadable(CatalogueUnreadable.Reason.ServiceError)
         }
         val body = response.bodyText()
         val decoded = try {
             json.decodeFromString<T>(body)
         } catch (e: SerializationException) {
-            throw CatalogueUnavailable(CatalogueUnavailable.Reason.ServiceError, e)
+            throw CatalogueUnreadable(CatalogueUnreadable.Reason.ServiceError, e)
         }
         cache?.store(request, body)
-        return decoded
+        return Answer(decoded)
     }
 
     /** A cached answer, or null when it no longer reads (if what the Catalogue reads has changed shape since). */
@@ -255,6 +303,9 @@ class Catalogue(
         const val LOGO_SIZE = "w500"
         const val ENGLISH = "en"
 
+        /** What a detail screen asks TMDB for besides the Title: the IDs and names Sources match on, and the artwork and translations shown. */
+        const val DETAILS_APPENDED = "external_ids,alternative_titles,images,translations"
+
         /** TMDB serves no list page past 500, whatever its `total_pages` says. */
         const val TMDB_LAST_PAGE = 500
         const val STILL_SIZE = "w300"
@@ -275,7 +326,7 @@ private class TmdbListPage(
     @SerialName("total_pages") val totalPages: Int = 1,
 )
 
-/** A page of TMDB results that mixes Movies, Series and people, each item saying which in its `media_type`. */
+/** A page of TMDB results that mixes Movies, Series and people, each item saying which in its `media_type`: trending. */
 @Serializable
 private class TmdbMixedPage(val results: List<TmdbListItem>)
 
@@ -308,6 +359,8 @@ private class TmdbMovieDetails(
     val genres: List<TmdbGenre> = emptyList(),
     @SerialName("external_ids") val externalIds: TmdbExternalIds? = null,
     @SerialName("alternative_titles") val alternativeTitles: TmdbAlternativeTitles? = null,
+    val images: TmdbImages? = null,
+    val translations: TmdbTranslations? = null,
 )
 
 @Serializable
@@ -385,6 +438,8 @@ private class TmdbSeriesDetails(
     val seasons: List<TmdbSeason> = emptyList(),
     @SerialName("external_ids") val externalIds: TmdbExternalIds? = null,
     @SerialName("alternative_titles") val alternativeTitles: TmdbSeriesAlternativeTitles? = null,
+    val images: TmdbImages? = null,
+    val translations: TmdbTranslations? = null,
 )
 
 @Serializable

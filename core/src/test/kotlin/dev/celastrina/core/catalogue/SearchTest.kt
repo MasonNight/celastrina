@@ -1,9 +1,9 @@
 package dev.celastrina.core.catalogue
 
-import dev.celastrina.core.port.FileStorage
+import dev.celastrina.core.adapter.FileStorage
 import dev.celastrina.core.port.HttpClient
 import dev.celastrina.core.port.HttpResponse
-import dev.celastrina.core.port.JdkHttpClient
+import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.testing.RecordedTmdb
 import dev.celastrina.core.testing.VirtualClock
 import kotlinx.coroutines.CompletableDeferred
@@ -22,7 +22,7 @@ import kotlin.test.assertIs
 class SearchTest {
 
     @Test
-    fun `searching finds Movies and Series mixed in TMDB's relevance order, without people`() = runTest {
+    fun `searching finds Movies and Series, each in TMDB's relevance order, mixed by popularity, and never people`() = runTest {
         RecordedTmdb(apiKey = "project-token").use { tmdb ->
             val titles = Catalogue(JdkHttpClient(), tmdb.settings, Locale.US).search("dune")
 
@@ -37,17 +37,17 @@ class SearchTest {
                 ),
                 titles.first(),
             )
-            // TMDB's 13th to 15th and 17th to 20th results are people (Aggy Dune, Herman Dune…): search finds no people.
+            // TMDB's Movie and TV searches each keep their own order; the more popular of the two next results comes first.
             assertEquals(
                 listOf(
-                    Title.Kind.Movie to "Dune", Title.Kind.Series to "Dune: Prophecy", Title.Kind.Movie to "Dune: Part Two",
-                    Title.Kind.Movie to "Dune: Part Three", Title.Kind.Movie to "Dune", Title.Kind.Movie to "Anatomy of a Fall",
-                    Title.Kind.Movie to "Dune", Title.Kind.Series to "Le temps d'une paix",
-                    Title.Kind.Series to "Frank Herbert's Dune", Title.Kind.Movie to "Dune", Title.Kind.Movie to "Planet Dune",
-                    Title.Kind.Movie to "The Dune", Title.Kind.Series to "Frank Herbert's Children of Dune",
+                    Title.Kind.Movie to "Dune", Title.Kind.Movie to "Dune: Part Two", Title.Kind.Movie to "Dune: Part Three",
+                    Title.Kind.Series to "Dune: Prophecy", Title.Kind.Movie to "Dune", Title.Kind.Movie to "Anatomy of a Fall",
+                    Title.Kind.Series to "Le temps d'une paix", Title.Kind.Series to "Frank Herbert's Dune",
+                    Title.Kind.Series to "Frank Herbert's Children of Dune",
                 ),
-                titles.map { it.kind to it.name },
+                titles.take(9).map { it.kind to it.name },
             )
+            assertEquals(40, titles.size, "Each search's first page of 20")
             // The 2020 Hungarian animated short is a Cartoon, worked out as for home's rows.
             assertEquals(Category.Cartoons, titles.single { it.tmdbId == 697620 }.category)
         }
@@ -115,7 +115,7 @@ class SearchTest {
             assertEquals(listOf("dune"), http.searches)
             val found = assertIs<SearchResults.Found>(search.results.first { it is SearchResults.Found })
             assertEquals("dune", found.query)
-            assertEquals("Dune: Prophecy", found.titles[1].name)
+            assertEquals("Dune: Prophecy", found.titles.first { it.kind == Title.Kind.Series }.name)
         }
     }
 
@@ -185,19 +185,19 @@ class SearchTest {
             val search = Search(Catalogue(offline, tmdb.settings, Locale.US), backgroundScope)
 
             assertEquals(
-                SearchResults.Unavailable(CatalogueUnavailable.Reason.Unreachable),
+                SearchResults.Unreadable(CatalogueUnreadable.Reason.Unreachable),
                 search.results.first { it !is SearchResults.Loading },
             )
             "dune".forEach(search::type)
             advanceTimeBy(400)
             runCurrent()
-            assertEquals(SearchResults.Unavailable(CatalogueUnavailable.Reason.Unreachable), search.results.value)
+            assertEquals(SearchResults.Unreadable(CatalogueUnreadable.Reason.Unreachable), search.results.value)
         }
     }
 }
 
 /**
- * The real HTTP client, noting each TMDB search it's asked for. A search in [holdUntil] has its answer held back
+ * The real HTTP client, noting each TMDB search it's asked for (once, though Movies and Series are searched apart). A search in [holdUntil] has its answer held back
  * until that signal completes, as if TMDB were slow to answer it.
  */
 private class WatchedHttp(
@@ -208,7 +208,7 @@ private class WatchedHttp(
 
     override suspend fun get(url: String, headers: Map<String, String>): HttpResponse {
         val query = url.takeIf { "/search/" in it }?.substringAfter("query=")?.substringBefore('&')
-        if (query != null) searches += query
+        if (query != null && "/search/movie" in url) searches += query
         val response = http.get(url, headers)
         holdUntil[query]?.await()
         return response

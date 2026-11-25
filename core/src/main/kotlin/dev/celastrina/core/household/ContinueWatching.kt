@@ -4,6 +4,7 @@ import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.port.Clock
 import dev.celastrina.core.port.Storage
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.source.Stream
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -99,7 +100,7 @@ data class Watched(
 }
 
 /** A Stream that worked, known by its Source and its Stream ID within that Source, which outlast its URL. */
-data class WorkedStream(val sourceId: String, val streamId: String) {
+data class WorkedStream(val sourceId: SourceId, val streamId: String) {
     fun isOf(stream: Stream) = sourceId == stream.sourceId && streamId == stream.id
 }
 
@@ -124,13 +125,13 @@ private data class StoredEntry(
 private fun stored(watched: Watched) = with(watched) {
     StoredEntry(
         stored(watching.title), stored(watching.reference), watching.episodeLabel, watching.imageUrl,
-        positionMillis, durationMillis, lastWorked.sourceId, lastWorked.streamId, watchedAtMillis,
+        positionMillis, durationMillis, lastWorked.sourceId.value, lastWorked.streamId, watchedAtMillis,
     )
 }
 
 private fun restored(entry: StoredEntry) = with(entry) {
     Watched(
         Watching(restored(title), restored(reference), episodeLabel, imageUrl),
-        positionMillis, durationMillis, WorkedStream(sourceId, streamId), watchedAtMillis,
+        positionMillis, durationMillis, WorkedStream(SourceId(sourceId), streamId), watchedAtMillis,
     )
 }

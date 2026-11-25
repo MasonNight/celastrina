@@ -20,6 +20,7 @@ import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.source.IdScheme
 import dev.celastrina.core.source.LookupOutcome
 import dev.celastrina.core.source.Source
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.source.SourceKind
 import dev.celastrina.core.source.Stream
 import java.security.MessageDigest
@@ -27,7 +28,7 @@ import java.text.Normalizer
 import kotlin.math.abs
 
 /**
- * One provider of an installed Extension, as a Source.
+ * One Source an installed Extension provides: one of its providers, as CloudStream calls them.
  *
  * A Title is matched only exactly: through `getLoadUrl` with its IMDb ID where the provider supports that, or else by
  * searching its title, then its original and alternative titles, keeping hits of the same kind whose name is the
@@ -36,25 +37,33 @@ import kotlin.math.abs
  * absolute episode number.
  */
 internal class ExtensionSource(
-    override val id: String,
+    override val id: SourceId,
     override val name: String,
     override val kind: SourceKind,
     private val extension: String,
-    private val providerName: String,
+    private val nameInExtension: String,
     private val host: ExtensionHost,
     private val providers: suspend () -> List<MainAPI>,
     /** Called when the Extension turns out to need classes or methods this Celastrina lacks. */
-    private val needsNewerCelastrina: () -> Unit,
+    private val onNeedsNewerCelastrina: () -> Unit,
     override val updateAvailable: Boolean = false,
+    /** The Extension is known to need a newer Celastrina, so every Lookup fails at once, without running its code. */
+    private val needsNewerCelastrina: Boolean = false,
 ) : Source {
 
-    override suspend fun lookUp(title: TitleReference): LookupOutcome = try {
-        val provider = providers().find { it.name == providerName } ?: throw ExtensionFailure(LookupOutcome.Failure.Reason.SourceError, false)
+    override suspend fun lookUp(title: TitleReference): LookupOutcome = if (needsNewerCelastrina) {
+        LookupOutcome.Failure(LookupOutcome.Failure.Reason.SourceError)
+    } else {
+        lookUpInExtension(title)
+    }
+
+    private suspend fun lookUpInExtension(title: TitleReference): LookupOutcome = try {
+        val provider = providers().find { it.name == nameInExtension } ?: throw ExtensionFailure(LookupOutcome.Failure.Reason.SourceError, false)
         val page = match(provider, title)
         val data = page?.let { linkData(it, title) }
         if (page == null || data == null) LookupOutcome.NotAvailable else streams(provider, page.url, data)
     } catch (e: ExtensionFailure) {
-        if (e.needsNewerCelastrina) needsNewerCelastrina()
+        if (e.needsNewerCelastrina) onNeedsNewerCelastrina()
         LookupOutcome.Failure(e.reason)
     }
 
@@ -165,6 +174,11 @@ internal class ExtensionSource(
             lookupTimeout = ExtensionHost.CALL_TIMEOUT,
         )
 
-        fun titleKindsOf(provider: MainAPI): Set<Title.Kind> = provider.supportedTypes.mapNotNull(::kindOf).toSet()
+        /** What Celastrina keeps of [provider], to make it a Source. */
+        fun provided(provider: MainAPI) = ProvidedSource(
+            name = provider.name,
+            titleKinds = provider.supportedTypes.mapNotNull(::kindOf).toSet(),
+            imdb = SyncIdName.Imdb in provider.supportedSyncNames,
+        )
     }
 }

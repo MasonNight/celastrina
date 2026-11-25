@@ -9,7 +9,7 @@ Read during review. These are judgement calls; anything mechanical is enforced b
 ## Core and adapters
 
 - The Core reaches the outside only through its ports (`dev.celastrina.core.port`). Each external service's wire format (TMDB, Jellyfin, Stremio, Internet Archive JSON) stays private to the adapter that reads it; domain types never carry wire field names or shapes.
-- Failures cross the Core's API as typed reasons (like `CatalogueUnavailable.Reason`), so screens and the configuration ContentProvider can say something specific.
+- Failures cross the Core's API as typed reasons (like `CatalogueUnreadable.Reason`), so screens and the configuration ContentProvider can say something specific.
 
 ## Tests
 

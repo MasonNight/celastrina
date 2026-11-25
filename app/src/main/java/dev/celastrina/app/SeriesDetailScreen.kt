@@ -39,7 +39,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import dev.celastrina.core.catalogue.Catalogue
-import dev.celastrina.core.catalogue.CatalogueUnavailable
+import dev.celastrina.core.catalogue.CatalogueUnreadable
 import dev.celastrina.core.catalogue.Episode
 import dev.celastrina.core.catalogue.Season
 import dev.celastrina.core.catalogue.SeriesDetails
@@ -55,13 +55,13 @@ import dev.celastrina.core.source.Stream
 private sealed interface SeriesState {
     data object Loading : SeriesState
     data class Loaded(val details: SeriesDetails) : SeriesState
-    data class Failed(val reason: CatalogueUnavailable.Reason) : SeriesState
+    data class Failed(val reason: CatalogueUnreadable.Reason) : SeriesState
 }
 
 private sealed interface EpisodesState {
     data object Loading : EpisodesState
     data class Loaded(val episodes: List<Episode>) : EpisodesState
-    data class Failed(val reason: CatalogueUnavailable.Reason) : EpisodesState
+    data class Failed(val reason: CatalogueUnreadable.Reason) : EpisodesState
 }
 
 /**
@@ -85,7 +85,7 @@ fun SeriesDetailScreen(
     LaunchedEffect(tmdbId) {
         state = try {
             SeriesState.Loaded(catalogue.seriesDetails(tmdbId))
-        } catch (e: CatalogueUnavailable) {
+        } catch (e: CatalogueUnreadable) {
             SeriesState.Failed(e.reason)
         }
     }
@@ -147,7 +147,7 @@ private fun SeriesDetail(
             verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.Bottom),
         ) {
             Column(Modifier.fillMaxWidth(0.6f).padding(start = 48.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(details.title.name, style = MaterialTheme.typography.displaySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                TitleLogo(details.title.name, details.logoUrl, MaterialTheme.typography.displaySmall, maxHeight = 120.dp, maxWidth = 420.dp)
                 Text(details.metadataLine(), style = MaterialTheme.typography.titleSmall, color = Color.White.copy(alpha = 0.8f))
                 Text(details.synopsis, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 WatchlistButton(details.title, watchlist)
@@ -170,7 +170,7 @@ private fun SeasonTabs(seasons: List<Season>, selected: Int, onSelect: (Int) -> 
     // Focus starts on the season the screen opened on.
     val openedOn = remember { selected }
     val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focus.requestFocus() }
+    LaunchedEffect(Unit) { focus.requestFocusOnceShown() }
     // As on other TV apps, moving focus onto a tab shows that season.
     TabRow(selectedTabIndex = selected, modifier = Modifier.padding(start = 40.dp)) {
         seasons.forEachIndexed { index, season ->
@@ -191,7 +191,7 @@ private fun EpisodeRow(details: SeriesDetails, season: Season, catalogue: Catalo
     LaunchedEffect(details, season) {
         state = try {
             EpisodesState.Loaded(catalogue.episodes(details, season))
-        } catch (e: CatalogueUnavailable) {
+        } catch (e: CatalogueUnreadable) {
             EpisodesState.Failed(e.reason)
         }
     }

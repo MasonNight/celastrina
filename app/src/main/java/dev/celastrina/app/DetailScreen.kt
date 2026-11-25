@@ -33,7 +33,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import dev.celastrina.core.catalogue.Catalogue
-import dev.celastrina.core.catalogue.CatalogueUnavailable
+import dev.celastrina.core.catalogue.CatalogueUnreadable
 import dev.celastrina.core.catalogue.MovieDetails
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
@@ -50,7 +50,7 @@ import dev.celastrina.core.source.Stream
 private sealed interface DetailState {
     data object Loading : DetailState
     data class Loaded(val details: MovieDetails) : DetailState
-    data class Failed(val reason: CatalogueUnavailable.Reason) : DetailState
+    data class Failed(val reason: CatalogueUnreadable.Reason) : DetailState
 }
 
 /**
@@ -72,7 +72,7 @@ fun DetailScreen(
     LaunchedEffect(tmdbId) {
         state = try {
             DetailState.Loaded(catalogue.movieDetails(tmdbId))
-        } catch (e: CatalogueUnavailable) {
+        } catch (e: CatalogueUnreadable) {
             DetailState.Failed(e.reason)
         }
     }
@@ -126,7 +126,7 @@ private fun MovieDetail(
             modifier = Modifier.fillMaxWidth(0.55f).fillMaxHeight().padding(start = 48.dp, top = 48.dp, bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.Bottom),
         ) {
-            Text(details.title.name, style = MaterialTheme.typography.displaySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            TitleLogo(details.title.name, details.logoUrl, MaterialTheme.typography.displaySmall, maxHeight = 120.dp, maxWidth = 420.dp)
             Text(details.metadataLine(), style = MaterialTheme.typography.titleSmall, color = Color.White.copy(alpha = 0.8f))
             NotPlayableBadge(details.title)
             Text(details.synopsis, style = MaterialTheme.typography.bodyLarge, maxLines = 5, overflow = TextOverflow.Ellipsis)
@@ -155,23 +155,23 @@ fun PlayRow(
     val choose = remember { FocusRequester() }
     val best = lookup?.firstChoice(failoverMemory, watched?.lastWorked)
     val resumes = watched != null && watched.resumeAtMillis > 0
-    LaunchedEffect(best != null) { (if (best != null) play else choose).requestFocus() }
+    LaunchedEffect(best != null) { (if (best != null) play else choose).requestFocusOnceShown() }
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
         label?.let { Text(it, style = MaterialTheme.typography.titleSmall) }
         Button(onClick = { best?.let(onPlay) }, enabled = best != null, modifier = Modifier.focusRequester(play)) { Text(if (resumes) "Resume" else "Play") }
         Button(onClick = onChoose, modifier = Modifier.focusRequester(choose)) { Text("Choose Stream") }
         more()
-        Text(lookup?.statusLine ?: "Asking your Sources…", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.8f))
+        Text(lookup.statusLine(), style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.8f))
     }
 }
 
 /**
  * The Stream Play starts with: the one that [lastWorked] for this Title or episode, else the first in the Household's
- * order that this TV can decode, with Streams that failed here in the last 24 hours last, or the first Stream at all
- * when the TV seems to decode none.
+ * order that this TV can decode, with Streams that failed here in the last 24 hours last. A Stream this TV can't decode
+ * is never Play's choice (story 35); Choose Stream still lists it.
  */
 fun Lookup.firstChoice(failoverMemory: FailoverMemory, lastWorked: WorkedStream? = null): Stream? =
-    candidates(MediaCodecDecoders, failoverMemory, lastWorked).firstOrNull() ?: streams.firstOrNull()
+    candidates(MediaCodecDecoders, failoverMemory, lastWorked).firstOrNull()
 
 /** + Watchlist, which adds [title] to the Watchlist, or ✓ Watchlist, which takes it off. */
 @Composable

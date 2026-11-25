@@ -1,11 +1,12 @@
 package dev.celastrina.core.catalogue
 
-import dev.celastrina.core.port.JdkHttpClient
+import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.testing.RecordedTmdb
 import kotlinx.coroutines.test.runTest
 import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class SeriesDetailsTest {
 
@@ -19,6 +20,27 @@ class SeriesDetailsTest {
                 sherlock.seasons.map { it.name },
             )
             assertEquals(listOf(1, 2, 3, 4, 0), sherlock.seasons.map { it.number })
+        }
+    }
+
+    @Test
+    fun `a Series' detail screen shows its title logo over its best backdrop without text`() = runTest {
+        RecordedTmdb(apiKey = "project-token").use { tmdb ->
+            val details = Catalogue(JdkHttpClient(), tmdb.settings, Locale.US).seriesDetails(tmdbId = 84773)
+
+            assertEquals("https://image.tmdb.org/t/p/w500/fA1eS6rfYjS9W8AZbBVG0fpxXn1.png", details.logoUrl)
+            assertEquals("https://image.tmdb.org/t/p/w1280/i1phX1JpaqSnHBBGta6LBFYVCZq.jpg", details.backdropUrl)
+        }
+    }
+
+    @Test
+    fun `on a German TV a Series with no German name or synopsis falls back to English`() = runTest {
+        RecordedTmdb(apiKey = "project-token").use { tmdb ->
+            val details = Catalogue(JdkHttpClient(), tmdb.settings, Locale.GERMANY).seriesDetails(tmdbId = 34860)
+
+            assertEquals("Ninja Boy Rantaro", details.title.name)
+            assertEquals("Rantarō, Shinbei and Kirimaru are ninja", details.synopsis.take(39))
+            assertNull(details.logoUrl)
         }
     }
 

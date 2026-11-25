@@ -1,12 +1,13 @@
 package dev.celastrina.core.source.stremio
 
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.configuration.ChangedFrom
 import dev.celastrina.core.configuration.ConfigurationService
 import dev.celastrina.core.configuration.NewSource
-import dev.celastrina.core.port.FileStorage
-import dev.celastrina.core.port.JdkHttpClient
+import dev.celastrina.core.adapter.FileStorage
+import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.source.LookupOutcome
 import dev.celastrina.core.source.LookupOutcome.Failure.Reason
 import dev.celastrina.core.source.Source
@@ -71,7 +72,7 @@ class StremioSourceTest {
 
         assertEquals(
             Stream(
-                sourceId = "household-archive",
+                sourceId = SourceId("household-archive"),
                 id = "notld-1080p-mkv",
                 url = "$ia/NightOfTheLivingDead_1080p.mkv",
                 delivery = Stream.Delivery.Progressive,
@@ -235,7 +236,7 @@ class StremioSourceTest {
         service.add(NewSource("stremio", "Household Archive", addons.manifestUrl(RecordedStremio.HOUSEHOLD)), ChangedFrom.Computer)
         addons.bringBack(RecordedStremio.HOUSEHOLD)
 
-        val outcome = service.sources().single { it.id == "household-archive" }.lookUp(nightOfTheLivingDead)
+        val outcome = service.sources().single { it.id == SourceId("household-archive") }.lookUp(nightOfTheLivingDead)
 
         assertEquals("notld-1080p-mkv", (outcome as LookupOutcome.Streams).streams.first().id)
     }

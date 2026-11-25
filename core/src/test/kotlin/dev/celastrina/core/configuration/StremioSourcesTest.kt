@@ -1,7 +1,8 @@
 package dev.celastrina.core.configuration
 
-import dev.celastrina.core.port.FileStorage
-import dev.celastrina.core.port.JdkHttpClient
+import dev.celastrina.core.source.SourceId
+import dev.celastrina.core.adapter.FileStorage
+import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.source.LookupOutcome.Failure.Reason
 import dev.celastrina.core.testing.RecordedStremio
 import dev.celastrina.core.testing.VirtualClock
@@ -36,10 +37,10 @@ class StremioSourcesTest {
     fun `adding an add-on by its manifest URL fetches the manifest, and puts it last in the order`() = runTest {
         val outcome = service().add(household(), ChangedFrom.Computer)
 
-        assertEquals(WriteOutcome.Added("household-archive"), outcome)
+        assertEquals(WriteOutcome.Added(SourceId("household-archive")), outcome)
         assertEquals(
             SourceSummary(
-                id = "household-archive",
+                id = SourceId("household-archive"),
                 name = "Household Archive",
                 kind = "stremio",
                 enabled = true,
@@ -59,7 +60,7 @@ class StremioSourcesTest {
         val outcome = service().add(household(addons.manifestUrl(RecordedStremio.CINEMETA)).copy(name = "Cinemeta"), ChangedFrom.Computer)
 
         assertEquals(
-            WriteOutcome.Failed("cinemeta", Reason.SourceError, "Cinemeta offers no Streams. Celastrina uses only an add-on's Streams."),
+            WriteOutcome.Failed(SourceId("cinemeta"), Reason.SourceError, "Cinemeta offers no Streams. Celastrina uses only an add-on's Streams."),
             outcome,
         )
         assertEquals(TestState.Failing, service().list().last().testState)
@@ -70,7 +71,7 @@ class StremioSourcesTest {
         val outcome = service().add(household(addons.manifestUrl("nothing-here")), ChangedFrom.Computer)
 
         assertEquals(
-            WriteOutcome.Failed("household-archive", Reason.SourceError, "Household Archive didn't answer with an add-on manifest. Check the URL."),
+            WriteOutcome.Failed(SourceId("household-archive"), Reason.SourceError, "Household Archive didn't answer with an add-on manifest. Check the URL."),
             outcome,
         )
     }
@@ -81,7 +82,7 @@ class StremioSourcesTest {
 
         val outcome = service().add(household(), ChangedFrom.Computer)
 
-        assertEquals(WriteOutcome.Failed("household-archive", Reason.Unreachable, "Can't reach the add-on Household Archive."), outcome)
+        assertEquals(WriteOutcome.Failed(SourceId("household-archive"), Reason.Unreachable, "Can't reach the add-on Household Archive."), outcome)
         assertEquals(TestState.Failing, service().list().last().testState)
     }
 
@@ -118,13 +119,13 @@ class StremioSourcesTest {
         val service = service()
         service.add(household(), ChangedFrom.Computer)
 
-        val outcome = service.update("household-archive", SourceChanges(url = addons.manifestUrl(RecordedStremio.CINEMETA)), ChangedFrom.Computer)
+        val outcome = service.update(SourceId("household-archive"), SourceChanges(url = addons.manifestUrl(RecordedStremio.CINEMETA)), ChangedFrom.Computer)
 
         assertEquals(Reason.SourceError, (outcome as WriteOutcome.Failed).reason)
         assertEquals(TestState.Failing, service().list().last().testState)
         assertEquals(
             WriteOutcome.Problem.UnneededSetting,
-            (service.update("household-archive", SourceChanges(username = "demo", password = "x"), ChangedFrom.Computer) as WriteOutcome.Invalid).problem,
+            (service.update(SourceId("household-archive"), SourceChanges(username = "demo", password = "x"), ChangedFrom.Computer) as WriteOutcome.Invalid).problem,
         )
     }
 
@@ -133,7 +134,7 @@ class StremioSourcesTest {
         val service = service()
         service.add(household(), ChangedFrom.Computer)
 
-        service.remove("household-archive", ChangedFrom.Computer)
+        service.remove(SourceId("household-archive"), ChangedFrom.Computer)
 
         assertFalse("org.household.archive" in storedText(), "The manifest is still saved")
     }

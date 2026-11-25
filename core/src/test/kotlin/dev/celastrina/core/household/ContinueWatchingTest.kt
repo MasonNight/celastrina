@@ -1,9 +1,10 @@
 package dev.celastrina.core.household
 
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.catalogue.AirDate
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
-import dev.celastrina.core.port.FileStorage
+import dev.celastrina.core.adapter.FileStorage
 import dev.celastrina.core.source.Stream
 import dev.celastrina.core.testing.VirtualClock
 import org.junit.jupiter.api.io.TempDir
@@ -66,8 +67,8 @@ class ContinueWatchingTest {
         val episode2 = continueWatching().of(breakingBad(1, 2).reference)
 
         assertEquals(120_000, episode2?.positionMillis)
-        assertEquals(WorkedStream("movie-night", "1080"), episode2?.lastWorked)
-        assertEquals(WorkedStream("internet-archive", "mp4"), continueWatching().of(breakingBad(1, 3).reference)?.lastWorked)
+        assertEquals(WorkedStream(SourceId("movie-night"), "1080"), episode2?.lastWorked)
+        assertEquals(WorkedStream(SourceId("internet-archive"), "mp4"), continueWatching().of(breakingBad(1, 3).reference)?.lastWorked)
         assertEquals(null, continueWatching().of(theMatrix.reference))
     }
 
@@ -91,7 +92,7 @@ class ContinueWatchingTest {
         val watched = continueWatching.of(theMatrix.reference)
 
         assertEquals(0, watched?.resumeAtMillis)
-        assertEquals(WorkedStream("movie-night", "1080"), watched?.lastWorked)
+        assertEquals(WorkedStream(SourceId("movie-night"), "1080"), watched?.lastWorked)
     }
 
     @Test
@@ -123,7 +124,7 @@ private fun breakingBad(season: Int, episode: Int) = Watching(
 )
 
 private fun stream(sourceId: String, id: String) =
-    Stream(sourceId = sourceId, id = id, url = "https://$sourceId.example/$id", delivery = Stream.Delivery.Progressive)
+    Stream(sourceId = SourceId(sourceId), id = id, url = "https://$sourceId.example/$id", delivery = Stream.Delivery.Progressive)
 
 private val archiveMp4 = stream("internet-archive", "mp4")
 

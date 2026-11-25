@@ -42,6 +42,10 @@ class RecordedExtensionSites : AutoCloseable {
     @Volatile
     var newerVersion = false
 
+    /** The providers version 2 registers, when it changes them: a `providers.txt` in its `.cs3` names them. */
+    @Volatile
+    var newerProviders: List<String>? = null
+
     /** Answer the Archive with HTTP 500 and an HTML page, as it does when it's down. */
     @Volatile
     var archiveDown = false
@@ -126,6 +130,11 @@ class RecordedExtensionSites : AutoCloseable {
             zip.putNextEntry(ZipEntry("version-2.txt").apply { time = NEWER_CODE_TIME })
             zip.write("2".encodeToByteArray())
             zip.closeEntry()
+            newerProviders?.let { names ->
+                zip.putNextEntry(ZipEntry("providers.txt").apply { time = NEWER_CODE_TIME })
+                zip.write(names.joinToString("\n").encodeToByteArray())
+                zip.closeEntry()
+            }
         }
         return out.toByteArray()
     }

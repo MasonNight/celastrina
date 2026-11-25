@@ -6,7 +6,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.celastrina.core.catalogue.Catalogue
-import dev.celastrina.core.catalogue.CatalogueUnavailable
+import dev.celastrina.core.catalogue.CatalogueUnreadable
 import dev.celastrina.core.catalogue.Hero
 import dev.celastrina.core.catalogue.HomeRow
 import dev.celastrina.core.catalogue.Row
@@ -19,7 +19,7 @@ import kotlinx.coroutines.withContext
 sealed interface RowState {
     data object Loading : RowState
     data class Loaded(val row: Row) : RowState
-    data class Failed(val reason: CatalogueUnavailable.Reason) : RowState
+    data class Failed(val reason: CatalogueUnreadable.Reason) : RowState
 }
 
 /**
@@ -45,6 +45,7 @@ class HomeModel(private val catalogue: Catalogue, private val scope: CoroutineSc
     var focusSearch by mutableStateOf(false)
 
     private val loadingMore = mutableSetOf<HomeRow>()
+    private val refreshing = mutableSetOf<HomeRow>()
     private val heroes = object : LinkedHashMap<Title, Hero>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Title, Hero>) = size > HEROES_KEPT
     }
@@ -53,9 +54,28 @@ class HomeModel(private val catalogue: Catalogue, private val scope: CoroutineSc
         HomeRow.entries.forEach(::load)
     }
 
-    /** Loads again each row that couldn't load, as when the TV comes back online. */
+    /**
+     * Loads again each row that couldn't load, and each shown from what the cache kept while offline, as when the TV
+     * comes back online. A row from the cache stays on screen while it loads; if TMDB still can't be reached, it stays
+     * as it was.
+     */
     fun retryFailed() {
         rows.filterValues { it is RowState.Failed }.keys.forEach(::load)
+        rows.filterValues { it is RowState.Loaded && it.row.fromOfflineCache }.keys.forEach(::refresh)
+    }
+
+    private fun refresh(homeRow: HomeRow) {
+        if (!refreshing.add(homeRow)) return
+        scope.launch {
+            try {
+                val row = offMain { catalogue.row(homeRow) }
+                if (!row.fromOfflineCache) rows[homeRow] = RowState.Loaded(row)
+            } catch (_: CatalogueUnreadable) {
+                // Still offline: the row keeps what it shows.
+            } finally {
+                refreshing.remove(homeRow)
+            }
+        }
     }
 
     private fun load(homeRow: HomeRow) {
@@ -63,7 +83,7 @@ class HomeModel(private val catalogue: Catalogue, private val scope: CoroutineSc
         scope.launch {
             rows[homeRow] = try {
                 RowState.Loaded(offMain { catalogue.row(homeRow) })
-            } catch (e: CatalogueUnavailable) {
+            } catch (e: CatalogueUnreadable) {
                 RowState.Failed(e.reason)
             }
         }
@@ -76,7 +96,7 @@ class HomeModel(private val catalogue: Catalogue, private val scope: CoroutineSc
         scope.launch {
             try {
                 rows[homeRow] = RowState.Loaded(offMain { catalogue.more(row) })
-            } catch (_: CatalogueUnavailable) {
+            } catch (_: CatalogueUnreadable) {
                 // The row keeps what it has; scrolling to its end again tries again.
             } finally {
                 loadingMore.remove(homeRow)
@@ -88,7 +108,7 @@ class HomeModel(private val catalogue: Catalogue, private val scope: CoroutineSc
     suspend fun showHero(title: Title) {
         val hero = heroes[title] ?: try {
             offMain { catalogue.hero(title) }.also { heroes[title] = it }
-        } catch (_: CatalogueUnavailable) {
+        } catch (_: CatalogueUnreadable) {
             return
         }
         this.hero = title to hero

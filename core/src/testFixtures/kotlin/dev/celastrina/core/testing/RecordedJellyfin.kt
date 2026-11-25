@@ -14,9 +14,12 @@ import java.net.URLDecoder
  * Jellyfin demo (demo.jellyfin.org/stable, the `demo` account), with its access token and the recorder's address
  * replaced.
  *
- * It checks credentials itself: [username] with [password] logs in and gets the recorded token, anything else gets the
- * demo's recorded 401. Every other request needs that token in a `MediaBrowser` `Authorization` header, as Jellyfin
- * does. A search ([`/Items`][answerItems]) gets the recording for its Title kind and search term, or the demo's
+ * It checks credentials itself: [username] with [password] logs in and gets a token, anything else gets the demo's
+ * recorded 401. Every other request needs a token in a `MediaBrowser` `Authorization` header, as Jellyfin does.
+ *
+ * Like Jellyfin, it keeps one session per device: a login ends the session of any earlier login from the same
+ * `DeviceId`, whose token stops working. The first login gets the recorded token, [ACCESS_TOKEN], which also works
+ * before any login (it is the demo's); later logins get tokens made up in its shape. A search ([`/Items`][answerItems]) gets the recording for its Title kind and search term, or the demo's
  * recorded empty result when there is none.
  *
  * Quick Connect replays the demo's recorded flow: [`Initiate`][answerQuickConnect] gets the code, `Connect` answers
@@ -34,6 +37,13 @@ class RecordedJellyfin(
     /** Once true, the server refuses the token, as Jellyfin does after the session is signed out or deleted. */
     @Volatile
     var tokenRevoked = false
+
+    /**
+     * Answer every request HTTP 502, as a reverse proxy in front of a Jellyfin server that's stopped does. Hand-written:
+     * the demo server is never down on demand.
+     */
+    @Volatile
+    var behindDownProxy = false
 
     /** Once false, the server refuses to start Quick Connect, as Jellyfin does when its dashboard turns it off. */
     @Volatile
@@ -57,6 +67,25 @@ class RecordedJellyfin(
 
     private val requested = mutableListOf<String>()
 
+    /** The token of each device's session, and the tokens of sessions ended by a later login from the same device. */
+    private val sessions = mutableMapOf<String, String>()
+    private val endedTokens = mutableSetOf<String>()
+    private var tokensIssued = 0
+
+    /** Starts a session for the device [authorization] names, ending its earlier one, and answers its token. */
+    private fun startSession(authorization: String): String = synchronized(sessions) {
+        val device = DEVICE_ID.find(authorization)!!.groupValues[1]
+        sessions[device]?.let { endedTokens += it }
+        val token = if (tokensIssued == 0) ACCESS_TOKEN else "%032x".format(tokensIssued)
+        tokensIssued++
+        sessions[device] = token
+        token
+    }
+
+    private fun isValid(token: String?): Boolean = synchronized(sessions) {
+        token != null && token !in endedTokens && (token == ACCESS_TOKEN || token in sessions.values)
+    }
+
     /** The path and query of every request so far, oldest first. */
     val requests: List<String> get() = synchronized(requested) { requested.toList() }
 
@@ -70,6 +99,7 @@ class RecordedJellyfin(
 
     private fun respond(exchange: HttpExchange) {
         synchronized(requested) { requested += exchange.requestURI.toString() }
+        if (behindDownProxy) return exchange.send(502, "<html><body><h1>502 Bad Gateway</h1></body></html>", "text/html")
         val path = exchange.requestURI.path
         val authorization = exchange.requestHeaders.getFirst("Authorization")
             ?: return exchange.send(401, resource("unauthorized.html"), "text/html")
@@ -77,9 +107,9 @@ class RecordedJellyfin(
             // Hand-written: Jellyfin's answer to an Authorization header without the client fields.
             return exchange.send(400, "Missing client fields in the MediaBrowser Authorization header", "text/plain")
         }
-        if (exchange.requestMethod == "POST" && path == "/Users/AuthenticateByName") return answerLogin(exchange)
-        if (path.startsWith("/QuickConnect/") || path == "/Users/AuthenticateWithQuickConnect") return answerQuickConnect(exchange)
-        if (tokenRevoked || TOKEN.find(authorization)?.groupValues?.get(1) != ACCESS_TOKEN) {
+        if (exchange.requestMethod == "POST" && path == "/Users/AuthenticateByName") return answerLogin(exchange, authorization)
+        if (path.startsWith("/QuickConnect/") || path == "/Users/AuthenticateWithQuickConnect") return answerQuickConnect(exchange, authorization)
+        if (tokenRevoked || !isValid(TOKEN.find(authorization)?.groupValues?.get(1))) {
             return exchange.send(401, resource("unauthorized.html"), "text/html")
         }
         when {
@@ -91,18 +121,18 @@ class RecordedJellyfin(
         }
     }
 
-    private fun answerLogin(exchange: HttpExchange) {
+    private fun answerLogin(exchange: HttpExchange, authorization: String) {
         val body = Json.parseToJsonElement(exchange.requestBody.readBytes().decodeToString()).jsonObject
         val user = body["Username"]?.jsonPrimitive?.content
         val pw = body["Pw"]?.jsonPrimitive?.content
         if (user == username && pw == password) {
-            exchange.send(200, resource("authenticate-by-name.json"), JSON)
+            exchange.send(200, resource("authenticate-by-name.json").replace(ACCESS_TOKEN, startSession(authorization)), JSON)
         } else {
             exchange.send(401, resource("unauthorized.html"), "text/html")
         }
     }
 
-    private fun answerQuickConnect(exchange: HttpExchange) {
+    private fun answerQuickConnect(exchange: HttpExchange, authorization: String) {
         val path = exchange.requestURI.path
         when {
             exchange.requestMethod == "POST" && path == "/QuickConnect/Initiate" -> if (quickConnectEnabled) {
@@ -121,7 +151,7 @@ class RecordedJellyfin(
             exchange.requestMethod == "POST" && path == "/Users/AuthenticateWithQuickConnect" -> {
                 val secret = Json.parseToJsonElement(exchange.requestBody.readBytes().decodeToString()).jsonObject["Secret"]?.jsonPrimitive?.content
                 if (secret == QUICK_CONNECT_SECRET && quickConnect == QuickConnectState.Approved) {
-                    exchange.send(200, resource("authenticate-with-quick-connect.json"), JSON)
+                    exchange.send(200, resource("authenticate-with-quick-connect.json").replace(ACCESS_TOKEN, startSession(authorization)), JSON)
                 } else {
                     // Hand-written: an unapproved secret wasn't recorded. This is Jellyfin's 401 for a login it turns down.
                     exchange.send(401, resource("unauthorized.html"), "text/html")
@@ -143,7 +173,8 @@ class RecordedJellyfin(
         }
         if (problem != null) return exchange.send(400, "The fake has no recording for this $problem: ${exchange.requestURI}", "text/plain")
         val kind = query.getValue("IncludeItemTypes").lowercase()
-        val recording = resourceOrNull("items-$kind-${slug(query.getValue("searchTerm"))}.json") ?: resource("items-movie-sintel.json")
+        // A search with no recording of its own gets the demo's empty answer, recorded searching for Sintel, which it lacks.
+        val recording = resourceOrNull("items-$kind-${slug(query.getValue("searchTerm"))}.json") ?: resource("items-no-match.json")
         exchange.send(200, recording, JSON)
     }
 
@@ -194,6 +225,7 @@ class RecordedJellyfin(
         private const val JSON = "application/json; charset=utf-8"
         private val CLIENT_FIELDS = listOf("Client", "Device", "DeviceId", "Version")
         private val TOKEN = Regex("""Token="([^"]*)"""")
+        private val DEVICE_ID = Regex("""DeviceId="([^"]*)"""")
         private val EPISODES = Regex("/Shows/([0-9a-f]+)/Episodes")
     }
 }

@@ -1,6 +1,6 @@
 package dev.celastrina.core.catalogue
 
-import dev.celastrina.core.port.JdkHttpClient
+import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.testing.RecordedTmdb
 import kotlinx.coroutines.test.runTest
 import java.util.Locale
@@ -184,24 +184,24 @@ class HomeRowsTest {
     }
 
     @Test
-    fun `a rejected TMDB key makes the Catalogue unavailable with a reason`() = runTest {
+    fun `a rejected TMDB key makes the Catalogue unreadable, with a reason`() = runTest {
         RecordedTmdb(apiKey = "project-token").use { tmdb ->
             val catalogue = Catalogue(JdkHttpClient(), tmdb.settings.copy(apiKey = "wrong-key"), Locale.US)
 
-            val failure = assertFailsWith<CatalogueUnavailable> { catalogue.row(HomeRow.Movies) }
+            val failure = assertFailsWith<CatalogueUnreadable> { catalogue.row(HomeRow.Movies) }
 
-            assertEquals(CatalogueUnavailable.Reason.KeyRejected, failure.reason)
+            assertEquals(CatalogueUnreadable.Reason.KeyRejected, failure.reason)
         }
     }
 
     @Test
-    fun `an unreachable TMDB makes the Catalogue unavailable with a reason`() = runTest {
+    fun `an unreachable TMDB makes the Catalogue unreadable, with a reason`() = runTest {
         val closedServer = RecordedTmdb(apiKey = "project-token").use { it.settings }
         val catalogue = Catalogue(JdkHttpClient(), closedServer, Locale.US)
 
-        val failure = assertFailsWith<CatalogueUnavailable> { catalogue.row(HomeRow.Movies) }
+        val failure = assertFailsWith<CatalogueUnreadable> { catalogue.row(HomeRow.Movies) }
 
-        assertEquals(CatalogueUnavailable.Reason.Unreachable, failure.reason)
+        assertEquals(CatalogueUnreadable.Reason.Unreachable, failure.reason)
     }
 
     private suspend fun Catalogue.loadAll(row: Row): Row {

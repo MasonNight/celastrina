@@ -13,7 +13,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ListItem
@@ -21,19 +20,23 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import dev.celastrina.core.configuration.TmdbKeyInUse
 
-private val Dim = Color(0xFF9AA0AA)
-
-/** Settings: which TMDB key is in use, and the ways to the Sources, the Extensions ("N updates available") and About. */
+/**
+ * Settings: the ways to the Sources, the Extensions ("N updates available"), the TMDB key (saying which is in use) and
+ * About.
+ */
 @Composable
-fun SettingsScreen(tmdbKey: TmdbKeyInUse, updatesAvailable: Int, onSources: () -> Unit, onExtensions: () -> Unit, onAbout: () -> Unit) {
+fun SettingsScreen(
+    tmdbKey: TmdbKeyInUse,
+    updatesAvailable: Int,
+    onSources: () -> Unit,
+    onExtensions: () -> Unit,
+    onTmdbKey: () -> Unit,
+    onAbout: () -> Unit,
+) {
     val firstItem = remember { FocusRequester() }
-    LaunchedEffect(Unit) { firstItem.requestFocus() }
+    LaunchedEffect(Unit) { firstItem.requestFocusOnceShown() }
     Column(Modifier.fillMaxSize().padding(horizontal = 96.dp, vertical = 48.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("TMDB key", style = MaterialTheme.typography.titleMedium)
-            Text(tmdbKey.description(), style = MaterialTheme.typography.bodyMedium, color = Dim)
-        }
         ListItem(
             selected = false,
             onClick = onSources,
@@ -46,6 +49,13 @@ fun SettingsScreen(tmdbKey: TmdbKeyInUse, updatesAvailable: Int, onSources: () -
             onClick = onExtensions,
             headlineContent = { Text("Extensions") },
             supportingContent = { Text(if (updatesAvailable > 0) updatesText(updatesAvailable) else "Import Extension Repositories, and update or remove Extensions") },
+            modifier = Modifier.widthIn(max = 640.dp),
+        )
+        ListItem(
+            selected = false,
+            onClick = onTmdbKey,
+            headlineContent = { Text("TMDB key") },
+            supportingContent = { Text(tmdbKey.description()) },
             modifier = Modifier.widthIn(max = 640.dp),
         )
         ListItem(
@@ -71,9 +81,3 @@ fun AboutScreen(appVersion: String) {
 
 /** TMDB's required wording, word for word. The README carries it too. */
 const val TMDB_DISCLAIMER = "This product uses the TMDB API but is not endorsed or certified by TMDB."
-
-private fun TmdbKeyInUse.description() = when (this) {
-    TmdbKeyInUse.Project -> "Celastrina's own key."
-    TmdbKeyInUse.Override -> "Your Household's own key, set from a computer."
-    TmdbKeyInUse.None -> "No TMDB key. Ask your agent to set one."
-}

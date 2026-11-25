@@ -1,13 +1,14 @@
 package dev.celastrina.core.source.jellyfin
 
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.configuration.ChangedFrom
 import dev.celastrina.core.configuration.ConfigurationService
 import dev.celastrina.core.configuration.NewSource
 import dev.celastrina.core.configuration.WriteOutcome
-import dev.celastrina.core.port.FileStorage
-import dev.celastrina.core.port.JdkHttpClient
+import dev.celastrina.core.adapter.FileStorage
+import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.source.LookupOutcome
 import dev.celastrina.core.source.Source
 import dev.celastrina.core.source.Stream
@@ -63,7 +64,7 @@ class JellyfinSourceTest {
         val stream = (outcome as LookupOutcome.Streams).streams.single()
         assertEquals(
             Stream(
-                sourceId = "movie-night",
+                sourceId = SourceId("movie-night"),
                 id = "5e6e8380563c5211106652362c5c6843",
                 url = "${jellyfin.url}/Videos/5e6e8380563c5211106652362c5c6843/stream?static=true&MediaSourceId=5e6e8380563c5211106652362c5c6843",
                 delivery = Stream.Delivery.Progressive,
@@ -182,6 +183,14 @@ class JellyfinSourceTest {
     }
 
     @Test
+    fun `a server whose reverse proxy says it is down answers unreachable`() = runTest {
+        val source = movieNight()
+        jellyfin.behindDownProxy = true
+
+        assertEquals(LookupOutcome.Failure(LookupOutcome.Failure.Reason.Unreachable), source.lookUp(nightOfTheLivingDead))
+    }
+
+    @Test
     fun `a server that has gone away answers unreachable`() = runTest {
         val source = movieNight()
         jellyfin.close()
@@ -195,7 +204,7 @@ class JellyfinSourceTest {
         service.add(NewSource("jellyfin", "Movie Night", jellyfin.url, "demo", "wrong password"), ChangedFrom.Computer)
         val asked = jellyfin.requests.size
 
-        val outcome = service.sources().single { it.id == "movie-night" }.lookUp(nightOfTheLivingDead)
+        val outcome = service.sources().single { it.id == SourceId("movie-night") }.lookUp(nightOfTheLivingDead)
 
         assertEquals(LookupOutcome.Failure(LookupOutcome.Failure.Reason.AuthRequired), outcome)
         assertEquals(asked, jellyfin.requests.size)
@@ -206,7 +215,7 @@ class JellyfinSourceTest {
         val service = ConfigurationService(FileStorage(dir), JdkHttpClient(), appVersion = "1.2.3", projectTmdbKey = "")
         service.add(NewSource("emby", "Den Emby", jellyfin.url, jellyfin.username, jellyfin.password), ChangedFrom.Computer)
 
-        val outcome = service.sources().single { it.id == "den-emby" }.lookUp(nightOfTheLivingDead)
+        val outcome = service.sources().single { it.id == SourceId("den-emby") }.lookUp(nightOfTheLivingDead)
 
         assertEquals("5e6e8380563c5211106652362c5c6843", (outcome as LookupOutcome.Streams).streams.single().id)
     }
@@ -215,7 +224,7 @@ class JellyfinSourceTest {
     private suspend fun movieNight(): Source {
         val service = ConfigurationService(FileStorage(dir), JdkHttpClient(), appVersion = "1.2.3", projectTmdbKey = "")
         val added = service.add(NewSource("jellyfin", "Movie Night", jellyfin.url, jellyfin.username, jellyfin.password), ChangedFrom.Computer)
-        assertEquals(WriteOutcome.Added("movie-night"), added)
-        return service.sources().single { it.id == "movie-night" }
+        assertEquals(WriteOutcome.Added(SourceId("movie-night")), added)
+        return service.sources().single { it.id == SourceId("movie-night") }
     }
 }

@@ -3,6 +3,7 @@ package dev.celastrina.core.extension
 import com.lagradost.cloudstream3.APIHolder
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.plugins.BasePlugin
+import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.port.ExtensionLoader
 import dev.celastrina.core.port.Logger
 import dev.celastrina.core.source.LookupOutcome.Failure.Reason
@@ -46,6 +47,10 @@ internal class ExtensionHost(private val loader: ExtensionLoader, private val lo
         val providers = call(name, "load") { load(sha256, code()) }
         return synchronized(lock) { loaded.getOrPut(sha256) { providers } }
     }
+
+    /** The Sources the Extension [code] provides, one per provider it registers, loading it the first time it is asked for. */
+    internal suspend fun sourcesOf(name: String, sha256: String, code: () -> ByteArray): List<ProvidedSource> =
+        providers(name, sha256, code).map(ExtensionSource::provided)
 
     private fun load(sha256: String, code: ByteArray): List<MainAPI> {
         val className = pluginClassName(code)
@@ -105,6 +110,9 @@ internal class ExtensionHost(private val loader: ExtensionLoader, private val lo
         }
     }
 }
+
+/** One Source an Extension provides: the name it gives the Source, which Title kinds it plays, and whether it matches by IMDb ID. */
+internal data class ProvidedSource(val name: String, val titleKinds: Set<Title.Kind>, val imdb: Boolean)
 
 /** An Extension call that failed for [reason]. [needsNewerCelastrina] when the Extension links against code Celastrina lacks. */
 internal class ExtensionFailure(val reason: Reason, val needsNewerCelastrina: Boolean) : Exception()

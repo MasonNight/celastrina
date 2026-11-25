@@ -357,9 +357,8 @@ the Internet Archive, and its connection test passed."). If the reply is `failur
 go to [A failed connection test](#a-failed-connection-test). If it's `invalid`, nothing was saved: see
 [Replies](#replies).
 
-Adding exactly the same Source again is harmless and replies its `id`. Add each Jellyfin or Emby server only once:
-a second Source logging in to the same server signs the first one out (it then fails with `auth_required`). To use
-another account, change the existing Source's login instead.
+Adding exactly the same Source again is harmless and replies its `id`. A second Source on the same Jellyfin or Emby
+server, such as another account's, is fine: it needs its own name.
 
 ### 4. Change a Source (Do)
 
@@ -447,7 +446,8 @@ key" or "TMDB rejected the key". Celastrina's home screen and search come from T
    The TV starts using it at once. Never repeat the key back; `status` never shows it either.
 
 To go back to the built-in key, when the person asks: `call clear-tmdb-key`, then `status` says `"tmdb_key":"project"`
-(or `none` in a build without one).
+(or `none` in a build without one). The person can also set or clear it themselves on the TV, under Menu → Settings →
+TMDB key.
 
 ### 9. End the job (Do)
 

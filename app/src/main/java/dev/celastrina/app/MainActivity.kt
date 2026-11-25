@@ -37,7 +37,12 @@ class MainActivity : ComponentActivity() {
                 app.configuration.changes.collect { if (it.action in TMDB_KEY_CHANGES) tmdb = app.configuration.tmdbSettings() }
             }
             // Extension updates are checked at launch, at most once a day; the Household updates by hand.
-            LaunchedEffect(Unit) { withContext(Dispatchers.IO) { app.configuration.checkForUpdates() } }
+            LaunchedEffect(Unit) {
+                withContext(Dispatchers.IO) {
+                    app.configuration.recheckExtensions()
+                    app.configuration.checkForUpdates()
+                }
+            }
             val catalogue = remember(tmdb) { Catalogue(app.http, tmdb, Locale.getDefault(), app.catalogueCache) }
             val tmdbKey = remember(tmdb) { app.configuration.status().tmdbKey }
             CompositionLocalProvider(LocalNotPlayable provides app.notPlayable) {

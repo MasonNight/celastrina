@@ -1,5 +1,6 @@
 package dev.celastrina.core.extension
 
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.configuration.ChangedFrom
@@ -8,8 +9,8 @@ import dev.celastrina.core.configuration.ConfigurationService
 import dev.celastrina.core.configuration.ImportOutcome
 import dev.celastrina.core.configuration.InstallOutcome
 import dev.celastrina.core.configuration.WriteOutcome
-import dev.celastrina.core.port.FileStorage
-import dev.celastrina.core.port.JdkHttpClient
+import dev.celastrina.core.adapter.FileStorage
+import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.source.LookupOutcome
 import dev.celastrina.core.testing.JvmExtensionLoader
 import dev.celastrina.core.testing.RecordedExtensionSites
@@ -144,15 +145,49 @@ class ExtensionUpdateTest {
 
         val outcome = service.updateExtension("InternetArchive", ChangedFrom.Computer)
 
-        assertEquals(InstallOutcome.Installed(listOf(EXTENSION_SOURCE)), outcome)
+        assertEquals(InstallOutcome.Installed(listOf(EXTENSION_SOURCE).map(::SourceId)), outcome)
         val restarted = service()
         assertEquals(before.map { it.id to it.position }, restarted.list().map { it.id to it.position })
         assertEquals(2, restarted.testExtension().installedVersion)
         assertFalse(restarted.testExtension().updateAvailable)
         assertEquals(0, restarted.updatesAvailable())
         assertEquals(2, loader.loaded.distinct().size, "The newer code wasn't loaded")
-        assertIs<LookupOutcome.Streams>(restarted.sources().single { it.id == EXTENSION_SOURCE }.lookUp(nightOfTheLivingDead))
+        assertIs<LookupOutcome.Streams>(restarted.sources().single { it.id.value == EXTENSION_SOURCE }.lookUp(nightOfTheLivingDead))
         assertEquals(listOf(ConfigurationChange(ConfigurationChange.Action.ExtensionUpdated, "Internet Archive (test)", ChangedFrom.Computer)), announced)
+    }
+
+    @Test
+    fun `an update that adds a provider adds its Source at the end of the order`() = runTest {
+        val service = installed()
+        sites.newerVersion = true
+        sites.newerProviders = listOf("Internet Archive (test)", "Archive Shorts (test)")
+        service.checkForUpdates()
+        val announced = mutableListOf<ConfigurationChange>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { service.changes.toList(announced) }
+
+        val outcome = service.updateExtension("InternetArchive", ChangedFrom.Tv)
+
+        assertEquals(InstallOutcome.Installed(listOf(EXTENSION_SOURCE, SHORTS_SOURCE).map(::SourceId)), outcome)
+        val restarted = service()
+        assertEquals(listOf("internet-archive", EXTENSION_SOURCE, SHORTS_SOURCE), restarted.list().map { it.id.value })
+        assertIs<LookupOutcome.Streams>(restarted.sources().single { it.id.value == SHORTS_SOURCE }.lookUp(nightOfTheLivingDead))
+        assertTrue(ConfigurationChange(ConfigurationChange.Action.Added, "Archive Shorts (test)", ChangedFrom.Tv) in announced)
+    }
+
+    @Test
+    fun `an update that drops a provider removes its Source`() = runTest {
+        val service = installed()
+        sites.newerVersion = true
+        sites.newerProviders = listOf("Archive Shorts (test)")
+        service.checkForUpdates()
+        val announced = mutableListOf<ConfigurationChange>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { service.changes.toList(announced) }
+
+        val outcome = service.updateExtension("InternetArchive", ChangedFrom.Tv)
+
+        assertEquals(InstallOutcome.Installed(listOf(SHORTS_SOURCE).map(::SourceId)), outcome)
+        assertEquals(listOf("internet-archive", SHORTS_SOURCE), service().list().map { it.id.value })
+        assertTrue(ConfigurationChange(ConfigurationChange.Action.Removed, "Internet Archive (test)", ChangedFrom.Tv) in announced)
     }
 
     @Test
@@ -172,7 +207,7 @@ class ExtensionUpdateTest {
     fun `updating an Extension that has no update is harmless`() = runTest {
         val service = installed()
 
-        assertEquals(InstallOutcome.Installed(listOf(EXTENSION_SOURCE)), service.updateExtension("InternetArchive", ChangedFrom.Tv))
+        assertEquals(InstallOutcome.Installed(listOf(EXTENSION_SOURCE).map(::SourceId)), service.updateExtension("InternetArchive", ChangedFrom.Tv))
         assertEquals(1, loader.loaded.size)
     }
 
@@ -184,7 +219,7 @@ class ExtensionUpdateTest {
 
         val outcomes = service.updateAllExtensions(ChangedFrom.Tv)
 
-        assertEquals(mapOf("InternetArchive" to InstallOutcome.Installed(listOf(EXTENSION_SOURCE))), outcomes)
+        assertEquals(mapOf("InternetArchive" to InstallOutcome.Installed(listOf(EXTENSION_SOURCE).map(::SourceId))), outcomes)
         assertEquals(0, service.updatesAvailable())
     }
 
@@ -200,7 +235,7 @@ class ExtensionUpdateTest {
         assertEquals(WriteOutcome.Problem.HashMismatch, assertIs<InstallOutcome.Invalid>(outcome).problem)
         assertEquals(1, service().testExtension().installedVersion)
         sites.tamperedCode = false
-        assertIs<LookupOutcome.Streams>(service().sources().single { it.id == EXTENSION_SOURCE }.lookUp(nightOfTheLivingDead))
+        assertIs<LookupOutcome.Streams>(service().sources().single { it.id.value == EXTENSION_SOURCE }.lookUp(nightOfTheLivingDead))
     }
 
     @Test
@@ -213,16 +248,17 @@ class ExtensionUpdateTest {
     @Test
     fun `an Extension's Sources say when it has an update, so a failing one can say so in Choose Stream`() = runTest {
         val service = installed()
-        assertFalse(service.sources().single { it.id == EXTENSION_SOURCE }.updateAvailable)
+        assertFalse(service.sources().single { it.id.value == EXTENSION_SOURCE }.updateAvailable)
         sites.newerVersion = true
 
         service.checkForUpdates()
 
-        assertTrue(service.sources().single { it.id == EXTENSION_SOURCE }.updateAvailable)
-        assertFalse(service.sources().single { it.id == "internet-archive" }.updateAvailable)
+        assertTrue(service.sources().single { it.id.value == EXTENSION_SOURCE }.updateAvailable)
+        assertFalse(service.sources().single { it.id == SourceId("internet-archive") }.updateAvailable)
     }
 
     private companion object {
         const val EXTENSION_SOURCE = "internetarchive-internet-archive-test"
+        const val SHORTS_SOURCE = "internetarchive-archive-shorts-test"
     }
 }

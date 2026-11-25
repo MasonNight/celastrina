@@ -5,6 +5,7 @@ import dev.celastrina.core.port.Decoders
 import dev.celastrina.core.port.Logger
 import dev.celastrina.core.source.Lookup
 import dev.celastrina.core.source.LookupOutcome
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.source.Stream
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -194,7 +195,7 @@ class Failover(
         next = next,
     )
 
-    private fun sourceName(sourceId: String) = lookup.sources.firstOrNull { it.source.id == sourceId }?.source?.name ?: sourceId
+    private fun sourceName(sourceId: SourceId) = lookup.sources.firstOrNull { it.source.id == sourceId }?.source?.name ?: sourceId.value
 
     private class Failed(val stream: Stream, val reason: StreamFailure, val handPicked: Boolean)
 
@@ -232,7 +233,7 @@ class Failover(
                     while (now - stallStarts.first() > STALL_WINDOW.inWholeMilliseconds) stallStarts.removeFirst()
                     if (stallStarts.size >= STALLS_IN_WINDOW) return StreamFailure.RepeatedStalls
                 }
-                is PlayerEvent.Failed -> return StreamFailure.Error(event.error)
+                is PlayerEvent.Failed -> return StreamFailure.Fault(event.fault)
                 is PlayerEvent.Position -> Unit
             }
             if (!firstFrameShown && now - chosenAtMillis >= FIRST_FRAME_WITHIN.inWholeMilliseconds) return StreamFailure.NoFirstFrame
@@ -277,11 +278,11 @@ sealed interface PlayerEvent {
     data class Position(val millis: Long) : PlayerEvent
 
     /** The player gave up on the Stream. */
-    data class Failed(val error: PlayerError) : PlayerEvent
+    data class Failed(val fault: PlayerFault) : PlayerEvent
 }
 
 /** Why the player gave up on a Stream. */
-enum class PlayerError {
+enum class PlayerFault {
     /** An HTTP 4xx or 5xx. */
     Http,
 
@@ -307,7 +308,7 @@ sealed interface StreamFailure {
     /** 3 stalls within 2 minutes. */
     data object RepeatedStalls : StreamFailure
 
-    data class Error(val error: PlayerError) : StreamFailure
+    data class Fault(val fault: PlayerFault) : StreamFailure
 }
 
 /** What the player must do now that a Stream has failed. */

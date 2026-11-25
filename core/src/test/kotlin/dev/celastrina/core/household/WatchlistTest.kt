@@ -2,7 +2,7 @@ package dev.celastrina.core.household
 
 import dev.celastrina.core.catalogue.Category
 import dev.celastrina.core.catalogue.Title
-import dev.celastrina.core.port.FileStorage
+import dev.celastrina.core.adapter.FileStorage
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import kotlin.test.Test

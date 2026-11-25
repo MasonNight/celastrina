@@ -2,6 +2,7 @@ package dev.celastrina.core.extension
 
 import dev.celastrina.core.port.HttpClient
 import dev.celastrina.core.source.LookupOutcome.Failure.Reason
+import dev.celastrina.core.source.failureReason
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -81,7 +82,7 @@ internal class RepositoryReader(private val http: HttpClient) {
         } catch (e: IOException) {
             throw RepositoryUnreadable(Reason.Unreachable, "Can't reach $url.")
         }
-        if (!response.isSuccessful) throw RepositoryUnreadable(Reason.SourceError, "$url answered HTTP ${response.status}.")
+        response.failureReason()?.let { throw RepositoryUnreadable(it, "$url answered HTTP ${response.status}.") }
         return response.body
     }
 

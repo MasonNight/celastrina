@@ -1,6 +1,8 @@
 package dev.celastrina.core.extension
 
+import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.configuration.ChangedFrom
+import dev.celastrina.core.configuration.SourceChanges
 import dev.celastrina.core.configuration.ConfigurationChange
 import dev.celastrina.core.configuration.ConfigurationService
 import dev.celastrina.core.configuration.ImportOutcome
@@ -8,8 +10,8 @@ import dev.celastrina.core.configuration.InstallOutcome
 import dev.celastrina.core.configuration.SourceSummary
 import dev.celastrina.core.configuration.TestState
 import dev.celastrina.core.configuration.WriteOutcome
-import dev.celastrina.core.port.FileStorage
-import dev.celastrina.core.port.JdkHttpClient
+import dev.celastrina.core.adapter.FileStorage
+import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.source.LookupOutcome.Failure.Reason
 import dev.celastrina.core.testing.JvmExtensionLoader
 import dev.celastrina.core.testing.RecordedExtensionSites
@@ -134,11 +136,11 @@ class ExtensionImportTest {
 
         val outcome = service.installExtension(sites.repositoryUrl, "InternetArchive", ChangedFrom.Computer)
 
-        assertEquals(InstallOutcome.Installed(listOf("internetarchive-internet-archive-test")), outcome)
+        assertEquals(InstallOutcome.Installed(listOf("internetarchive-internet-archive-test").map(::SourceId)), outcome)
         val restarted = service()
         assertEquals(
             SourceSummary(
-                id = "internetarchive-internet-archive-test",
+                id = SourceId("internetarchive-internet-archive-test"),
                 name = "Internet Archive (test)",
                 kind = "extension",
                 enabled = true,
@@ -150,10 +152,25 @@ class ExtensionImportTest {
             ),
             restarted.list().last(),
         )
-        assertEquals(listOf("internet-archive", "internetarchive-internet-archive-test"), restarted.sources().map { it.id })
+        assertEquals(listOf("internet-archive", "internetarchive-internet-archive-test"), restarted.sources().map { it.id.value })
         assertEquals(1, restarted.status().extensions)
         assertTrue(restarted.repository(sites.repositoryUrl)!!.extensions.single().installed)
         assertEquals(listOf(ConfigurationChange(ConfigurationChange.Action.Added, "Internet Archive (test)", ChangedFrom.Computer)), announced)
+    }
+
+    @Test
+    fun `an Extension's Source can be renamed, but takes no URL or login`() = runTest {
+        val service = service()
+        service.imported()
+        service.installExtension(sites.repositoryUrl, "InternetArchive", ChangedFrom.Computer)
+        val id = SourceId("internetarchive-internet-archive-test")
+
+        assertEquals(WriteOutcome.Ok, service.update(id, SourceChanges(name = "Archive films"), ChangedFrom.Tv))
+        assertEquals(id to "Archive films", service().list().last().let { it.id to it.name })
+        assertEquals(
+            WriteOutcome.Problem.UnneededSetting,
+            assertIs<WriteOutcome.Invalid>(service.update(id, SourceChanges(url = "https://example.org"), ChangedFrom.Tv)).problem,
+        )
     }
 
     @Test
@@ -175,7 +192,7 @@ class ExtensionImportTest {
         val outcome = service.installExtension(sites.repositoryUrl, "InternetArchive", ChangedFrom.Computer)
 
         assertEquals(WriteOutcome.Problem.HashMismatch, assertIs<InstallOutcome.Invalid>(outcome).problem)
-        assertEquals(listOf("internet-archive"), service().list().map { it.id })
+        assertEquals(listOf("internet-archive"), service().list().map { it.id.value })
         assertEquals(0, service().status().extensions)
     }
 

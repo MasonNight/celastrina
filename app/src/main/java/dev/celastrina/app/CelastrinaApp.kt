@@ -17,7 +17,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.darkColorScheme
 import dev.celastrina.core.catalogue.Catalogue
-import dev.celastrina.core.catalogue.CatalogueUnavailable
+import dev.celastrina.core.catalogue.CatalogueUnreadable
 import dev.celastrina.core.catalogue.Search
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.configuration.ConfigurationChange
@@ -54,6 +54,7 @@ private sealed interface Screen {
     data class Player(val request: PlayRequest, val back: Screen) : Screen
     data class Settings(val back: Screen) : Screen
     data class About(val back: Settings) : Screen
+    data class TmdbKey(val back: Settings) : Screen
     data class Sources(val back: Settings) : Screen
     data class AddSource(val back: Sources) : Screen
     data class Extensions(val back: Screen) : Screen
@@ -66,8 +67,8 @@ private sealed interface Screen {
  * Streams that arrive late, and can ask the Sources again when its Stream list may have expired. [failoverMemory] orders
  * Play's choice and Failover's candidates. [continueWatching] and [watchlist] are home's first two rows; a Continue
  * watching card resumes playback in one press. [configurationChanges] made from a computer show as notices over any screen.
- * The remote's Menu button ([menuPresses]) opens Settings from anywhere but the player; Settings shows [tmdbKey] and
- * leads to the Sources (where [configuration] adds and changes them), the Extensions and About.
+ * The remote's Menu button ([menuPresses]) opens Settings from anywhere but the player; Settings leads to the Sources
+ * (where [configuration] adds and changes them), the Extensions, the TMDB key ([tmdbKey] says which is in use) and About.
  */
 @Composable
 fun CelastrinaApp(
@@ -101,7 +102,7 @@ fun CelastrinaApp(
     LaunchedEffect(menuPresses) {
         menuPresses.collect {
             when (val s = screen) {
-                is Screen.Player, is Screen.Settings, is Screen.Sources, is Screen.AddSource, is Screen.Extensions -> Unit
+                is Screen.Player, is Screen.Settings, is Screen.Sources, is Screen.AddSource, is Screen.Extensions, is Screen.TmdbKey -> Unit
                 is Screen.About -> screen = s.back
                 else -> screen = Screen.Settings(back = s)
             }
@@ -179,6 +180,7 @@ fun CelastrinaApp(
                         updatesAvailable = remember(s) { configuration.updatesAvailable() },
                         onSources = { screen = Screen.Sources(back = s) },
                         onExtensions = { screen = Screen.Extensions(back = s) },
+                        onTmdbKey = { screen = Screen.TmdbKey(back = s) },
                     ) { screen = Screen.About(back = s) }
                 }
                 is Screen.Sources -> {
@@ -196,6 +198,10 @@ fun CelastrinaApp(
                 is Screen.About -> {
                     BackHandler { screen = s.back }
                     AboutScreen(appVersion)
+                }
+                is Screen.TmdbKey -> {
+                    BackHandler { screen = s.back }
+                    TmdbKeyScreen(tmdbKey, configuration) { screen = s.back }
                 }
             }
             ChangedFromComputerNotices(configurationChanges)
@@ -229,9 +235,9 @@ private fun lookUpIn(scope: CoroutineScope, streamLookup: StreamLookup): (TitleR
     }
 }
 
-fun CatalogueUnavailable.Reason.message() = when (this) {
-    CatalogueUnavailable.Reason.NoKey -> "No TMDB key"
-    CatalogueUnavailable.Reason.Unreachable -> "You're offline, and this isn't saved on the TV yet."
-    CatalogueUnavailable.Reason.KeyRejected -> "TMDB rejected the key."
-    CatalogueUnavailable.Reason.ServiceError -> "TMDB isn't answering properly right now."
+fun CatalogueUnreadable.Reason.message() = when (this) {
+    CatalogueUnreadable.Reason.NoKey -> "No TMDB key"
+    CatalogueUnreadable.Reason.Unreachable -> "You're offline, and this isn't saved on the TV yet."
+    CatalogueUnreadable.Reason.KeyRejected -> "TMDB rejected the key."
+    CatalogueUnreadable.Reason.ServiceError -> "TMDB isn't answering properly right now."
 }

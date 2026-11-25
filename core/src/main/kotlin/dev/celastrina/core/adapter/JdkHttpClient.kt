@@ -1,5 +1,7 @@
-package dev.celastrina.core.port
+package dev.celastrina.core.adapter
 
+import dev.celastrina.core.port.HttpClient
+import dev.celastrina.core.port.HttpResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection

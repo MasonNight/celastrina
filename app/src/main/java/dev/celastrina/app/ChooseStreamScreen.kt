@@ -28,7 +28,6 @@ import dev.celastrina.core.source.Lookup
 import dev.celastrina.core.source.LookupOutcome
 import dev.celastrina.core.source.SourceLookup
 import dev.celastrina.core.source.Stream
-import dev.celastrina.core.source.qualityOf
 import java.util.Locale
 
 /**
@@ -39,13 +38,13 @@ import java.util.Locale
 fun ChooseStreamScreen(title: String, lookup: Lookup?, onPick: (Stream) -> Unit) {
     val first = remember { FocusRequester() }
     val firstStream = lookup?.streams?.firstOrNull()
-    LaunchedEffect(firstStream != null) { if (firstStream != null) first.requestFocus() }
+    LaunchedEffect(firstStream != null) { if (firstStream != null) first.requestFocusOnceShown() }
 
     Column(Modifier.fillMaxSize().background(Color.Black).padding(start = 48.dp, end = 48.dp, top = 32.dp)) {
         Text("Choose Stream", style = MaterialTheme.typography.headlineMedium)
         Text(title, style = MaterialTheme.typography.titleMedium, color = Color.White.copy(alpha = 0.8f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(
-            lookup?.statusLine ?: "Asking your Sources…",
+            lookup.statusLine(),
             style = MaterialTheme.typography.bodyMedium,
             color = Color.White.copy(alpha = 0.7f),
             modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
