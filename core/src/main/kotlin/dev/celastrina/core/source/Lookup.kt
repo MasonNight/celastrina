@@ -11,29 +11,43 @@ data class Lookup(val sources: List<SourceLookup>, val askedAtMillis: Long = 0) 
     /** Every Stream found so far, in the Household's Source order and then each Source's own order. */
     val streams: List<Stream> get() = sources.flatMap { (it.outcome as? LookupOutcome.Streams)?.streams.orEmpty() }
 
-    /** One quiet line for the detail screen, such as "3 Streams from 2 Sources · best 720p · still asking 1". */
-    val statusLine: String
+    /** Where the Lookup has got to, in a word, for the quiet line on the detail screen. */
+    val status: LookupStatus
         get() {
-            if (sources.isEmpty()) return "None of your Sources can look for this"
+            if (sources.isEmpty()) return LookupStatus.NoSourceCanLook
             val looking = sources.count { it.isLooking }
             val streams = streams
             if (streams.isNotEmpty()) {
-                val from = sources.count { it.outcome is LookupOutcome.Streams }
-                val best = streams.mapNotNull { it.resolution }.maxOrNull()?.let { "best ${qualityOf(it)}" }
-                return listOfNotNull(
-                    "${counted(streams.size, "Stream")} from ${counted(from, "Source")}",
-                    best,
-                    "still asking $looking".takeIf { looking > 0 },
-                ).joinToString(" · ")
+                return LookupStatus.Found(
+                    streams = streams.size,
+                    fromSources = sources.count { it.outcome is LookupOutcome.Streams },
+                    bestResolution = streams.mapNotNull { it.resolution }.maxOrNull(),
+                    stillAsking = looking,
+                )
             }
-            if (looking > 0) return "Asking ${counted(looking, "Source")}…"
+            if (looking > 0) return LookupStatus.Asking(looking)
             val notAvailable = sources.count { it.outcome == LookupOutcome.NotAvailable }
             val failed = sources.size - notAvailable
-            if (failed == 0) return "Not available from your Sources"
-            return listOfNotNull("No Streams", "$notAvailable Not available".takeIf { notAvailable > 0 }, "$failed failed").joinToString(" · ")
+            return if (failed == 0) LookupStatus.NotAvailable else LookupStatus.NoStreams(notAvailable, failed)
         }
+}
 
-    private fun counted(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
+/** Where a [Lookup] has got to. */
+sealed interface LookupStatus {
+    /** No Source the Household has can match this Title. */
+    data object NoSourceCanLook : LookupStatus
+
+    /** [streams] Streams so far, from [fromSources] Sources, the tallest [bestResolution] pixels high where known. */
+    data class Found(val streams: Int, val fromSources: Int, val bestResolution: Int?, val stillAsking: Int) : LookupStatus
+
+    /** Nothing found yet, with [sources] still being asked. */
+    data class Asking(val sources: Int) : LookupStatus
+
+    /** Every Source answered Not available. */
+    data object NotAvailable : LookupStatus
+
+    /** Every Source has answered, without Streams: [notAvailable] Not available and [failed] with a Failure. */
+    data class NoStreams(val notAvailable: Int, val failed: Int) : LookupStatus
 }
 
 /**
@@ -43,6 +57,3 @@ data class Lookup(val sources: List<SourceLookup>, val askedAtMillis: Long = 0) 
 data class SourceLookup(val source: Source, val outcome: LookupOutcome?, val askingAgain: Boolean = false) {
     val isLooking: Boolean get() = outcome == null || askingAgain
 }
-
-/** A picture height as the Household knows it: "480p", "1080p", "4K". */
-fun qualityOf(resolution: Int): String = if (resolution >= 2160) "4K" else "${resolution}p"

@@ -39,13 +39,30 @@ data class Stream(
     }
 
     /** Why Celastrina won't play this Stream, or null when it will: only unencrypted http(s), HLS and DASH play. */
-    val unplayableBecause: String?
+    val unplayableBecause: Unplayable?
         get() = when {
-            drm -> "DRM"
-            !delivery.isPlayable -> delivery.name
-            url.substringBefore(':').lowercase() !in setOf("http", "https") -> "not http(s): ${url.substringBefore(':')}"
+            drm -> Unplayable.Drm
+            !delivery.isPlayable -> Unplayable.NotPlayableDelivery(delivery)
+            url.substringBefore(':').lowercase() !in setOf("http", "https") -> Unplayable.NotHttp(url.substringBefore(':'))
             else -> null
         }
+
+    /** Why Celastrina won't play a Stream. Each says itself for the device log. */
+    sealed interface Unplayable {
+        data object Drm : Unplayable {
+            override fun toString() = "DRM"
+        }
+
+        /** Delivered in a way Celastrina doesn't play, such as a torrent. */
+        data class NotPlayableDelivery(val delivery: Delivery) : Unplayable {
+            override fun toString() = delivery.name
+        }
+
+        /** Its URL's [scheme] isn't http or https. */
+        data class NotHttp(val scheme: String) : Unplayable {
+            override fun toString() = "not http(s): $scheme"
+        }
+    }
 
     /** A sidecar subtitle file. [language] is a BCP 47 tag where known. */
     data class Subtitle(val url: String, val language: String? = null, val label: String? = null)

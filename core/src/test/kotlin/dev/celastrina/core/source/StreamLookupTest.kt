@@ -187,13 +187,13 @@ class StreamLookupTest {
 
         assertEquals(listOf(listOf(true, true), listOf(true, false), listOf(false, false)), progress.map { l -> l.sources.map { it.isLooking } })
         assertEquals(listOf(listOf(old), listOf(old), listOf(fresh)), progress.map { it.streams })
-        assertEquals("1 Stream from 1 Source · still asking 2", progress.first().statusLine)
+        assertEquals(LookupStatus.Found(streams = 1, fromSources = 1, bestResolution = null, stillAsking = 2), progress.first().status)
         assertTrue(progress.all { it.askedAtMillis == clock.nowMillis() })
         assertEquals(2, shelf.timesAsked)
     }
 
     @Test
-    fun `the status line counts Streams and Sources, gives the best quality and says how many are still being asked`() {
+    fun `the status counts Streams and Sources, gives the best quality and says how many are still being asked`() {
         val a = FakeSource("a", moviesOnly) { LookupOutcome.NotAvailable }
         val b = FakeSource("b", moviesOnly) { LookupOutcome.NotAvailable }
         val c = FakeSource("c", moviesOnly) { LookupOutcome.NotAvailable }
@@ -202,13 +202,13 @@ class StreamLookupTest {
         fun lookup(vararg answers: Pair<Source, LookupOutcome?>) = Lookup(answers.map { (source, outcome) -> SourceLookup(source, outcome) })
         val failed = LookupOutcome.Failure(LookupOutcome.Failure.Reason.Unreachable)
 
-        assertEquals("3 Streams from 2 Sources · best 720p · still asking 1", lookup(a to streams(720, 480), b to streams(null), c to null).statusLine)
-        assertEquals("1 Stream from 1 Source · best 4K", lookup(a to streams(2160), b to LookupOutcome.NotAvailable).statusLine)
-        assertEquals("1 Stream from 1 Source", lookup(a to streams(null)).statusLine)
-        assertEquals("Asking 2 Sources…", lookup(a to null, b to null, c to LookupOutcome.NotAvailable).statusLine)
-        assertEquals("Not available from your Sources", lookup(a to LookupOutcome.NotAvailable, b to LookupOutcome.NotAvailable).statusLine)
-        assertEquals("No Streams · 1 Not available · 2 failed", lookup(a to LookupOutcome.NotAvailable, b to failed, c to failed).statusLine)
-        assertEquals("None of your Sources can look for this", lookup().statusLine)
+        assertEquals(LookupStatus.Found(streams = 3, fromSources = 2, bestResolution = 720, stillAsking = 1), lookup(a to streams(720, 480), b to streams(null), c to null).status)
+        assertEquals(LookupStatus.Found(streams = 1, fromSources = 1, bestResolution = 2160, stillAsking = 0), lookup(a to streams(2160), b to LookupOutcome.NotAvailable).status)
+        assertEquals(LookupStatus.Found(streams = 1, fromSources = 1, bestResolution = null, stillAsking = 0), lookup(a to streams(null)).status)
+        assertEquals(LookupStatus.Asking(sources = 2), lookup(a to null, b to null, c to LookupOutcome.NotAvailable).status)
+        assertEquals(LookupStatus.NotAvailable, lookup(a to LookupOutcome.NotAvailable, b to LookupOutcome.NotAvailable).status)
+        assertEquals(LookupStatus.NoStreams(notAvailable = 1, failed = 2), lookup(a to LookupOutcome.NotAvailable, b to failed, c to failed).status)
+        assertEquals(LookupStatus.NoSourceCanLook, lookup().status)
     }
 
     private fun stream(id: String, url: String, delivery: Stream.Delivery) =

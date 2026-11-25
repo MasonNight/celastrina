@@ -75,7 +75,7 @@ fun ResumeScreen(
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.7f)))
         Column(Modifier.align(Alignment.Center).padding(48.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Resuming ${watching.playerTitle()}…", style = MaterialTheme.typography.headlineSmall)
-            Text(lookup?.statusLine ?: "Asking your Sources…", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.8f))
+            Text(lookup.statusLine(), style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.8f))
         }
     }
 }
