@@ -46,6 +46,8 @@
 # the test APK, so the classes they use keep their names: Celastrina's own (small, and it keeps the stack traces in the
 # TV's log readable without a mapping file), and androidx.tracing, which AndroidJUnitRunner calls and the app carries
 # for OkHttp's startup initializer. A test may use another library the app carries only if this file keeps it whole;
-# kotlinx.serialization isn't kept, so the tests read JSON with Android's org.json.
+# kotlinx.serialization isn't kept, so the tests read JSON with Android's org.json. A dependency also bundles
+# org.json:json, which R8 would otherwise rename under the tests (InstantiationError), so it's kept too.
 -keep class dev.celastrina.** { *; }
 -keep class androidx.tracing.Trace { *; }
+-keep class org.json.** { *; }
