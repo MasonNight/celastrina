@@ -19,6 +19,7 @@ import dev.celastrina.core.catalogue.Catalogue
 import dev.celastrina.core.catalogue.CatalogueUnavailable
 import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.configuration.ConfigurationChange
+import dev.celastrina.core.configuration.ConfigurationService
 import dev.celastrina.core.configuration.TmdbKeyInUse
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.port.Logger
@@ -39,6 +40,8 @@ private sealed interface Screen {
     data class Player(val request: PlayRequest, val back: Screen) : Screen
     data class Settings(val back: Screen) : Screen
     data class About(val back: Settings) : Screen
+    data class Sources(val back: Settings) : Screen
+    data class AddSource(val back: Sources) : Screen
 }
 
 /**
@@ -47,7 +50,7 @@ private sealed interface Screen {
  * Sources [newStreamLookup] has when it opens; the Lookup outlives the detail screen, so Failover in the player still gets
  * Streams that arrive late. [configurationChanges] made from a computer show as notices over any screen.
  * The remote's Menu button ([menuPresses]) opens Settings from anywhere but the player; Settings shows [tmdbKey] and
- * leads to About.
+ * leads to the Sources (where [configuration] adds and changes them) and About.
  */
 @Composable
 fun CelastrinaApp(
@@ -55,6 +58,7 @@ fun CelastrinaApp(
     newStreamLookup: () -> StreamLookup,
     logger: Logger,
     configurationChanges: Flow<ConfigurationChange>,
+    configuration: ConfigurationService,
     tmdbKey: TmdbKeyInUse,
     appVersion: String,
     menuPresses: Flow<Unit>,
@@ -80,7 +84,7 @@ fun CelastrinaApp(
     LaunchedEffect(menuPresses) {
         menuPresses.collect {
             when (val s = screen) {
-                is Screen.Player, is Screen.Settings -> Unit
+                is Screen.Player, is Screen.Settings, is Screen.Sources, is Screen.AddSource -> Unit
                 is Screen.About -> screen = s.back
                 else -> screen = Screen.Settings(back = s)
             }
@@ -116,7 +120,15 @@ fun CelastrinaApp(
                 }
                 is Screen.Settings -> {
                     BackHandler { screen = s.back }
-                    SettingsScreen(tmdbKey) { screen = Screen.About(back = s) }
+                    SettingsScreen(tmdbKey, onSources = { screen = Screen.Sources(back = s) }) { screen = Screen.About(back = s) }
+                }
+                is Screen.Sources -> {
+                    BackHandler { screen = s.back }
+                    SourcesScreen(configuration) { screen = Screen.AddSource(back = s) }
+                }
+                is Screen.AddSource -> {
+                    BackHandler { screen = s.back }
+                    AddSourceScreen(configuration) { screen = s.back }
                 }
                 is Screen.About -> {
                     BackHandler { screen = s.back }

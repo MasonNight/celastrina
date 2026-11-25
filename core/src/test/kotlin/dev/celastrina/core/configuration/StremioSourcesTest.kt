@@ -4,6 +4,7 @@ import dev.celastrina.core.port.FileStorage
 import dev.celastrina.core.port.JdkHttpClient
 import dev.celastrina.core.source.LookupOutcome.Failure.Reason
 import dev.celastrina.core.testing.RecordedStremio
+import dev.celastrina.core.testing.VirtualClock
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.io.TempDir
@@ -23,7 +24,9 @@ class StremioSourcesTest {
     @AfterEach
     fun stopServer() = addons.close()
 
-    private fun service() = ConfigurationService(FileStorage(dir), JdkHttpClient(), appVersion = "1.2.3", projectTmdbKey = "")
+    private val clock = VirtualClock()
+
+    private fun service() = ConfigurationService(FileStorage(dir), JdkHttpClient(), appVersion = "1.2.3", projectTmdbKey = "", clock = clock)
 
     private fun household(url: String = addons.manifestUrl(RecordedStremio.HOUSEHOLD)) = NewSource(kind = "stremio", name = "Household Archive", url = url)
 
@@ -43,6 +46,8 @@ class StremioSourcesTest {
                 position = 2,
                 testState = TestState.Passing,
                 hasLogin = false,
+                addedFromComputerAt = clock.nowMillis(),
+                changedFromComputerAt = null,
             ),
             service().list().last(),
         )
