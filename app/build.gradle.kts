@@ -58,7 +58,7 @@ android {
         warningsAsErrors = true
         // Lint fails the build on any warning. "A newer version exists" is news, not a defect, and would turn CI red
         // whenever a library ships.
-        disable += setOf("GradleDependency", "NewerVersionAvailable", "AndroidGradlePluginVersion")
+        disable += setOf("GradleDependency", "NewerVersionAvailable", "AndroidGradlePluginVersion", "OldTargetApi")
     }
 }
 
