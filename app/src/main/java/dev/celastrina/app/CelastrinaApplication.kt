@@ -30,6 +30,7 @@ class CelastrinaApplication : Application() {
             projectTmdbKey = BuildConfig.TMDB_API_KEY,
             extensionLoader = DexExtensionLoader(applicationContext),
             logger = logger,
+            failoverMemory = failoverMemory,
         )
     }
 

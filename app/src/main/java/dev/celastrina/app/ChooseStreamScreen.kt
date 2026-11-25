@@ -98,7 +98,8 @@ private fun SourceLookup.state(): String = when (val outcome = outcome) {
     null -> "Looking…"
     LookupOutcome.NotAvailable -> "Not available"
     is LookupOutcome.Streams -> if (outcome.streams.size == 1) "1 Stream" else "${outcome.streams.size} Streams"
-    is LookupOutcome.Failure -> outcome.reason.message()
+    // An update is the likely fix for a failing Extension, so it says when one is available.
+    is LookupOutcome.Failure -> if (source.updateAvailable) "${outcome.reason.message()} · update available" else outcome.reason.message()
 }
 
 /** What the Household reads for a Source's Failure. */

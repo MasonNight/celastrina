@@ -44,6 +44,7 @@ private sealed interface Screen {
     data class About(val back: Settings) : Screen
     data class Sources(val back: Settings) : Screen
     data class AddSource(val back: Sources) : Screen
+    data class Extensions(val back: Screen) : Screen
 }
 
 /**
@@ -53,7 +54,7 @@ private sealed interface Screen {
  * Streams that arrive late, and can ask the Sources again when its Stream list may have expired. [failoverMemory] orders
  * Play's choice and Failover's candidates. [configurationChanges] made from a computer show as notices over any screen.
  * The remote's Menu button ([menuPresses]) opens Settings from anywhere but the player; Settings shows [tmdbKey] and
- * leads to the Sources (where [configuration] adds and changes them) and About.
+ * leads to the Sources (where [configuration] adds and changes them), the Extensions and About.
  */
 @Composable
 fun CelastrinaApp(
@@ -88,7 +89,7 @@ fun CelastrinaApp(
     LaunchedEffect(menuPresses) {
         menuPresses.collect {
             when (val s = screen) {
-                is Screen.Player, is Screen.Settings, is Screen.Sources, is Screen.AddSource -> Unit
+                is Screen.Player, is Screen.Settings, is Screen.Sources, is Screen.AddSource, is Screen.Extensions -> Unit
                 is Screen.About -> screen = s.back
                 else -> screen = Screen.Settings(back = s)
             }
@@ -124,7 +125,12 @@ fun CelastrinaApp(
                 }
                 is Screen.Settings -> {
                     BackHandler { screen = s.back }
-                    SettingsScreen(tmdbKey, onSources = { screen = Screen.Sources(back = s) }) { screen = Screen.About(back = s) }
+                    SettingsScreen(
+                        tmdbKey,
+                        updatesAvailable = remember(s) { configuration.updatesAvailable() },
+                        onSources = { screen = Screen.Sources(back = s) },
+                        onExtensions = { screen = Screen.Extensions(back = s) },
+                    ) { screen = Screen.About(back = s) }
                 }
                 is Screen.Sources -> {
                     BackHandler { screen = s.back }
@@ -132,7 +138,11 @@ fun CelastrinaApp(
                 }
                 is Screen.AddSource -> {
                     BackHandler { screen = s.back }
-                    AddSourceScreen(configuration) { screen = s.back }
+                    AddSourceScreen(configuration, onExtensions = { screen = Screen.Extensions(back = s) }) { screen = s.back }
+                }
+                is Screen.Extensions -> {
+                    BackHandler { screen = s.back }
+                    ExtensionsScreen(configuration)
                 }
                 is Screen.About -> {
                     BackHandler { screen = s.back }
