@@ -30,7 +30,9 @@ import kotlinx.serialization.json.put
  *     adb shell content call --uri content://dev.celastrina.configuration --method <command> [--arg <base64 JSON>]
  *     adb shell content query --uri content://dev.celastrina.configuration/<sources|status>
  *
- * Commands: `status`, `list`, `update` ({"id", "name"}), `enable`, `disable` and `remove` ({"id"}). Every reply is
+ * Commands: `status`, `list`, `update` ({"id", "name"}), `enable`, `disable` and `remove` ({"id"}), `set-tmdb-key`
+ * ({"key"}) and `clear-tmdb-key`. `status` says which TMDB key is in use (`project`, `override` or `none`), never
+ * the key. Every reply is
  * one JSON object in the returned Bundle's `reply`, with `result` set to `ok`, `invalid` (with `problem` and
  * `message`) or `failure` (with `reason`). Only the `shell` user, root and Celastrina itself may call it.
  */
@@ -55,7 +57,7 @@ class ConfigurationProvider : ContentProvider() {
                 }
             }
             "status" -> configuration.status().let { s ->
-                MatrixCursor(STATUS_COLUMNS).apply { addRow(arrayOf<Any>(s.appVersion, s.sources, s.extensions, s.protocolVersion)) }
+                MatrixCursor(STATUS_COLUMNS).apply { addRow(arrayOf<Any>(s.appVersion, s.tmdbKey.wire(), s.sources, s.extensions, s.protocolVersion)) }
             }
             else -> throw IllegalArgumentException("Query content://${uri.authority}/sources or /status, not $uri")
         }
@@ -83,7 +85,15 @@ class ConfigurationProvider : ContentProvider() {
                     else -> configuration.remove(id, ChangedFrom.Computer)
                 }.toJson()
             }
-            else -> invalid("unknown_command", "There's no command $method. Commands: status, list, update, enable, disable, remove.")
+            "set-tmdb-key" -> args.onlyFields("key") ?: run {
+                val key = args.required("key") ?: return args.missing("key")
+                configuration.setTmdbKey(key, ChangedFrom.Computer).toJson()
+            }
+            "clear-tmdb-key" -> args.onlyFields() ?: configuration.clearTmdbKey(ChangedFrom.Computer).toJson()
+            else -> invalid(
+                "unknown_command",
+                "There's no command $method. Commands: status, list, update, enable, disable, remove, set-tmdb-key, clear-tmdb-key.",
+            )
         }
     }
 
@@ -123,7 +133,8 @@ class ConfigurationProvider : ContentProvider() {
         /** A refusal when the arguments carry a field this command doesn't take, or null when they don't. */
         fun onlyFields(vararg names: String): JsonObject? =
             (fields.keys - names.toSet()).takeIf { it.isNotEmpty() }?.let {
-                invalid("bad_argument", "Unexpected arguments: ${it.joinToString()}. This command takes ${names.joinToString()}.")
+                val takes = if (names.isEmpty()) "no arguments" else names.joinToString()
+                invalid("bad_argument", "Unexpected arguments: ${it.joinToString()}. This command takes $takes.")
             }
     }
 
@@ -141,7 +152,7 @@ class ConfigurationProvider : ContentProvider() {
         const val SHELL_UID = 2000 // Process.SHELL_UID is API 29.
         const val PER_USER_RANGE = 100_000
         val SOURCE_COLUMNS = arrayOf("id", "name", "kind", "enabled", "position", "test_state", "has_login")
-        val STATUS_COLUMNS = arrayOf("app_version", "sources", "extensions", "protocol_version")
+        val STATUS_COLUMNS = arrayOf("app_version", "tmdb_key", "sources", "extensions", "protocol_version")
 
         fun ok(fields: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit = {}) = buildJsonObject {
             put("result", "ok")
@@ -156,6 +167,7 @@ class ConfigurationProvider : ContentProvider() {
 
         fun Status.toJson() = ok {
             put("app_version", appVersion)
+            put("tmdb_key", tmdbKey.wire())
             put("sources", sources)
             put("extensions", extensions)
             put("protocol_version", protocolVersion)

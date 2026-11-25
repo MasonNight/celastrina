@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 class ConfigurationServiceTest {
 
@@ -23,11 +24,95 @@ class ConfigurationServiceTest {
         override suspend fun get(url: String, headers: Map<String, String>): HttpResponse = error("No network in these tests: $url")
     }
 
-    private fun service() = ConfigurationService(FileStorage(dir), offline, appVersion = "1.2.3")
+    private fun service(projectTmdbKey: String = PROJECT_KEY) =
+        ConfigurationService(FileStorage(dir), offline, appVersion = "1.2.3", projectTmdbKey = projectTmdbKey)
 
     @Test
-    fun `a new Household's status shows the app version, one Source, no Extensions and the protocol version`() {
-        assertEquals(Status(appVersion = "1.2.3", sources = 1, extensions = 0, protocolVersion = 1), service().status())
+    fun `a new Household's status shows the app version, the project TMDB key, one Source, no Extensions and the protocol version`() {
+        assertEquals(
+            Status(appVersion = "1.2.3", tmdbKey = TmdbKeyInUse.Project, sources = 1, extensions = 0, protocolVersion = 1),
+            service().status(),
+        )
+    }
+
+    @Test
+    fun `a new Household's Catalogue uses the project TMDB key`() {
+        assertEquals(PROJECT_KEY, service().tmdbSettings().apiKey)
+    }
+
+    @Test
+    fun `a TMDB key set from a computer replaces the project key, survives a restart and is announced`() = runTest {
+        val service = service()
+        val announced = announcementsOf(service)
+
+        assertEquals(WriteOutcome.Ok, service.setTmdbKey("  household-key  ", ChangedFrom.Computer))
+
+        val afterRestart = service()
+        assertEquals("household-key", afterRestart.tmdbSettings().apiKey)
+        assertEquals(TmdbKeyInUse.Override, afterRestart.status().tmdbKey)
+        assertEquals(listOf(ConfigurationChange(ConfigurationChange.Action.TmdbKeySet, sourceName = null, ChangedFrom.Computer)), announced)
+    }
+
+    @Test
+    fun `status says which TMDB key is in use without revealing either`() {
+        val service = service()
+        service.setTmdbKey("household-key", ChangedFrom.Computer)
+
+        val status = service.status().toString()
+
+        assertFalse("household-key" in status, status)
+        assertFalse(PROJECT_KEY in status, status)
+    }
+
+    @Test
+    fun `setting the same TMDB key again is harmless and announces nothing`() = runTest {
+        val service = service()
+        service.setTmdbKey("household-key", ChangedFrom.Computer)
+        val announced = announcementsOf(service)
+
+        assertEquals(WriteOutcome.Ok, service.setTmdbKey("household-key", ChangedFrom.Computer))
+
+        assertEquals(emptyList(), announced)
+    }
+
+    @Test
+    fun `a blank TMDB key is refused and keeps the key in use`() {
+        val service = service()
+        service.setTmdbKey("household-key", ChangedFrom.Computer)
+
+        assertEquals(
+            WriteOutcome.Invalid(WriteOutcome.Problem.BlankTmdbKey, "A TMDB key can't be blank. To go back to the project key, clear the key instead."),
+            service.setTmdbKey(" ", ChangedFrom.Computer),
+        )
+        assertEquals("household-key", service().tmdbSettings().apiKey)
+    }
+
+    @Test
+    fun `clearing the TMDB key goes back to the project key, and clearing it again is harmless`() = runTest {
+        val service = service()
+        service.setTmdbKey("household-key", ChangedFrom.Computer)
+        val announced = announcementsOf(service)
+
+        assertEquals(WriteOutcome.Ok, service.clearTmdbKey(ChangedFrom.Computer))
+        assertEquals(WriteOutcome.Ok, service.clearTmdbKey(ChangedFrom.Computer))
+
+        val afterRestart = service()
+        assertEquals(PROJECT_KEY, afterRestart.tmdbSettings().apiKey)
+        assertEquals(TmdbKeyInUse.Project, afterRestart.status().tmdbKey)
+        assertEquals(listOf(ConfigurationChange(ConfigurationChange.Action.TmdbKeyCleared, sourceName = null, ChangedFrom.Computer)), announced)
+    }
+
+    @Test
+    fun `a build without a project key has no TMDB key until the Household sets one`() {
+        val service = service(projectTmdbKey = "")
+        assertEquals(TmdbKeyInUse.None, service.status().tmdbKey)
+        assertEquals("", service.tmdbSettings().apiKey)
+
+        service.setTmdbKey("household-key", ChangedFrom.Computer)
+        assertEquals(TmdbKeyInUse.Override, service(projectTmdbKey = "").status().tmdbKey)
+
+        service.clearTmdbKey(ChangedFrom.Computer)
+        assertEquals(TmdbKeyInUse.None, service(projectTmdbKey = "").status().tmdbKey)
     }
 
     @Test
@@ -135,6 +220,10 @@ class ConfigurationServiceTest {
 
         assertEquals(unknown, service().enable("jellyfin", ChangedFrom.Computer))
         assertEquals(unknown, service().disable("jellyfin", ChangedFrom.Computer))
+    }
+
+    private companion object {
+        const val PROJECT_KEY = "project-key"
     }
 
     /** Everything [service] announces from now on, as the on-screen notices would see it. */
