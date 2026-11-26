@@ -77,7 +77,7 @@ private val addressCheckClient = OkHttpClient.Builder()
     .build()
 
 private fun Response.addressCheckAnswer(): PlayerEvent.AddressCheckAnswer {
-    if (!isSuccessful) return PlayerEvent.AddressCheckHttpError(code)
+    if (!isSuccessful) return PlayerEvent.AddressCheckHttpError(code, request.url.toString())
     val contentType = header("Content-Type")?.substringBefore(';')?.trim()?.lowercase()
     val delivery = when {
         contentType in HLS_TYPES -> Stream.Delivery.Hls

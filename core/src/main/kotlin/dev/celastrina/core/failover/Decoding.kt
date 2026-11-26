@@ -8,10 +8,9 @@ import kotlin.time.Duration.Companion.seconds
 
 /**
  * Whether this TV can decode the Stream's video. A Stream that doesn't say its codec, or names one Celastrina doesn't
- * recognise, might still play, so it counts as decodable. Unknown delivery stays eligible for an Address check.
+ * recognise, might still play, so it counts as decodable. Delivery does not affect the codec check.
  */
 fun Stream.isDecodableBy(decoders: Decoders): Boolean {
-    if (delivery == Stream.Delivery.Unknown) return true
     val mimeType = videoCodec?.let { VIDEO_MIME_TYPES[it.lowercase()] } ?: return true
     return decoders.canDecode(mimeType)
 }

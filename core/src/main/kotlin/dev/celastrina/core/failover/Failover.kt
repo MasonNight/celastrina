@@ -18,7 +18,7 @@ import kotlin.time.Duration.Companion.seconds
  *
  * Candidates are the [Lookup]'s Streams this TV can decode, in the Household's Source order and then each Source's own
  * ranking; quality isn't compared across Sources, and Streams that failed on this TV in the last 24 hours ([memory])
- * go last. Each Stream is tried at most once per session. HTTP 429 and 503 skip the Stream's host for this session.
+ * go last. Each Stream is tried at most once per session. HTTP 429 and 503 skip the Stream's original and resolved hosts for this session.
  * Permanent failures are remembered in [memory]. Give it every newer Lookup with [lookupChanged], so Streams that
  * arrive late join the candidates.
  *
@@ -52,7 +52,14 @@ class Failover(
 
     /** The upcoming unknown Candidates the adapter may check while [playing] loads. */
     val backgroundAddressChecks: List<Stream>
-        get() = if (playing == null || stream.firstFrameShown) emptyList() else backgroundCandidates.filter { canTry(it) && it !in checkedCandidates }
+        get() {
+            if (playing == null || stream.firstFrameShown) return emptyList()
+            return candidates().asSequence()
+                .filter { it.delivery == Stream.Delivery.Unknown && canTry(it) && it !in checkedCandidates }
+                .distinctBy { it.key }
+                .take(BACKGROUND_ADDRESS_CHECK_LIMIT)
+                .toList()
+        }
 
     /** Where [playing] should start, in milliseconds into the Title. */
     var startAtMillis: Long = startAtMillis
@@ -70,6 +77,7 @@ class Failover(
     var notice: FailoverNotice? = null
         private set
 
+    private var currentCandidate = chosen
     private var onHouseholdsChoice = handPicked
     private val tried = mutableSetOf(chosen.key)
     private val skippedHosts = mutableSetOf<String>()
@@ -89,7 +97,6 @@ class Failover(
     private var askedAgainAtMillis: Long? = null
     private var gaveUp = false
     private val checkedCandidates = mutableMapOf<Stream, Stream>()
-    private var backgroundCandidates = nominateBackgroundCandidates(candidates())
 
     /** Tells Failover what the player just did. Returns what to do next, or null to carry on. */
     fun on(event: PlayerEvent): FailoverStep? {
@@ -109,14 +116,14 @@ class Failover(
         val current = playing ?: return if (event is PlayerEvent.Position) giveUpIfNoPlayback(now) else null
         if (addressCheck != null) {
             giveUpIfNoPlayback(now)?.let { return it }
-            if (event == PlayerEvent.AddressCheckTimedOut || now - chosenAtMillis >= ADDRESS_CHECK_LIMIT.inWholeMilliseconds) {
-                return fail(current, StreamFailure.AddressCheckTimeout)
+            val answer = if (now - chosenAtMillis >= ADDRESS_CHECK_LIMIT.inWholeMilliseconds) {
+                PlayerEvent.AddressCheckTimedOut
+            } else {
+                event as? PlayerEvent.AddressCheckAnswer ?: return null
             }
-            return when (event) {
-                is PlayerEvent.AddressChecked -> playChecked(current.copy(url = event.url, delivery = event.delivery), now)
-                is PlayerEvent.AddressCheckHttpError -> fail(current, StreamFailure.Fault(PlayerFault.Http(event.status)))
-                PlayerEvent.AddressCheckUnavailable -> playChecked(current, now)
-                else -> null
+            return when (val result = answer.translate(current)) {
+                is CheckedAddress.Ready -> playChecked(result.stream, now)
+                is CheckedAddress.Failed -> fail(result.stream, result.reason)
             }
         }
         if (event is PlayerEvent.AddressCheckAnswer) return null
@@ -137,40 +144,56 @@ class Failover(
         val candidate = event.candidate
         if (candidate !in backgroundAddressChecks) return null
         giveUpIfNoPlayback(now)?.let { return it }
-        val failure = when (val answer = event.answer) {
-            is PlayerEvent.AddressCheckHttpError -> StreamFailure.Fault(PlayerFault.Http(answer.status))
-            PlayerEvent.AddressCheckTimedOut -> StreamFailure.AddressCheckTimeout
-            is PlayerEvent.AddressChecked -> {
-                checkedCandidates[candidate] = candidate.copy(url = answer.url, delivery = answer.delivery)
-                logger.info("Failover: Background Address check settled delivery as ${answer.delivery}")
-                return null
+        when (val result = event.answer.translate(candidate)) {
+            is CheckedAddress.Ready -> {
+                checkedCandidates[candidate] = result.stream
+                if (event.answer == PlayerEvent.AddressCheckUnavailable) {
+                    logger.info("Failover: Background Address check unavailable")
+                } else {
+                    logger.info("Failover: Background Address check settled delivery as ${result.stream.delivery}")
+                }
             }
-            PlayerEvent.AddressCheckUnavailable -> {
-                checkedCandidates[candidate] = candidate
-                logger.info("Failover: Background Address check unavailable")
-                return null
+            is CheckedAddress.Failed -> {
+                tried += candidate.key
+                val failed = Failed(result.stream, result.reason, handPicked = false)
+                recordFailure(failed, "Background Address check", candidate.host)
+                if (!failed.isPassing) askAgainIfOld(now)
             }
         }
-        tried += candidate.key
-        val failed = Failed(candidate, failure, handPicked = false)
-        recordFailure(failed, "Background Address check")
-        if (!failed.isPassing) askAgainIfOld(now)
         return null
+    }
+
+    private fun PlayerEvent.AddressCheckAnswer.translate(candidate: Stream): CheckedAddress = when (this) {
+        is PlayerEvent.AddressChecked -> CheckedAddress.Ready(candidate.copy(url = url, delivery = delivery))
+        is PlayerEvent.AddressCheckHttpError -> CheckedAddress.Failed(
+            candidate.copy(url = url ?: candidate.url),
+            StreamFailure.Fault(PlayerFault.Http(status)),
+        )
+        PlayerEvent.AddressCheckTimedOut -> CheckedAddress.Failed(candidate, StreamFailure.AddressCheckTimeout)
+        PlayerEvent.AddressCheckUnavailable -> CheckedAddress.Ready(candidate)
+    }
+
+    private sealed interface CheckedAddress {
+        data class Ready(val stream: Stream) : CheckedAddress
+        data class Failed(val stream: Stream, val reason: StreamFailure) : CheckedAddress
     }
 
     private fun fail(current: Stream, failure: StreamFailure): FailoverStep? {
         val failed = Failed(current, failure, onHouseholdsChoice)
         onHouseholdsChoice = false
-        recordFailure(failed, "Stream")
+        recordFailure(failed, "Stream", currentCandidate.host)
         return next(failed)
     }
 
-    private fun recordFailure(failed: Failed, subject: String) {
+    private fun recordFailure(failed: Failed, subject: String, originalHost: String? = null) {
         failures += failed
         val classification = if (failed.isPassing) "passing" else "permanent"
         val detail = failed.httpStatus?.let { "HTTP $it" } ?: "HTTP status unavailable, ${failed.reason}"
         logger.info("Failover: $subject failed ($classification, $detail)")
-        if (failed.skipsHost) failed.stream.host?.let { skippedHosts += it }
+        if (failed.skipsHost) {
+            failed.stream.host?.let { skippedHosts += it }
+            originalHost?.let { skippedHosts += it }
+        }
         if (!failed.isPassing) memory.demote(failed.stream)
     }
 
@@ -186,11 +209,9 @@ class Failover(
         if (gaveUp) return null
         this.lookup = lookup
         waitingAfter?.let { return next(it) }
-        val candidates = candidates()
-        backgroundCandidates = nominateBackgroundCandidates(candidates, backgroundCandidates.filter { it in candidates })
         val currentNotice = notice ?: return null
         val progress = currentNotice.next as? FailoverNotice.Next.Trying ?: return null
-        notice = currentNotice.copy(next = progress.copy(known = knownCandidateCount(candidates)))
+        notice = currentNotice.copy(next = progress.copy(known = knownCandidateCount(candidates())))
         return null
     }
 
@@ -204,9 +225,9 @@ class Failover(
         return when {
             next != null -> {
                 tried += next.key
-                backgroundCandidates = nominateBackgroundCandidates(candidates)
                 val checked = checkedCandidates[next]
                 val toPlay = checked ?: next
+                currentCandidate = next
                 playing = toPlay
                 addressCheck = next.takeIf { checked == null && it.delivery == Stream.Delivery.Unknown }
                 chosenAtMillis = now
@@ -276,13 +297,8 @@ class Failover(
 
     private fun candidates(): List<Stream> = lookup.candidates(decoders, memory)
 
-    private fun canTry(candidate: Stream) = candidate.key !in tried && candidate.host !in skippedHosts
-
-    private fun nominateBackgroundCandidates(candidates: List<Stream>, alreadyNominated: List<Stream> = emptyList()): List<Stream> =
-        (alreadyNominated.asSequence() + candidates.asSequence().filter { it.delivery == Stream.Delivery.Unknown && canTry(it) })
-            .distinctBy { it.key }
-            .take(BACKGROUND_ADDRESS_CHECK_LIMIT)
-            .toList()
+    private fun canTry(candidate: Stream) = candidate.key !in tried && candidate.host !in skippedHosts &&
+        checkedCandidates[candidate]?.host !in skippedHosts
 
     private fun knownCandidateCount(candidates: List<Stream>): Int = (tried + candidates.map { it.key }).size
 
@@ -378,8 +394,8 @@ sealed interface PlayerEvent {
     /** The Address check settled the Stream's final address and delivery. */
     data class AddressChecked(val url: String, val delivery: Stream.Delivery) : AddressCheckAnswer
 
-    /** The Stream's server answered the Address check with an HTTP error. */
-    data class AddressCheckHttpError(val status: Int) : AddressCheckAnswer
+    /** The Address check received an HTTP error at [url], if the final address is known. */
+    data class AddressCheckHttpError(val status: Int, val url: String? = null) : AddressCheckAnswer
 
     /** The server took too long to answer the Address check. */
     data object AddressCheckTimedOut : AddressCheckAnswer

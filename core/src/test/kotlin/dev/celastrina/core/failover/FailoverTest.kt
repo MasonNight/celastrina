@@ -71,6 +71,34 @@ class FailoverTest {
     }
 
     @Test
+    fun `background Address checks follow the current Candidate order as Sources answer and checks finish`() {
+        val first = movieNight.stream("first").copy(delivery = Stream.Delivery.Unknown)
+        val second = movieNight.stream("second").copy(delivery = Stream.Delivery.Unknown)
+        val third = archive.stream("third").copy(delivery = Stream.Delivery.Unknown)
+        val fourth = archive.stream("fourth").copy(delivery = Stream.Delivery.Unknown)
+        val fifth = archive.stream("fifth").copy(delivery = Stream.Delivery.Unknown)
+        val failover = playing(
+            archiveMp4,
+            lookup(movieNight to null, archive to listOf(archiveMp4, third, fourth, fifth)),
+            started = false,
+        )
+        assertEquals(listOf(third, fourth), failover.backgroundAddressChecks)
+
+        val updated = lookup(movieNight to listOf(first, second), archive to listOf(archiveMp4, third, fourth, fifth))
+        assertNull(failover.lookupChanged(updated))
+        assertEquals(listOf(first, second), failover.backgroundAddressChecks)
+
+        assertNull(failover.on(PlayerEvent.CandidateAddressChecked(first, PlayerEvent.AddressCheckHttpError(404))))
+        assertEquals(listOf(second, third), failover.backgroundAddressChecks)
+        val answer = PlayerEvent.AddressChecked("https://video.example/watch", Stream.Delivery.Hls)
+        assertNull(failover.on(PlayerEvent.CandidateAddressChecked(third, answer)))
+        assertEquals(listOf(second, fourth), failover.backgroundAddressChecks)
+
+        assertSwitchedTo(second, failover.failUnstarted())
+        assertEquals(listOf(fourth, fifth), failover.backgroundAddressChecks)
+    }
+
+    @Test
     fun `Failover skips Candidates found dead while the current Stream loads and remembers only permanent failures`() {
         val permanent = nightly720.copy(delivery = Stream.Delivery.Unknown)
         val passing = archiveMp4.copy(delivery = Stream.Delivery.Unknown)
@@ -83,7 +111,7 @@ class FailoverTest {
             assertEquals(setOf(permanent, passing), checks.toSet())
             assertNull(failover.on(PlayerEvent.CandidateAddressChecked(permanent, PlayerEvent.AddressCheckHttpError(404))))
             assertNull(failover.on(PlayerEvent.CandidateAddressChecked(passing, answer)))
-            assertTrue(failover.backgroundAddressChecks.isEmpty())
+            assertEquals(listOf(next), failover.backgroundAddressChecks)
             assertEquals(listOf(permanent), lookup.candidates(everythingDecodes, memory).takeLast(1))
 
             val expected = if (answer == PlayerEvent.AddressCheckTimedOut) archiveOgv else next
@@ -176,9 +204,10 @@ class FailoverTest {
         for (status in listOf(429, 503, 404)) {
             val checked = nightly1080.copy(id = "checked-$status", delivery = Stream.Delivery.Unknown)
             val sameHost = nightly720.copy(id = "same-$status")
-            val lookup = lookup(movieNight to listOf(checked, sameHost), archive to listOf(archiveMp4))
+            val redirectedHost = archiveOgv.copy(url = "https://video.example/other")
+            val lookup = lookup(movieNight to listOf(checked, sameHost), archive to listOf(redirectedHost, archiveMp4))
             val failover = playing(checked, lookup, started = false)
-            val next = failover.on(PlayerEvent.AddressCheckHttpError(status))
+            val next = failover.on(PlayerEvent.AddressCheckHttpError(status, "https://video.example/watch"))
 
             if (status == 404) {
                 assertSwitchedTo(sameHost, next)
@@ -189,6 +218,39 @@ class FailoverTest {
             }
             assertEquals(StreamFailure.Fault(PlayerFault.Http(status)), next.notice.reason)
         }
+    }
+
+    @Test
+    fun `a redirected Stream's passing HTTP failure skips both servers for this playback`() {
+        val unknown = nightly1080.copy(delivery = Stream.Delivery.Unknown)
+        val redirectedHost = archiveMp4.copy(url = "https://video.example/other")
+        val lookup = lookup(movieNight to listOf(unknown, nightly720), archive to listOf(redirectedHost, archiveOgv))
+
+        for (status in listOf(429, 503)) {
+            val failover = playing(unknown, lookup, started = false)
+            failover.on(PlayerEvent.AddressChecked("https://video.example/watch", Stream.Delivery.Hls))
+
+            assertSwitchedTo(archiveOgv, failover.failUnstarted(PlayerFault.Http(status)))
+            assertEquals(unknown, lookup.candidates(everythingDecodes, memory).first())
+        }
+    }
+
+    @Test
+    fun `a background HTTP failure also skips Candidates already checked on its resolved host`() {
+        val passing = nightly720.copy(delivery = Stream.Delivery.Unknown)
+        val sameOrigin = movieNight.stream("same-origin")
+        val alreadyChecked = archiveMp4.copy(delivery = Stream.Delivery.Unknown)
+        val lookup = lookup(
+            movieNight to listOf(nightly1080, passing, sameOrigin),
+            archive to listOf(alreadyChecked, archiveOgv),
+        )
+        val failover = playing(nightly1080, lookup, started = false)
+        val resolved = PlayerEvent.AddressChecked("https://video.example/live", Stream.Delivery.Hls)
+        assertNull(failover.on(PlayerEvent.CandidateAddressChecked(alreadyChecked, resolved)))
+        val busy = PlayerEvent.AddressCheckHttpError(503, "https://video.example/busy")
+        assertNull(failover.on(PlayerEvent.CandidateAddressChecked(passing, busy)))
+
+        assertSwitchedTo(archiveOgv, failover.failUnstarted())
     }
 
     @Test
@@ -267,11 +329,13 @@ class FailoverTest {
     }
 
     @Test
-    fun `a Stream with unknown delivery remains a Candidate until its address is checked`() {
-        val unknown = friendsHevc.copy(delivery = Stream.Delivery.Unknown)
-        val lookup = lookup(friends to listOf(unknown), movieNight to listOf(nightly1080))
+    fun `unknown delivery keeps a Stream eligible only if its codec can play`() {
+        val unsupported = friendsHevc.copy(delivery = Stream.Delivery.Unknown)
+        val supported = nightly1080.copy(delivery = Stream.Delivery.Unknown)
+        val noCodec = nightly720.copy(delivery = Stream.Delivery.Unknown, videoCodec = null)
+        val lookup = lookup(friends to listOf(unsupported), movieNight to listOf(supported, noCodec))
 
-        assertEquals(listOf(unknown, nightly1080), lookup.candidates(Decoders { it == "video/avc" }, memory))
+        assertEquals(listOf(supported, noCodec), lookup.candidates(Decoders { it == "video/avc" }, memory))
     }
 
     @Test
@@ -576,7 +640,7 @@ class FailoverTest {
         val failover = playing(nightly1080, lookup(movieNight to listOf(nightly1080), archive to listOf(archiveMp4)))
         failover.report(3.seconds)
 
-        assertEquals(0, (failover.fail() as FailoverStep.Switch).startAtMillis)
+        assertEquals(0, failover.fail().startAtMillis)
     }
 
     @Test

@@ -140,10 +140,16 @@ _Avoid_: Option, alternative, backup
 Playback stopping to wait for data after its first picture, other than after a pause or a seek.
 _Avoid_: Freeze, hang, lag
 
+**Passing failure**:
+A Stream failure caused by a rate limit (HTTP 429), a temporarily unavailable server (HTTP 503), or an Address check
+timeout. Failover skips the Stream for this playback.
+
+**Permanent failure**:
+Any other Stream failure. Failover memory moves the Stream to the end of the Candidate order for 24 hours.
+
 **Failover memory**:
-What the TV remembers of the Streams that failed for good on it in the past 24 hours, which go last among the
-candidates. A Stream that was rate limited, temporarily unavailable or too slow to answer its Address check is skipped
-for that playback only, along with its server's other Streams when it was rate limited.
+What the TV remembers of Permanent failures in the past 24 hours, so those Streams go last among the Candidates.
+Passing failures apply only to the current playback. HTTP 429 or 503 also skips the server's other Streams for that playback.
 _Avoid_: Blacklist, ban list, history
 
 **Give up**:
