@@ -52,6 +52,10 @@ scan() {
 
 connect() {
   local ip
+  command -v adb >/dev/null || {
+    echo 'adb is missing from PATH. Add Android SDK platform-tools (usually $ANDROID_HOME/platform-tools or %LOCALAPPDATA%/Android/Sdk/platform-tools on Windows).' >&2
+    return 1
+  }
   if [ -n "${CELASTRINA_ADB_SERIAL:-}" ]; then echo "$CELASTRINA_ADB_SERIAL"; return; fi
   ip="$(cat "$ADDRESS_FILE" 2>/dev/null || true)"
   if [ -n "$ip" ] && try_address "$ip"; then echo "$ip:5555"; return; fi
@@ -148,6 +152,13 @@ start_app() {
   adb -s "$serial" shell am start -W "$@" -n "$PACKAGE/$ACTIVITY"
 }
 
+require_python() {
+  command -v python3 >/dev/null || {
+    echo 'python3 is missing from PATH. Add the Python 3 executable directory (usually /usr/bin on Linux or the Python installation directory in Git Bash).' >&2
+    return 1
+  }
+}
+
 save_screenshot() {
   local serial="$1" out="$2"
   # Fire OS can print a warning before the PNG signature.
@@ -218,10 +229,18 @@ smoke_title() {
 }
 
 smoke() {
-  local serial="$1" folder="$2" result=0
+  local serial="$1" folder="$2" result=0 clear_result clear_status=0
   mkdir -p "$folder"
-  if [ "$(adb -s "$serial" shell pm clear "$PACKAGE" | tr -d '\r')" != Success ]; then
-    echo "Could not clear $PACKAGE on $serial. Install the debug APK first." >&2
+  clear_result="$(adb -s "$serial" shell pm clear "$PACKAGE" 2>&1)" || clear_status=$?
+  clear_result="${clear_result//$'\r'/}"
+  if (( clear_status )) || [[ $'\n'"$clear_result"$'\n' != *$'\nSuccess\n'* ]]; then
+    echo "Could not clear $PACKAGE on $serial." >&2
+    if [ -n "$clear_result" ]; then printf '%s\n' "$clear_result" >&2; fi
+    case "$clear_result" in
+      *"Unknown package: $PACKAGE"*|*[Pp]"ackage $PACKAGE not found"*|*[Pp]"ackage $PACKAGE is not installed"*)
+        echo 'Install the debug APK first.' >&2
+        ;;
+    esac
     return 1
   fi
   configure_smoke "$serial"
@@ -272,6 +291,7 @@ case "${1:-}" in
       grep -E 'AndroidRuntime|/Celastrina|ExoPlayerImpl|PlaybackException|Remote button pressed' || echo "Nothing logged since the last launch."
     ;;
   screenshot)
+    require_python
     serial="$(connect)"
     lock_device "$serial"
     wake "$serial"
@@ -284,6 +304,7 @@ case "${1:-}" in
     [[ "${CELASTRINA_ADB_SERIAL:-}" =~ ^emulator-[0-9]+$ ]] ||
       { echo "Smoke requires an emulator serial in CELASTRINA_ADB_SERIAL." >&2; exit 2; }
     : "${CELASTRINA_NOTORRENT_MANIFEST:?Set the notorrent manifest URL before running smoke.}"
+    require_python
     serial="$(connect)"
     lock_device "$serial"
     smoke "$serial" "$2"

@@ -2,6 +2,8 @@
 
 Use the `celastrina-tv2` Android TV emulator (API 28), serial `emulator-5554`. Drive it with `scripts/tv.sh` or `adb -s emulator-5554`. Use the T3 Device panel to view it.
 
+In Git Bash, put Android SDK platform-tools (`adb`) and `python3` on `PATH`.
+
 - Start with `powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\mason\.config\celastrina\start-tv-emulator.ps1`. Add `-NoWindow` for headless use.
 - In Git Bash, export `CELASTRINA_ADB_SERIAL=emulator-5554` and install the debug APK with `scripts/tv.sh install`.
 - Check playback with `scripts/tv.sh smoke <folder>`. Set `CELASTRINA_NOTORRENT_MANIFEST` to the notorrent manifest URL. Smoke clears debug app data, adds the Source again and saves screenshots in the folder.
