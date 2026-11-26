@@ -8,6 +8,14 @@ or a networked build box except as a secret of the `release` environment, which 
 These steps are the maintainer's to do by hand, once. Agents must not generate the key, create the environment or its
 secrets, or push tags.
 
+`scripts/release-setup.sh` walks the maintainer through sections 1 to 4 interactively: it makes the repository public,
+generates the key, checks both backups, writes the fingerprint into `README.md` and `INSTALL.md`, creates the
+environment, its `v*` tag rule and a `v*` tag ruleset, sets the five secrets, and deletes the key from the machine it ran
+on. Run it yourself in a terminal; it refuses to make a second key once the README records one.
+
+Environment secrets, deployment tag rules and rulesets need a public repository on GitHub Free (or GitHub Pro for a
+private one). Without them the signing key would be a repository secret that any branch's workflow could read.
+
 ## 1. Generate the key, offline
 
 On a machine that is offline (or at least not shared), with a JDK 17 `keytool`:
