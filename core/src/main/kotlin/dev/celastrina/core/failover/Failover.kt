@@ -26,7 +26,8 @@ import kotlin.time.Duration.Companion.seconds
  * again in the background (see [dev.celastrina.core.source.StreamLookup.watch]) while the Streams already known are
  * still tried. It gives up when the candidates run out or the time without playback reaches [NO_PLAYBACK_LIMIT].
  *
- * The player adapter shows [playing] from [startAtMillis], reports what the player does with [on] (its position about
+ * The player adapter checks [addressCheck] when present, otherwise shows [playing] from [startAtMillis].
+ * It reports what the player does with [on] (its position about
  * every second, which is also when the timing rules are checked, even while Failover waits for Sources), and carries out
  * each [FailoverStep] it gets back.
  */
@@ -41,8 +42,12 @@ class Failover(
     private val askSourcesAgain: () -> Unit,
     startAtMillis: Long = 0,
 ) {
-    /** The Stream the player should be showing; null while Failover is waiting for Streams or has given up. */
+    /** The current Stream; null while Failover is waiting for Streams or has given up. */
     var playing: Stream? = chosen
+        private set
+
+    /** The Stream the adapter must check before starting playback, if any. */
+    var addressCheck: Stream? = chosen.takeIf { it.delivery == Stream.Delivery.Unknown }
         private set
 
     /** Where [playing] should start, in milliseconds into the Title. */
@@ -60,7 +65,8 @@ class Failover(
     private var onHouseholdsChoice = handPicked
     private val tried = mutableSetOf(chosen.key)
     private val skippedHosts = mutableSetOf<String>()
-    private var stream = StreamWatch(clock.nowMillis())
+    private var chosenAtMillis = clock.nowMillis()
+    private var stream = StreamWatch(chosenAtMillis)
 
     /** What failed last while Failover waits for Sources still being asked, so the notice can name it. */
     private var waitingAfter: Failed? = null
@@ -80,6 +86,19 @@ class Failover(
         if (gaveUp) return null
         val now = clock.nowMillis()
         val current = playing ?: return if (event is PlayerEvent.Position) giveUpIfNoPlayback(now) else null
+        if (addressCheck != null) {
+            giveUpIfNoPlayback(now)?.let { return it }
+            if (event == PlayerEvent.AddressCheckTimedOut || now - chosenAtMillis >= ADDRESS_CHECK_LIMIT.inWholeMilliseconds) {
+                return fail(current, StreamFailure.AddressCheckTimeout)
+            }
+            return when (event) {
+                is PlayerEvent.AddressChecked -> playChecked(current.copy(url = event.url, delivery = event.delivery), now)
+                is PlayerEvent.AddressCheckHttpError -> fail(current, StreamFailure.Fault(PlayerFault.Http(event.status)))
+                PlayerEvent.AddressCheckUnavailable -> playChecked(current, now)
+                else -> null
+            }
+        }
+        if (event is PlayerEvent.AddressCheckAnswer) return null
         if (event is PlayerEvent.Position && stream.firstFrameShown) positionMillis = event.millis
         if (event == PlayerEvent.FirstFrame) worked = current
         val failure = stream.on(event, now)
@@ -87,18 +106,26 @@ class Failover(
             if (stream.isPlaying) lastPlaybackAtMillis = now
             return giveUpIfNoPlayback(now)
         }
+        return fail(current, failure)
+    }
+
+    private fun fail(current: Stream, failure: StreamFailure): FailoverStep? {
         val failed = Failed(current, failure, onHouseholdsChoice)
         onHouseholdsChoice = false
         failures += failed
         val classification = if (failed.isPassing) "passing" else "permanent"
         val detail = failed.httpStatus?.let { "HTTP $it" } ?: "HTTP status unavailable, $failure"
         logger.info("Failover: Stream failed ($classification, $detail)")
-        if (failed.isPassing) {
-            current.host?.let { skippedHosts += it }
-        } else {
-            memory.demote(current)
-        }
+        if (failed.skipsHost) current.host?.let { skippedHosts += it }
+        if (!failed.isPassing) memory.demote(current)
         return next(failed)
+    }
+
+    private fun playChecked(checked: Stream, now: Long): FailoverStep.Play {
+        addressCheck = null
+        playing = checked
+        stream = StreamWatch(now)
+        return FailoverStep.Play(checked, startAtMillis)
     }
 
     /** Tells Failover the Lookup has moved on. Returns a step only when Failover was waiting for Streams. */
@@ -119,6 +146,8 @@ class Failover(
             next != null -> {
                 tried += next.key
                 playing = next
+                addressCheck = next.takeIf { it.delivery == Stream.Delivery.Unknown }
+                chosenAtMillis = now
                 startAtMillis = (positionMillis - RESUME_BEFORE_FAILURE).coerceAtLeast(0)
                 stream = StreamWatch(now)
                 waitingAfter = null
@@ -126,6 +155,7 @@ class Failover(
             }
             !lookup.isFinished || isAskingAgain() -> {
                 playing = null
+                addressCheck = null
                 if (waitingAfter != null) return null
                 waitingAfter = failed
                 FailoverStep.Waiting(notice(failed, FailoverNotice.Next.WaitingForSources))
@@ -154,6 +184,7 @@ class Failover(
     private fun giveUp(because: GiveUpReason): FailoverStep.GaveUp {
         gaveUp = true
         playing = null
+        addressCheck = null
         waitingAfter = null
         logger.info("Failover gave up ($because) after ${failures.size} failed Streams")
         return FailoverStep.GaveUp(because, summary())
@@ -192,10 +223,11 @@ class Failover(
 
     private class Failed(val stream: Stream, val reason: StreamFailure, val handPicked: Boolean) {
         val httpStatus = ((reason as? StreamFailure.Fault)?.fault as? PlayerFault.Http)?.status
-        val isPassing = httpStatus == 429 || httpStatus == 503
+        val skipsHost = httpStatus == 429 || httpStatus == 503
+        val isPassing = skipsHost || reason == StreamFailure.AddressCheckTimeout
     }
 
-    /** The rules for when one Stream counts as not working, from the moment it was chosen. */
+    /** The rules for when one Stream counts as not working, from the moment it was ready to play. */
     private class StreamWatch(private val chosenAtMillis: Long) {
         var firstFrameShown = false
             private set
@@ -231,6 +263,7 @@ class Failover(
                 }
                 is PlayerEvent.Failed -> return StreamFailure.Fault(event.fault)
                 is PlayerEvent.Position -> Unit
+                is PlayerEvent.AddressCheckAnswer -> Unit
             }
             if (!firstFrameShown && now - chosenAtMillis >= FIRST_FRAME_WITHIN.inWholeMilliseconds) return StreamFailure.NoFirstFrame
             val stallStarted = stallStartedAtMillis
@@ -240,13 +273,14 @@ class Failover(
     }
 
     companion object {
+        val ADDRESS_CHECK_LIMIT = 10.seconds
         private val FIRST_FRAME_WITHIN = 15.seconds
+        val NO_PLAYBACK_LIMIT = 90.seconds
         private val LONGEST_STALL = 20.seconds
         private const val STALLS_IN_WINDOW = 3
         private val STALL_WINDOW = 2.minutes
         private val RESUME_BEFORE_FAILURE = 5.seconds.inWholeMilliseconds
         private val STREAM_LIST_FRESH_FOR = 30.minutes.inWholeMilliseconds
-        val NO_PLAYBACK_LIMIT = 90.seconds
     }
 }
 
@@ -261,6 +295,20 @@ private val Stream.host: String?
 
 /** What the player adapter reports. Media3 has already retried loading before it reports [Failed]. */
 sealed interface PlayerEvent {
+    sealed interface AddressCheckAnswer : PlayerEvent
+
+    /** The Address check settled the Stream's final address and delivery. */
+    data class AddressChecked(val url: String, val delivery: Stream.Delivery) : AddressCheckAnswer
+
+    /** The Stream's server answered the Address check with an HTTP error. */
+    data class AddressCheckHttpError(val status: Int) : AddressCheckAnswer
+
+    /** The server took too long to answer the Address check. */
+    data object AddressCheckTimedOut : AddressCheckAnswer
+
+    /** The Address check could not settle the Stream, so let the player try it as offered. */
+    data object AddressCheckUnavailable : AddressCheckAnswer
+
     /** The Stream's first picture is on screen. */
     data object FirstFrame : PlayerEvent
 
@@ -301,7 +349,10 @@ sealed interface PlayerFault {
 
 /** Why Failover counted a Stream as not working. */
 sealed interface StreamFailure {
-    /** No first frame within 15 s of the Stream being chosen. */
+    /** The Address check did not finish within 10 s. */
+    data object AddressCheckTimeout : StreamFailure
+
+    /** No first frame within 15 s of the Stream being ready to play. */
     data object NoFirstFrame : StreamFailure
 
     /** A stall over 20 s. */
@@ -316,8 +367,11 @@ sealed interface StreamFailure {
 /** What the player must do now that a Stream has failed. */
 sealed interface FailoverStep {
 
-    /** Play [stream] from [startAtMillis], about 5 s before the failure point, and show [notice]. */
+    /** Switch to [stream], checking its address if requested, and show [notice]. */
     data class Switch(val stream: Stream, val startAtMillis: Long, val notice: FailoverNotice) : FailoverStep
+
+    /** The Address check finished and the player can start [stream] from [startAtMillis]. */
+    data class Play(val stream: Stream, val startAtMillis: Long) : FailoverStep
 
     /**
      * Nothing left to try yet, but Sources are still being asked; their Streams will come through

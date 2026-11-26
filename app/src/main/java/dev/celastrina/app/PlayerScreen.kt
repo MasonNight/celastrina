@@ -5,7 +5,6 @@ import androidx.annotation.OptIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -92,7 +91,9 @@ private fun PlaybackSession(
             startAtMillis = request.startAtMillis,
         )
     }
-    var playback by remember { mutableStateOf(Playback(request.stream, request.startAtMillis)) }
+    var playback by remember {
+        mutableStateOf<Playback?>(Playback(request.stream, request.startAtMillis, checkAddress = failover.addressCheck != null))
+    }
     var step by remember { mutableStateOf<FailoverStep?>(null) }
     var durationMillis by remember { mutableStateOf<Long?>(null) }
     fun saveProgress() {
@@ -101,9 +102,18 @@ private fun PlaybackSession(
         continueWatching.save(watching, worked, failover.positionMillis, durationMillis)
     }
     fun take(next: FailoverStep?) {
-        next ?: return
-        step = next
-        if (next is FailoverStep.Switch) playback = Playback(next.stream, next.startAtMillis)
+        when (next) {
+            null -> Unit
+            is FailoverStep.Play -> playback = Playback(next.stream, next.startAtMillis, checkAddress = false)
+            is FailoverStep.Switch -> {
+                step = next
+                playback = Playback(next.stream, next.startAtMillis, checkAddress = failover.addressCheck != null)
+            }
+            is FailoverStep.Waiting, is FailoverStep.GaveUp -> {
+                step = next
+                playback = null
+            }
+        }
     }
 
     LaunchedEffect(failover) { request.lookup.lookups.filterNotNull().collect { take(failover.lookupChanged(it)) } }
@@ -117,37 +127,38 @@ private fun PlaybackSession(
         return
     }
 
-    // A new player for each Stream tried, since each sends its own headers. Making one may first ask the Stream's
-    // server what it serves (see playbackAddress). The player is released as soon as another Stream is chosen or the
-    // player is left, even before a recomposition shows it.
+    // Each attempt either checks the address or owns a player with its Stream's headers.
     var player by remember { mutableStateOf<ExoPlayer?>(null) }
-    LaunchedEffect(playback) {
-        player = null
-        val made = newPlayer(context, playback.stream, playback.startAtMillis)
+    val attempt = playback
+    LaunchedEffect(attempt) {
+        attempt ?: return@LaunchedEffect
+        if (attempt.checkAddress) {
+            val answer = attempt.stream.checkAddress()
+            if (playback === attempt) take(failover.on(answer))
+            return@LaunchedEffect
+        }
+        val made = newPlayer(context, attempt.stream, attempt.startAtMillis)
+        val events = Media3FailoverEvents(made) { if (playback === attempt) take(failover.on(it)) }
+        made.addListener(events)
         player = made
         try {
             awaitCancellation()
         } finally {
+            made.removeListener(events)
+            if (player === made) player = null
             made.release()
-        }
-    }
-    DisposableEffect(player) {
-        val current = player ?: return@DisposableEffect onDispose {}
-        val events = Media3FailoverEvents(current) { take(failover.on(it)) }
-        current.addListener(events)
-        onDispose {
             saveProgress()
-            current.removeListener(events)
         }
     }
-    // Failover's clock runs from the moment a Stream is chosen, so it hears the time while the player is being made too.
-    LaunchedEffect(playback) {
+    // Ticks also reach Failover during the Address check and while waiting for Sources.
+    LaunchedEffect(attempt) {
         var seconds = 0
         while (true) {
             delay(1_000)
+            if (playback !== attempt) return@LaunchedEffect
             val current = player
             current?.duration?.takeIf { it != C.TIME_UNSET && it > 0 }?.let { durationMillis = it }
-            take(failover.on(PlayerEvent.Position(current?.currentPosition ?: playback.startAtMillis)))
+            take(failover.on(PlayerEvent.Position(current?.currentPosition ?: failover.startAtMillis)))
             if (++seconds % SAVE_EVERY_SECONDS == 0) saveProgress()
         }
     }
@@ -180,39 +191,42 @@ private fun FailoverNotice(step: FailoverStep, onGone: () -> Unit) {
             CornerNotice(step.notice.text)
         }
         is FailoverStep.Waiting -> CornerNotice(step.notice.text)
-        is FailoverStep.GaveUp -> Unit
+        is FailoverStep.Play, is FailoverStep.GaveUp -> Unit
     }
 }
 
-private data class Playback(val stream: Stream, val startAtMillis: Long)
+private data class Playback(val stream: Stream, val startAtMillis: Long, val checkAddress: Boolean)
 
 /** How often Continue watching saves where playback has got to. */
 private const val SAVE_EVERY_SECONDS = 10
 
 /**
- * A player already playing [stream] from [startAtMillis]. It first finds the Stream's [PlaybackAddress], which may ask
- * its server, so call it from the main thread's coroutines: the player belongs to the thread it is made on.
+ * A player already playing [stream] from [startAtMillis]. Create it on the main thread, which owns the player.
  */
 @OptIn(UnstableApi::class)
-internal suspend fun newPlayer(context: android.content.Context, stream: Stream, startAtMillis: Long): ExoPlayer {
+internal fun newPlayer(context: android.content.Context, stream: Stream, startAtMillis: Long): ExoPlayer {
     // The Stream's headers (a token, a Referer) go with every request, its subtitles' included.
     val http = DefaultHttpDataSource.Factory()
         .setAllowCrossProtocolRedirects(true)
         .setDefaultRequestProperties(stream.headers)
-    val address = stream.playbackAddress(http)
     return ExoPlayer.Builder(context)
         .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, http)))
         .build()
         .apply {
-            setMediaItem(stream.toMediaItem(address), startAtMillis)
+            setMediaItem(stream.toMediaItem(), startAtMillis)
             prepare()
             playWhenReady = true
         }
 }
 
-private fun Stream.toMediaItem(address: PlaybackAddress): MediaItem = MediaItem.Builder()
-    .setUri(address.url)
-    .setMimeType(address.mimeType)
+private fun Stream.toMediaItem(): MediaItem = MediaItem.Builder()
+    .setUri(url)
+    .setMimeType(when (delivery) {
+        Stream.Delivery.Hls -> MimeTypes.APPLICATION_M3U8
+        Stream.Delivery.Dash -> MimeTypes.APPLICATION_MPD
+        Stream.Delivery.Progressive -> "application/octet-stream"
+        else -> null
+    })
     .setSubtitleConfigurations(subtitles.map { it.toConfiguration() })
     .build()
 
