@@ -5,7 +5,6 @@ import androidx.annotation.OptIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -93,7 +92,8 @@ private fun PlaybackSession(
         )
     }
     var playback by remember { mutableStateOf(Playback(request.stream, request.startAtMillis)) }
-    var step by remember { mutableStateOf<FailoverStep?>(null) }
+    var notice by remember { mutableStateOf<String?>(null) }
+    var gaveUp by remember { mutableStateOf<FailoverStep.GaveUp?>(null) }
     var durationMillis by remember { mutableStateOf<Long?>(null) }
     fun saveProgress() {
         val watching = request.watching ?: return
@@ -101,17 +101,20 @@ private fun PlaybackSession(
         continueWatching.save(watching, worked, failover.positionMillis, durationMillis)
     }
     fun take(next: FailoverStep?) {
-        next ?: return
-        step = next
-        if (next is FailoverStep.Switch) playback = Playback(next.stream, next.startAtMillis)
+        notice = failover.notice?.text
+        when (next) {
+            is FailoverStep.Switch -> playback = Playback(next.stream, next.startAtMillis)
+            is FailoverStep.GaveUp -> gaveUp = next
+            else -> Unit
+        }
     }
 
     LaunchedEffect(failover) { request.lookup.lookups.filterNotNull().collect { take(failover.lookupChanged(it)) } }
 
-    val gaveUp = step as? FailoverStep.GaveUp
-    if (gaveUp != null) {
+    val failure = gaveUp
+    if (failure != null) {
         // Leaving the player here releases it.
-        GiveUpScreen(request.title, gaveUp, request.lookup, failoverMemory) { stream, handPicked ->
+        GiveUpScreen(request.title, failure, request.lookup, failoverMemory) { stream, handPicked ->
             playAgain(request.copy(stream = stream, handPicked = handPicked, startAtMillis = failover.positionMillis))
         }
         return
@@ -123,21 +126,19 @@ private fun PlaybackSession(
     var player by remember { mutableStateOf<ExoPlayer?>(null) }
     LaunchedEffect(playback) {
         player = null
-        val made = newPlayer(context, playback.stream, playback.startAtMillis)
+        val attempt = playback
+        val made = newPlayer(context, attempt.stream, attempt.startAtMillis)
+        val events = Media3FailoverEvents(made) {
+            if (failover.playing == attempt.stream) take(failover.on(it))
+        }
+        made.addListener(events)
         player = made
         try {
             awaitCancellation()
         } finally {
-            made.release()
-        }
-    }
-    DisposableEffect(player) {
-        val current = player ?: return@DisposableEffect onDispose {}
-        val events = Media3FailoverEvents(current) { take(failover.on(it)) }
-        current.addListener(events)
-        onDispose {
             saveProgress()
-            current.removeListener(events)
+            made.removeListener(events)
+            made.release()
         }
     }
     // Failover's clock runs from the moment a Stream is chosen, so it hears the time while the player is being made too.
@@ -164,23 +165,7 @@ private fun PlaybackSession(
             update = { it.player = player },
             modifier = Modifier.fillMaxSize(),
         )
-        step?.let { FailoverNotice(it) { step = null } }
-    }
-}
-
-/** The notice for a Failover step. A switch's notice goes after about 6 s; one saying Failover is waiting for Sources stays until the next step. */
-@Composable
-private fun FailoverNotice(step: FailoverStep, onGone: () -> Unit) {
-    when (step) {
-        is FailoverStep.Switch -> {
-            LaunchedEffect(step) {
-                delay(NOTICE_MILLIS)
-                onGone()
-            }
-            CornerNotice(step.notice.text)
-        }
-        is FailoverStep.Waiting -> CornerNotice(step.notice.text)
-        is FailoverStep.GaveUp -> Unit
+        notice?.let { CornerNotice(it) }
     }
 }
 

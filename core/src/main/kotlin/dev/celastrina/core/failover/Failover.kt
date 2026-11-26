@@ -54,6 +54,10 @@ class Failover(
     var positionMillis: Long = startAtMillis
         private set
 
+    /** The notice currently shown during Failover, if any. */
+    var notice: FailoverNotice? = null
+        private set
+
     private var onHouseholdsChoice = handPicked
     private val tried = mutableSetOf(chosen.key)
     private var stream = StreamWatch(clock.nowMillis())
@@ -77,7 +81,10 @@ class Failover(
         val now = clock.nowMillis()
         val current = playing ?: return if (event is PlayerEvent.Position) giveUpIfNoPlayback(now) else null
         if (event is PlayerEvent.Position && stream.firstFrameShown) positionMillis = event.millis
-        if (event == PlayerEvent.FirstFrame) worked = current
+        if (event == PlayerEvent.FirstFrame) {
+            worked = current
+            notice = null
+        }
         val failure = stream.on(event, now)
         if (failure == null) {
             if (stream.isPlaying) lastPlaybackAtMillis = now
@@ -94,8 +101,11 @@ class Failover(
     fun lookupChanged(lookup: Lookup): FailoverStep? {
         if (gaveUp) return null
         this.lookup = lookup
-        val failed = waitingAfter ?: return null
-        return next(failed)
+        waitingAfter?.let { return next(it) }
+        val currentNotice = notice ?: return null
+        val progress = currentNotice.next as? FailoverNotice.Next.Trying ?: return null
+        notice = currentNotice.copy(next = progress.copy(known = knownCandidateCount(candidates())))
+        return null
     }
 
     /** Moves to the first untried candidate after [failed]; null when it is still waiting for Sources, as before. */
@@ -103,7 +113,8 @@ class Failover(
         val now = clock.nowMillis()
         if (now - lastPlaybackAtMillis >= NO_PLAYBACK_LIMIT.inWholeMilliseconds) return giveUp(GiveUpReason.NoPlaybackTimeLimit, failed)
         askAgainIfOld(now)
-        val next = candidates().firstOrNull { it.key !in tried }
+        val candidates = candidates()
+        val next = candidates.firstOrNull { it.key !in tried }
         val step = when {
             next != null -> {
                 tried += next.key
@@ -111,13 +122,14 @@ class Failover(
                 startAtMillis = (positionMillis - RESUME_BEFORE_FAILURE).coerceAtLeast(0)
                 stream = StreamWatch(now)
                 waitingAfter = null
-                FailoverStep.Switch(next, startAtMillis, notice(failed, FailoverNotice.Next.Trying(sourceName(next.sourceId), sameSource = next.sourceId == failed.stream.sourceId)))
+                val progress = FailoverNotice.Next.Trying(sourceName(next.sourceId), tried.size, knownCandidateCount(candidates))
+                FailoverStep.Switch(next, startAtMillis, showNotice(failed, progress))
             }
             !lookup.isFinished || isAskingAgain() -> {
                 playing = null
                 if (waitingAfter != null) return null
                 waitingAfter = failed
-                FailoverStep.Waiting(notice(failed, FailoverNotice.Next.WaitingForSources))
+                FailoverStep.Waiting(showNotice(failed, FailoverNotice.Next.WaitingForSources))
             }
             else -> return giveUp(GiveUpReason.NothingLeftToTry, failed)
         }
@@ -150,6 +162,7 @@ class Failover(
 
     private fun giveUp(because: GiveUpReason, last: Failed?): FailoverStep.GaveUp {
         gaveUp = true
+        notice = null
         playing = null
         waitingAfter = null
         val step = FailoverStep.GaveUp(because, summary())
@@ -182,12 +195,14 @@ class Failover(
 
     private fun candidates(): List<Stream> = lookup.candidates(decoders, memory)
 
-    private fun notice(failed: Failed, next: FailoverNotice.Next) = FailoverNotice(
+    private fun knownCandidateCount(candidates: List<Stream>): Int = (tried + candidates.map { it.key }).size
+
+    private fun showNotice(failed: Failed, next: FailoverNotice.Next) = FailoverNotice(
         failedSourceName = sourceName(failed.stream.sourceId),
         reason = failed.reason,
         awayFromHouseholdsChoice = failed.handPicked,
         next = next,
-    )
+    ).also { notice = it }
 
     private fun sourceName(sourceId: SourceId) = lookup.sources.firstOrNull { it.source.id == sourceId }?.source?.name ?: sourceId.value
 
@@ -351,10 +366,7 @@ data class SourceSummary(val sourceName: String, val state: State) {
     }
 }
 
-/**
- * The small notice that tells the Household what failed and what happens next, such as "Movie Night Jellyfin isn't
- * working, trying Internet Archive…". It asks nothing.
- */
+/** The running notice for the Stream being tried or while Failover is waiting for Sources. */
 data class FailoverNotice(
     val failedSourceName: String,
     val reason: StreamFailure,
@@ -363,19 +375,18 @@ data class FailoverNotice(
     val next: Next,
 ) {
     sealed interface Next {
-        data class Trying(val sourceName: String, val sameSource: Boolean) : Next
+        data class Trying(val sourceName: String, val tried: Int, val known: Int) : Next
         data object WaitingForSources : Next
     }
 
     val text: String
         get() {
-            val failed = when {
-                awayFromHouseholdsChoice -> "The Stream you chose from $failedSourceName"
-                next is Next.Trying && next.sameSource -> "This Stream from $failedSourceName"
-                else -> failedSourceName
-            }
+            val failed = if (awayFromHouseholdsChoice) "The Stream you chose from $failedSourceName" else failedSourceName
             return when (next) {
-                is Next.Trying -> if (next.sameSource) "$failed isn't working, trying another from ${next.sourceName}…" else "$failed isn't working, trying ${next.sourceName}…"
+                is Next.Trying -> {
+                    val progress = "${next.sourceName}: trying another Stream (${next.tried} of ${next.known})…"
+                    if (awayFromHouseholdsChoice) "$failed isn't working. $progress" else progress
+                }
                 Next.WaitingForSources -> "$failed isn't working, waiting for your other Sources…"
             }
         }
