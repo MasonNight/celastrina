@@ -186,9 +186,11 @@ print(base64.b64encode(json.dumps(source).encode()).decode())
 }
 
 wait_for_first_frame() {
-  local serial="$1" deadline=$((SECONDS + 120)) logs
+  local serial="$1" deadline=$((SECONDS + 120)) pid logs
+  pid="$(adb -s "$serial" shell pidof -s "$PACKAGE" | tr -d '\r')" || return 1
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
   while (( SECONDS < deadline )); do
-    logs="$(adb -s "$serial" logcat -d -s -v brief Celastrina:I AndroidRuntime:E)" || return 1
+    logs="$(adb -s "$serial" logcat -d -s --pid="$pid" -v brief Celastrina:I AndroidRuntime:E)" || return 1
     case "$logs" in
       *'Failover: first frame rendered'*) return 0 ;;
       *'Failover gave up'*|*'FATAL EXCEPTION'*) return 1 ;;
