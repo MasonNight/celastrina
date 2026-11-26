@@ -2,7 +2,8 @@ name: Release gates
 
 # The gates the minified release APK must pass, signed with a throwaway key so they need no secrets: it is built with R8,
 # keeps the platform rules (verifyReleaseApk: no lib/, minSdk 25), is signed with v2 and v3, and loads the test
-# Extension and plays a redirected HLS Stream on an emulator. CI runs these gates on every push and before publishing.
+# Extension and verifies Address checks and Failover playback on an emulator. CI runs these gates on every push
+# and before publishing.
 on:
   workflow_call:
 
@@ -48,7 +49,7 @@ jobs:
           target: default
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          script: ./gradlew -PtestBuildType=release :app:connectedReleaseAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.celastrina.app.ExtensionLoadingTest,dev.celastrina.app.RedirectedHlsPlaybackTest --console=plain
+          script: ./gradlew -PtestBuildType=release :app:connectedReleaseAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.celastrina.app.ExtensionLoadingTest,dev.celastrina.app.FailoverPlaybackTest --console=plain
       - name: Reports
         if: failure()
         uses: actions/upload-artifact@v4

@@ -68,7 +68,7 @@ import kotlin.test.assertTrue
  * with faststart, respectively.
  */
 @RunWith(AndroidJUnit4::class)
-class RedirectedHlsPlaybackTest {
+class FailoverPlaybackTest {
 
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val host = AssetHost()
@@ -142,15 +142,15 @@ class RedirectedHlsPlaybackTest {
             val checks = AddressChecks(this)
             val checkedDead = mutableSetOf<Stream>()
             val switched = CompletableDeferred<FailoverStep>()
-            val ready = CompletableDeferred<FailoverStep>()
+            var workingChecked = false
             fun checkAddresses() {
                 checks.update(failover) { event ->
-                    val step = failover.on(event)
+                    failover.on(event)
                     if (event.candidate in listOf(dead, alsoDead) && event.answer is PlayerEvent.AddressCheckHttpError) {
                         checkedDead += event.candidate
-                        if (checkedDead.size == 2) host.releaseStartingStream()
                     }
-                    if (step != null) ready.complete(step)
+                    if (event.candidate == working && event.answer is PlayerEvent.AddressChecked) workingChecked = true
+                    if (checkedDead.size == 2 && workingChecked) host.releaseStartingStream()
                     checkAddresses()
                 }
             }
@@ -162,15 +162,11 @@ class RedirectedHlsPlaybackTest {
             checkAddresses()
 
             val next = assertIs<FailoverStep.Switch>(withTimeout(PLAYBACK_WAIT_MILLIS) { switched.await() })
-            assertEquals(working, next.stream)
             assertEquals(setOf(dead, alsoDead), checkedDead)
+            assertEquals(working.copy(url = "${host.url}/video", delivery = Stream.Delivery.Progressive), next.stream)
+            assertNull(failover.addressCheck)
             player?.release()
-            player = null
-            checkAddresses()
-
-            val play = assertIs<FailoverStep.Play>(withTimeout(PLAYBACK_WAIT_MILLIS) { ready.await() })
-            assertEquals("${host.url}/video", play.stream.url)
-            player = newPlayer(instrumentation.targetContext, play.stream, play.startAtMillis)
+            player = newPlayer(instrumentation.targetContext, next.stream, next.startAtMillis)
         }
 
         assertTrue(waitFor(PLAYBACK_WAIT_MILLIS, CountDownLatch(1)) { (player?.currentPosition ?: 0) >= 1_000 },
