@@ -51,8 +51,12 @@ private val SearchDim = Color(0xFF9AA0AA)
 /** The keyboard's character keys as on a QWERTY keyboard: the digits, then the three letter rows. */
 private val CharacterKeys = listOf("1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM")
 
-/** How far each row of [CharacterKeys] is indented, in keys, so the letter rows stagger like a real keyboard. */
-private val RowIndent = listOf(0f, 0f, 0.5f, 1f)
+/**
+ * How far each row of [CharacterKeys] is indented, in keys, so the letter rows stagger like a real keyboard. No two
+ * adjacent rows differ by half a key: a key centred between the two keys above it would make Up and Down pick
+ * the left one every time, so U went down to H and N up to H instead of J.
+ */
+private val RowIndent = listOf(0f, 0f, 0.3f, 0.7f)
 
 private val KeySize = 38.dp
 private val KeyGap = 6.dp
