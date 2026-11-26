@@ -26,6 +26,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -101,6 +102,14 @@ class FailoverTest {
         assertSwitchedTo(archiveH264, failover.fail())
         // A Stream that doesn't say its codec might play, so it stays in.
         assertSwitchedTo(archiveUnknown, failover.fail())
+    }
+
+    @Test
+    fun `a Stream with unknown delivery remains a Candidate until its address is checked`() {
+        val unknown = friendsHevc.copy(delivery = Stream.Delivery.Unknown)
+        val lookup = lookup(friends to listOf(unknown), movieNight to listOf(nightly1080))
+
+        assertEquals(listOf(unknown, nightly1080), lookup.candidates(Decoders { it == "video/avc" }, memory))
     }
 
     @Test
@@ -678,56 +687,47 @@ class FailoverTest {
     // Giving up
 
     @Test
-    fun `Failover gives up after 5 failures in a row, even with Streams left to try`() {
-        val streams = (1..7).map { archive.stream("s$it") }
+    fun `Failover keeps trying after many fast failures until a Stream shows its first frame`() {
+        val streams = (1..12).map { archive.stream("s$it") }
         val failover = playing(streams[0], lookup(archive to streams), started = false)
 
-        repeat(4) { assertIs<FailoverStep.Switch>(failover.failUnstarted()) }
-        val step = failover.failUnstarted()
-
-        assertIs<FailoverStep.GaveUp>(step)
-        assertEquals(GiveUpReason.FailuresInARow, step.because)
-        assertNull(failover.playing)
-    }
-
-    @Test
-    fun `a Stream that shows a picture breaks the run of failures`() {
-        val streams = (1..9).map { archive.stream("s$it") }
-        val failover = playing(streams[0], lookup(archive to streams), started = false)
-
-        repeat(4) { failover.failUnstarted() }
+        for (next in streams.drop(1)) {
+            clock.advanceBy(500.milliseconds)
+            assertSwitchedTo(next, failover.failUnstarted())
+        }
         failover.on(PlayerEvent.FirstFrame)
-        failover.report(5.seconds)
 
-        repeat(4) { assertIs<FailoverStep.Switch>(failover.failUnstarted()) }
+        assertEquals(streams.last(), failover.worked)
     }
 
     @Test
-    fun `Failover gives up after 60 s without playback`() {
-        val failover = playing(nightly1080, lookup(movieNight to listOf(nightly1080, nightly720), archive to listOf(archiveMp4, archiveOgv)))
+    fun `Failover gives up after 90 s without playback even with Candidates left`() {
+        val streams = (1..7).map { archive.stream("s$it") }
+        val failover = playing(streams.first(), lookup(archive to streams))
         failover.report(10.minutes)
 
         failover.on(PlayerEvent.Buffering)
-        assertSwitchedTo(nightly720, failover.report(21.seconds, started = false))
-        assertSwitchedTo(archiveMp4, failover.report(15.seconds, started = false))
-        assertSwitchedTo(archiveOgv, failover.report(15.seconds, started = false))
+        assertSwitchedTo(streams[1], failover.report(21.seconds, started = false))
+        for (next in streams.subList(2, 6)) {
+            assertSwitchedTo(next, failover.report(15.seconds, started = false))
+        }
         assertNull(failover.report(8.seconds, started = false))
         val step = failover.report(1.seconds, started = false)
 
         assertIs<FailoverStep.GaveUp>(step)
-        assertEquals(GiveUpReason.NoPlaybackForAMinute, step.because)
+        assertEquals(GiveUpReason.NoPlaybackTimeLimit, step.because)
     }
 
     @Test
-    fun `Failover gives up after 60 s waiting for Sources that never answer`() {
+    fun `Failover gives up after 90 s waiting for Sources that never answer`() {
         val failover = playing(archiveMp4, lookup(movieNight to null, archive to listOf(archiveMp4)))
         assertIs<FailoverStep.Waiting>(failover.failAndGetStep())
 
-        assertNull(failover.report(59.seconds, started = false))
+        assertNull(failover.report(89.seconds, started = false))
         val step = failover.report(1.seconds, started = false)
 
         assertIs<FailoverStep.GaveUp>(step)
-        assertEquals(GiveUpReason.NoPlaybackForAMinute, step.because)
+        assertEquals(GiveUpReason.NoPlaybackTimeLimit, step.because)
     }
 
     @Test
@@ -774,7 +774,7 @@ class FailoverTest {
         failover.report(15.seconds, started = false)
         failover.failUnstarted(PlayerFault.Network)
         assertIs<FailoverStep.Waiting>(failover.failUnstarted(PlayerFault.Network))
-        val step = failover.report(45.seconds, started = false)
+        val step = failover.report(75.seconds, started = false)
 
         assertIs<FailoverStep.GaveUp>(step)
         assertEquals(
@@ -816,14 +816,14 @@ class FailoverTest {
         val streams = (1..7).map { archive.stream("s$it") }
         val failover = playing(streams[0], lookup(movieNight to listOf(nightly1080), archive to streams), started = false)
 
-        repeat(4) { failover.failUnstarted() }
-        val step = failover.failUnstarted()
+        repeat(5) { assertIs<FailoverStep.Switch>(failover.report(15.seconds, started = false)) }
+        val step = failover.report(15.seconds, started = false)
 
         assertIs<FailoverStep.GaveUp>(step)
         assertEquals(
             listOf(
-                SourceSummary("Movie Night Jellyfin", SourceSummary.State.StreamsFailed(listOf(StreamFailure.Fault(PlayerFault.Http())), notTried = 0)),
-                SourceSummary("Internet Archive", SourceSummary.State.StreamsFailed(List(4) { StreamFailure.Fault(PlayerFault.Http()) }, notTried = 3)),
+                SourceSummary("Movie Night Jellyfin", SourceSummary.State.StreamsFailed(listOf(StreamFailure.NoFirstFrame), notTried = 0)),
+                SourceSummary("Internet Archive", SourceSummary.State.StreamsFailed(List(5) { StreamFailure.NoFirstFrame }, notTried = 2)),
             ),
             step.sources,
         )

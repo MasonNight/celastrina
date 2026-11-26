@@ -24,7 +24,7 @@ import kotlin.time.Duration.Companion.seconds
  *
  * After a permanent failure on a Stream list over 30 minutes old, Failover calls [askSourcesAgain], which asks the Sources
  * again in the background (see [dev.celastrina.core.source.StreamLookup.watch]) while the Streams already known are
- * still tried. It gives up when the candidates run out, after 5 failures in a row, or after 60 s without playback.
+ * still tried. It gives up when the candidates run out or the time without playback reaches [NO_PLAYBACK_LIMIT].
  *
  * The player adapter shows [playing] from [startAtMillis], reports what the player does with [on] (its position about
  * every second, which is also when the timing rules are checked, even while Failover waits for Sources), and carries out
@@ -67,7 +67,6 @@ class Failover(
 
     /** Every Stream that failed this session, in order, for the give-up screen. */
     private val failures = mutableListOf<Failed>()
-    private var failuresInARow = 0
 
     /** When a Stream was last playing properly: showing pictures, paused, or buffering after a seek. */
     private var lastPlaybackAtMillis = clock.nowMillis()
@@ -82,10 +81,7 @@ class Failover(
         val now = clock.nowMillis()
         val current = playing ?: return if (event is PlayerEvent.Position) giveUpIfNoPlayback(now) else null
         if (event is PlayerEvent.Position && stream.firstFrameShown) positionMillis = event.millis
-        if (event == PlayerEvent.FirstFrame) {
-            failuresInARow = 0
-            worked = current
-        }
+        if (event == PlayerEvent.FirstFrame) worked = current
         val failure = stream.on(event, now)
         if (failure == null) {
             if (stream.isPlaying) lastPlaybackAtMillis = now
@@ -94,7 +90,6 @@ class Failover(
         val failed = Failed(current, failure, onHouseholdsChoice)
         onHouseholdsChoice = false
         failures += failed
-        failuresInARow++
         val classification = if (failed.isPassing) "passing" else "permanent"
         val detail = failed.httpStatus?.let { "HTTP $it" } ?: "HTTP status unavailable, $failure"
         logger.info("Failover: Stream failed ($classification, $detail)")
@@ -117,8 +112,7 @@ class Failover(
     /** Moves to the first untried candidate after [failed]; null when it is still waiting for Sources, as before. */
     private fun next(failed: Failed): FailoverStep? {
         val now = clock.nowMillis()
-        if (failuresInARow >= FAILURES_IN_A_ROW) return giveUp(GiveUpReason.FailuresInARow)
-        if (now - lastPlaybackAtMillis >= NO_PLAYBACK_FOR) return giveUp(GiveUpReason.NoPlaybackForAMinute)
+        if (now - lastPlaybackAtMillis >= NO_PLAYBACK_LIMIT.inWholeMilliseconds) return giveUp(GiveUpReason.NoPlaybackTimeLimit)
         if (!failed.isPassing) askAgainIfOld(now)
         val next = candidates().firstOrNull { it.key !in tried && it.host !in skippedHosts }
         return when {
@@ -153,8 +147,8 @@ class Failover(
     private fun isAskingAgain(): Boolean = askedAgainAtMillis.let { it != null && lookup.askedAtMillis < it }
 
     private fun giveUpIfNoPlayback(now: Long): FailoverStep? {
-        if (now - lastPlaybackAtMillis < NO_PLAYBACK_FOR) return null
-        return giveUp(GiveUpReason.NoPlaybackForAMinute)
+        if (now - lastPlaybackAtMillis < NO_PLAYBACK_LIMIT.inWholeMilliseconds) return null
+        return giveUp(GiveUpReason.NoPlaybackTimeLimit)
     }
 
     private fun giveUp(because: GiveUpReason): FailoverStep.GaveUp {
@@ -245,15 +239,14 @@ class Failover(
         }
     }
 
-    private companion object {
-        val FIRST_FRAME_WITHIN = 15.seconds
-        val LONGEST_STALL = 20.seconds
-        const val STALLS_IN_WINDOW = 3
-        val STALL_WINDOW = 2.minutes
-        val RESUME_BEFORE_FAILURE = 5.seconds.inWholeMilliseconds
-        val STREAM_LIST_FRESH_FOR = 30.minutes.inWholeMilliseconds
-        const val FAILURES_IN_A_ROW = 5
-        val NO_PLAYBACK_FOR = 60.seconds.inWholeMilliseconds
+    companion object {
+        private val FIRST_FRAME_WITHIN = 15.seconds
+        private val LONGEST_STALL = 20.seconds
+        private const val STALLS_IN_WINDOW = 3
+        private val STALL_WINDOW = 2.minutes
+        private val RESUME_BEFORE_FAILURE = 5.seconds.inWholeMilliseconds
+        private val STREAM_LIST_FRESH_FOR = 30.minutes.inWholeMilliseconds
+        val NO_PLAYBACK_LIMIT = 90.seconds
     }
 }
 
@@ -341,11 +334,8 @@ enum class GiveUpReason {
     /** No eligible candidate remains, and no Source is still being asked. */
     NothingLeftToTry,
 
-    /** 5 Streams failed one after another without a picture in between. */
-    FailuresInARow,
-
-    /** 60 s passed without playback. */
-    NoPlaybackForAMinute,
+    /** The time without playback reached [Failover.NO_PLAYBACK_LIMIT]. */
+    NoPlaybackTimeLimit,
 }
 
 /** What happened at one Source in a playback session, for the error screen when Failover gives up. */

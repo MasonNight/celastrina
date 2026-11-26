@@ -217,7 +217,9 @@ class JellyfinSourceTest {
 
         val outcome = service.sources().single { it.id == SourceId("den-emby") }.lookUp(nightOfTheLivingDead)
 
-        assertEquals("5e6e8380563c5211106652362c5c6843", (outcome as LookupOutcome.Streams).streams.single().id)
+        val stream = (outcome as LookupOutcome.Streams).streams.single()
+        assertEquals("5e6e8380563c5211106652362c5c6843", stream.id)
+        assertEquals(Stream.Delivery.Progressive, stream.delivery)
     }
 
     /** The Household's "Movie Night" Jellyfin, added from a computer with the right login. */

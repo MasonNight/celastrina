@@ -110,6 +110,17 @@ class StremioSourceTest {
     }
 
     @Test
+    fun `delivery comes from the add-on or the address and can be unknown`() = runTest {
+        val episode = pioneerOneEpisode.copy(episode = TitleReference.Episode(1, 2, 2, null))
+        val streams = (household().lookUp(episode) as LookupOutcome.Streams).streams
+
+        assertEquals(
+            listOf(Stream.Delivery.Unknown, Stream.Delivery.Dash, Stream.Delivery.Hls),
+            streams.map { it.delivery },
+        )
+    }
+
+    @Test
     fun `Streams Stream IDs stay the same from one Lookup to the next`() = runTest {
         val source = household()
 
