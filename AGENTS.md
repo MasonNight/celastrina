@@ -16,5 +16,8 @@ Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/ag
 
 ## Verifying on a device
 
-On-device checks run on the `celastrina-tv` Android TV emulator: `CELASTRINA_ADB_SERIAL=emulator-5554 scripts/tv.sh …`.
-See `docs/agents/emulator.md`. The household TV is the maintainer's; install on it only when they ask.
+For emulator checks or household TV access, see [On-device checks](docs/agents/emulator.md).
+
+## Linked machines
+
+When implementing a ticket on a linked machine, follow [Remote implementation](docs/agents/remote-implementer.md).

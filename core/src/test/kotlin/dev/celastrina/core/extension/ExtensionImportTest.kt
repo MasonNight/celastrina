@@ -17,6 +17,7 @@ import dev.celastrina.core.testing.JvmExtensionLoader
 import dev.celastrina.core.testing.RecordedExtensionSites
 import dev.celastrina.core.testing.RecordingLogger
 import dev.celastrina.core.testing.VirtualClock
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -30,6 +31,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /** The agent importing an Extension Repository and installing the test Extension from it. */
+@OptIn(ExperimentalCoroutinesApi::class)
 class ExtensionImportTest {
 
     @TempDir

@@ -12,5 +12,11 @@ plugins {
     alias(libs.plugins.animalsniffer) apply false
 }
 
+subprojects {
+    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask<*>>().configureEach {
+        compilerOptions.allWarningsAsErrors.set(true)
+    }
+}
+
 // The build logic's own tests.
 tasks.check { dependsOn(gradle.includedBuild("build-logic").task(":check")) }

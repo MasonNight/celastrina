@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Drive the household TV over ADB for hand verification of screens.
+# Verify Celastrina on an Android TV device over ADB.
 #
 #   scripts/tv.sh connect               connect and print the ADB serial
 #   scripts/tv.sh install [apk]         install (default: the debug APK), keeping app data
@@ -8,6 +8,7 @@
 #   scripts/tv.sh open-series <tmdb-id> start Celastrina Dev on that Series' detail screen
 #   scripts/tv.sh press <key>...        press remote keys, e.g. press DPAD_CENTER BACK
 #   scripts/tv.sh screenshot [out.png]  wake the display and save a screenshot (default: tv.png)
+#   scripts/tv.sh smoke <folder>       reset the emulator app, play three Titles and save their screenshots
 #   scripts/tv.sh log                   Celastrina's crashes, log lines and player errors since the last
 #                                       launch, plus any presses on the real remote
 #
@@ -16,6 +17,9 @@
 #
 # CELASTRINA_ADB_SERIAL=<serial> (e.g. emulator-5554) drives that device instead of finding the TV, so agents can
 # test on an Android TV emulator and leave the household TV alone.
+#
+# Smoke requires CELASTRINA_NOTORRENT_MANIFEST and an emulator serial.
+# CELASTRINA_TV_LOCK_DIR overrides the per-serial lock directory (see docs/agents/emulator.md).
 #
 # The TV's address is remembered in ~/.config/celastrina/tv. If it doesn't answer there, the script
 # scans the local /24 for ADB on port 5555, keeps the host whose model matches CELASTRINA_TV_MODEL
@@ -64,7 +68,7 @@ connect() {
   exit 1
 }
 
-wake() { adb -s "$1" shell input keyevent KEYCODE_WAKEUP; sleep 2; }
+wake() { adb -s "$1" shell input keyevent KEYCODE_WAKEUP || return; sleep 2; }
 
 FORCE=false
 args=()
@@ -88,10 +92,45 @@ busy_reason() {
   fi
 }
 
-# Connects, and stops unless the TV is free or --force was given.
-connect_unless_busy() {
-  local serial reason
-  serial="$(connect)"
+lock_device() {
+  local serial="$1" root lock_key reported=false
+  lock_key="${serial//%/%25}"
+  lock_key="${lock_key//:/%3A}"
+  lock_key="${lock_key//\//%2F}"
+  case "$OSTYPE" in
+    msys*|cygwin*) root="$(cygpath -u "$LOCALAPPDATA")/Celastrina/locks" ;;
+    *) root="$HOME/.cache/celastrina/locks" ;;
+  esac
+  DEVICE_LOCK="${CELASTRINA_TV_LOCK_DIR:-$root/$lock_key.lock}"
+  mkdir -p "$(dirname "$DEVICE_LOCK")"
+  local interrupted=0
+  trap 'interrupted=130' INT
+  trap 'interrupted=143' TERM
+  trap 'interrupted=129' HUP
+  local error
+  while ! error="$(mkdir "$DEVICE_LOCK" 2>&1)"; do
+    if (( interrupted )); then exit "$interrupted"; fi
+    if [ ! -d "$DEVICE_LOCK" ]; then
+      # The owner can release the directory between our mkdir and the existence check.
+      if error="$(mkdir "$DEVICE_LOCK" 2>&1)"; then break; fi
+      if [ ! -d "$DEVICE_LOCK" ]; then printf '%s\n' "$error" >&2; exit 1; fi
+    fi
+    if ! $reported; then
+      echo "Waiting for device $serial lock at $DEVICE_LOCK" >&2
+      reported=true
+    fi
+    sleep 1
+    if (( interrupted )); then exit "$interrupted"; fi
+  done
+  trap 'rmdir -- "$DEVICE_LOCK"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+  if (( interrupted )); then exit "$interrupted"; fi
+}
+
+require_idle() {
+  local serial="$1" reason
   if ! $FORCE; then
     reason="$(busy_reason "$serial")"
     if [ -n "$reason" ]; then
@@ -99,40 +138,129 @@ connect_unless_busy() {
       exit 3
     fi
   fi
-  echo "$serial"
 }
 
 # Starts Celastrina Dev with a fresh log buffer, so `log` shows only this run.
 start_app() {
   local serial="$1"; shift
-  wake "$serial"
-  adb -s "$serial" logcat -c
+  wake "$serial" || return 1
+  adb -s "$serial" logcat -c || return 1
   adb -s "$serial" shell am start -W "$@" -n "$PACKAGE/$ACTIVITY"
+}
+
+save_screenshot() {
+  local serial="$1" out="$2"
+  # Fire OS can print a warning before the PNG signature.
+  adb -s "$serial" exec-out screencap -p | python3 -c '
+import sys
+data = sys.stdin.buffer.read()
+start = data.find(b"\x89PNG\r\n\x1a\n")
+if start == -1:
+    sys.exit("ADB did not return a PNG")
+sys.stdout.buffer.write(data[start:])
+' >"$out"
+}
+
+smoke_configuration_call() {
+  local serial="$1" method="$2" arg="$3" response
+  response="$(adb -s "$serial" shell content call --uri "content://$PACKAGE.configuration" --method "$method" --arg "$arg")" &&
+    [[ "$response" == *'"result":"ok"'* ]]
+}
+
+configure_smoke() {
+  local serial="$1" arg
+  arg="$(python3 -c '
+import base64, json, os
+source = dict(kind="stremio", name="notorrent", url=os.environ["CELASTRINA_NOTORRENT_MANIFEST"])
+print(base64.b64encode(json.dumps(source).encode()).decode())
+')"
+  if ! smoke_configuration_call "$serial" add "$arg"; then
+    echo "Could not configure the notorrent Source." >&2
+    return 1
+  fi
+  arg="$(printf '%s' '{"id":"internet-archive"}' | base64 | tr -d '\n')"
+  if ! smoke_configuration_call "$serial" disable "$arg"; then
+    echo "Could not disable the bundled Internet Archive Source." >&2
+    return 1
+  fi
+}
+
+wait_for_first_frame() {
+  local serial="$1" deadline=$((SECONDS + 120)) logs
+  while (( SECONDS < deadline )); do
+    logs="$(adb -s "$serial" logcat -d -s -v brief Celastrina:I AndroidRuntime:E)" || return 1
+    case "$logs" in
+      *'Failover: first frame rendered'*) return 0 ;;
+      *'Failover gave up'*|*'FATAL EXCEPTION'*) return 1 ;;
+    esac
+    sleep 2
+  done
+  return 1
+}
+
+smoke_title() {
+  local serial="$1" out="$2" title="$3" kind="$4" id="$5"
+  rm -f -- "$out" || return 1
+  echo "Playing $title"
+  if ! start_app "$serial" -S --ei "dev.celastrina.OPEN_$kind" "$id" --ez dev.celastrina.AUTO_PLAY true ||
+     ! wait_for_first_frame "$serial"; then
+    echo "$title did not reach a first frame." >&2
+    return 1
+  fi
+  echo "$title reached a first frame."
+  if ! save_screenshot "$serial" "$out"; then
+    echo "Could not save the screenshot for $title." >&2
+    return 1
+  fi
+  echo "$out"
+}
+
+smoke() {
+  local serial="$1" folder="$2" result=0
+  mkdir -p "$folder"
+  if [ "$(adb -s "$serial" shell pm clear "$PACKAGE" | tr -d '\r')" != Success ]; then
+    echo "Could not clear $PACKAGE on $serial. Install the debug APK first." >&2
+    return 1
+  fi
+  configure_smoke "$serial"
+  smoke_title "$serial" "$folder/the-witcher-s01e01.png" "The Witcher S1E1" SERIES 71912 || result=1
+  smoke_title "$serial" "$folder/naruto-s01e01.png" "Naruto S1E1" SERIES 46260 || result=1
+  smoke_title "$serial" "$folder/the-hunger-games.png" "The Hunger Games" MOVIE 70160 || result=1
+  return "$result"
 }
 
 case "${1:-}" in
   connect) connect ;;
   install)
     serial="$(connect)"
+    lock_device "$serial"
     adb -s "$serial" install -r "${2:-$REPO/app/build/outputs/apk/debug/app-debug.apk}"
     ;;
   launch)
-    serial="$(connect_unless_busy)"
+    serial="$(connect)"
+    lock_device "$serial"
+    require_idle "$serial"
     start_app "$serial"
     ;;
   open-movie)
     [ -n "${2:-}" ] || { echo "Usage: scripts/tv.sh open-movie <tmdb-id>" >&2; exit 2; }
-    serial="$(connect_unless_busy)"
+    serial="$(connect)"
+    lock_device "$serial"
+    require_idle "$serial"
     start_app "$serial" -S --ei dev.celastrina.OPEN_MOVIE "$2"
     ;;
   open-series)
     [ -n "${2:-}" ] || { echo "Usage: scripts/tv.sh open-series <tmdb-id>" >&2; exit 2; }
-    serial="$(connect_unless_busy)"
+    serial="$(connect)"
+    lock_device "$serial"
+    require_idle "$serial"
     start_app "$serial" -S --ei dev.celastrina.OPEN_SERIES "$2"
     ;;
   press)
     [ -n "${2:-}" ] || { echo "Usage: scripts/tv.sh press <key>... (e.g. DPAD_CENTER, BACK)" >&2; exit 2; }
-    serial="$(connect_unless_busy)"
+    serial="$(connect)"
+    lock_device "$serial"
+    require_idle "$serial"
     shift
     for key in "$@"; do adb -s "$serial" shell input keyevent "KEYCODE_${key#KEYCODE_}"; done
     ;;
@@ -143,11 +271,20 @@ case "${1:-}" in
     ;;
   screenshot)
     serial="$(connect)"
+    lock_device "$serial"
     wake "$serial"
     out="${2:-tv.png}"
-    # Fire OS prints "Init wrapper sys mutex successful…" before the PNG bytes; keep only the PNG.
-    adb -s "$serial" exec-out screencap -p | python3 -c 'import sys; b = sys.stdin.buffer.read(); sys.stdout.buffer.write(b[b.find(b"\x89PNG"):])' >"$out"
+    save_screenshot "$serial" "$out"
     echo "$out"
+    ;;
+  smoke)
+    [ "$#" -eq 2 ] && [ -n "$2" ] || { echo "Usage: scripts/tv.sh smoke <folder>" >&2; exit 2; }
+    [[ "${CELASTRINA_ADB_SERIAL:-}" =~ ^emulator-[0-9]+$ ]] ||
+      { echo "Smoke requires an emulator serial in CELASTRINA_ADB_SERIAL." >&2; exit 2; }
+    : "${CELASTRINA_NOTORRENT_MANIFEST:?Set the notorrent manifest URL before running smoke.}"
+    serial="$(connect)"
+    lock_device "$serial"
+    smoke "$serial" "$2"
     ;;
   *) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 2 ;;
 esac

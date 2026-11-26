@@ -23,6 +23,7 @@ import dev.celastrina.core.testing.JvmExtensionLoader
 import dev.celastrina.core.testing.RecordedExtensionSites
 import dev.celastrina.core.testing.RecordingLogger
 import dev.celastrina.core.testing.VirtualClock
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -38,6 +39,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /** The Household or the agent removing an Extension, or a whole Extension Repository. */
+@OptIn(ExperimentalCoroutinesApi::class)
 class ExtensionRemovalTest {
 
     @TempDir

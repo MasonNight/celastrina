@@ -27,9 +27,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Debug builds can be started on a Title's detail screen, for checking it on the TV
-        // (scripts/tv.sh open-movie and open-series).
+        // (scripts/tv.sh open-movie and open-series). Smoke also starts Play on the Movie or on S1E1.
         val openMovie = intent.getIntExtra(EXTRA_OPEN_MOVIE, 0).takeIf { BuildConfig.DEBUG && it > 0 }
         val openSeries = intent.getIntExtra(EXTRA_OPEN_SERIES, 0).takeIf { BuildConfig.DEBUG && it > 0 }
+        val autoPlay = BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_AUTO_PLAY, false)
         setContent {
             // A TMDB key set or cleared from a computer takes effect at once: a new Catalogue reloads what's on screen.
             var tmdb by remember { mutableStateOf(app.configuration.tmdbSettings()) }
@@ -60,6 +61,7 @@ class MainActivity : ComponentActivity() {
                     menuPresses = menuPresses,
                     openMovie = openMovie,
                     openSeries = openSeries,
+                    autoPlay = autoPlay,
                 )
             }
         }
@@ -75,6 +77,7 @@ class MainActivity : ComponentActivity() {
     private companion object {
         const val EXTRA_OPEN_MOVIE = "dev.celastrina.OPEN_MOVIE"
         const val EXTRA_OPEN_SERIES = "dev.celastrina.OPEN_SERIES"
+        const val EXTRA_AUTO_PLAY = "dev.celastrina.AUTO_PLAY"
         val TMDB_KEY_CHANGES = setOf(ConfigurationChange.Action.TmdbKeySet, ConfigurationChange.Action.TmdbKeyCleared)
     }
 }

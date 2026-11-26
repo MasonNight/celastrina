@@ -66,6 +66,7 @@ fun DetailScreen(
     failoverMemory: FailoverMemory,
     continueWatching: ContinueWatching,
     watchlist: Watchlist,
+    autoPlay: Boolean,
     onPlay: (PlayRequest) -> Unit,
 ) {
     var state by remember(tmdbId) { mutableStateOf<DetailState>(DetailState.Loading) }
@@ -79,7 +80,7 @@ fun DetailScreen(
     when (val s = state) {
         DetailState.Loading -> Message("Loading…")
         is DetailState.Failed -> Message(s.reason.message())
-        is DetailState.Loaded -> MovieDetail(s.details, lookUp, failoverMemory, continueWatching, watchlist, onPlay)
+        is DetailState.Loaded -> MovieDetail(s.details, lookUp, failoverMemory, continueWatching, watchlist, autoPlay, onPlay)
     }
 }
 
@@ -90,6 +91,7 @@ private fun MovieDetail(
     failoverMemory: FailoverMemory,
     continueWatching: ContinueWatching,
     watchlist: Watchlist,
+    autoPlay: Boolean,
     onPlay: (PlayRequest) -> Unit,
 ) {
     val titleLookup = remember(details) { lookUp(details.reference) }
@@ -130,7 +132,7 @@ private fun MovieDetail(
             Text(details.metadataLine(), style = MaterialTheme.typography.titleSmall, color = Color.White.copy(alpha = 0.8f))
             NotPlayableBadge(details.title)
             Text(details.synopsis, style = MaterialTheme.typography.bodyLarge, maxLines = 5, overflow = TextOverflow.Ellipsis)
-            PlayRow(lookup, failoverMemory, onPlay = { play(it, handPicked = false) }, onChoose = { choosing = true }, watched = watched) {
+            PlayRow(lookup, failoverMemory, onPlay = { play(it, handPicked = false) }, onChoose = { choosing = true }, watched = watched, autoPlay = autoPlay) {
                 WatchlistButton(details.title, watchlist)
             }
         }
@@ -149,13 +151,17 @@ fun PlayRow(
     onChoose: () -> Unit,
     label: String? = null,
     watched: Watched? = null,
+    autoPlay: Boolean = false,
     more: @Composable () -> Unit = {},
 ) {
     val play = remember { FocusRequester() }
     val choose = remember { FocusRequester() }
     val best = lookup?.firstChoice(failoverMemory, watched?.lastWorked)
     val resumes = watched != null && watched.resumeAtMillis > 0
-    LaunchedEffect(best != null) { (if (best != null) play else choose).requestFocusOnceShown() }
+    LaunchedEffect(best != null) {
+        if (autoPlay && best != null) onPlay(best)
+        else (if (best != null) play else choose).requestFocusOnceShown()
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
         label?.let { Text(it, style = MaterialTheme.typography.titleSmall) }
         Button(onClick = { best?.let(onPlay) }, enabled = best != null, modifier = Modifier.focusRequester(play)) { Text(if (resumes) "Resume" else "Play") }

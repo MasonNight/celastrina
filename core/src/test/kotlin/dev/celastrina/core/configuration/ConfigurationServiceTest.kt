@@ -15,6 +15,7 @@ import dev.celastrina.core.port.HttpResponse
 import dev.celastrina.core.testing.VirtualClock
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
@@ -26,6 +27,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ConfigurationServiceTest {
 
     @TempDir

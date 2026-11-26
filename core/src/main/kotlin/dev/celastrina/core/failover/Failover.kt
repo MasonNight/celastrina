@@ -128,6 +128,7 @@ class Failover(
         if (event is PlayerEvent.AddressCheckAnswer) return null
         if (event is PlayerEvent.Position && stream.firstFrameShown) positionMillis = event.millis
         if (event == PlayerEvent.FirstFrame) {
+            if (!stream.firstFrameShown) logger.info("Failover: first frame rendered")
             worked = current
             notice = null
         }

@@ -6,6 +6,7 @@ import dev.celastrina.core.port.HttpResponse
 import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.testing.RecordedTmdb
 import dev.celastrina.core.testing.VirtualClock
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.advanceTimeBy
@@ -19,6 +20,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class SearchTest {
 
     @Test

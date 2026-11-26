@@ -6,6 +6,7 @@ import dev.celastrina.core.adapter.JdkHttpClient
 import dev.celastrina.core.source.LookupOutcome.Failure.Reason
 import dev.celastrina.core.testing.RecordedJellyfin
 import dev.celastrina.core.testing.VirtualClock
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
@@ -20,6 +21,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /** The agent adding, changing, ordering and removing a Household's Jellyfin and Emby servers. */
+@OptIn(ExperimentalCoroutinesApi::class)
 class MediaServerSourcesTest {
 
     @TempDir

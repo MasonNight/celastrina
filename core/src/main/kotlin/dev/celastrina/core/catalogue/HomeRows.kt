@@ -51,7 +51,7 @@ internal class HomeRows(private val fetch: suspend (ListSource, page: Int) -> Li
     private suspend fun refill(homeRow: HomeRow, list: RowList, offline: () -> Unit): RowList {
         var refilled = list
         while (refilled.waiting.isEmpty() && refilled.nextPage != null) {
-            val page = fetch(refilled.source, refilled.nextPage!!)
+            val page = fetch(refilled.source, refilled.nextPage)
             if (page.fromOfflineCache) offline()
             refilled = refilled.copy(
                 waiting = page.titles.filter { it.title.category == homeRow.category },

@@ -1,13 +1,19 @@
-# On-device checks: the `celastrina-tv` emulator
+# On-device checks
 
-The emulator is an Android TV AVD on the maintainer's Windows PC (Mason-FractalNorth): API 28 x86 (the same Android version as the household AFTTI43's Fire OS 7), 1920×1080, density 320, WHPX acceleration.
+Use the `celastrina-tv` Android TV emulator (API 28), serial `emulator-5554`. Drive it with `scripts/tv.sh` or `adb -s emulator-5554`. Use the T3 Device panel to view it.
 
-- **Start**, idempotent, waits for boot (~41 s cold): `powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\mason\.config\celastrina\start-tv-emulator.ps1` (add `-NoWindow` for headless).
-- **Stop**: `adb -s emulator-5554 emu kill`.
-- **Drive it** from Git Bash: `CELASTRINA_ADB_SERIAL=emulator-5554 scripts/tv.sh install|launch|open-movie <id>|press <key>…|screenshot <png>|log`. Point `XDG_CONFIG_HOME` at a scratch folder so the TV's remembered address isn't touched.
-- **Provider calls**: `adb -s emulator-5554 shell content call --uri content://dev.celastrina.debug.configuration …` (debug) or `content://dev.celastrina.configuration` (release); see INSTALL.md "Calling Celastrina".
-- **Instrumented tests**: `adb -s emulator-5554 shell am instrument -w -r <test package>/androidx.test.runner.AndroidJUnitRunner`. Use `connected*AndroidTest` only when `adb devices` lists the emulator alone, because it runs on every connected device.
+- Start with `powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\mason\.config\celastrina\start-tv-emulator.ps1`. Add `-NoWindow` for headless use.
+- In Git Bash, export `CELASTRINA_ADB_SERIAL=emulator-5554` and install the debug APK with `scripts/tv.sh install`.
+- Check playback with `scripts/tv.sh smoke <folder>`. Set `CELASTRINA_NOTORRENT_MANIFEST` to the notorrent manifest URL. Smoke clears debug app data, adds the Source again and saves screenshots in the folder.
+- For configuration calls, use the [Install Runbook](../../INSTALL.md#calling-celastrina) with `content://dev.celastrina.debug.configuration`.
+- Run instrumented tests on just this emulator with `adb -s emulator-5554 shell am instrument -w -r <test package>/androidx.test.runner.AndroidJUnitRunner`.
 
-One agent drives the emulator at a time.
+## Device lock
 
-**What only the household TV can show**: Fire OS behaviour, the Omni's hardware decoders (HEVC, Dolby Vision), real frame times (#41), and the physical remote. Ask the maintainer before using the TV for any of these.
+`scripts/tv.sh` locks device commands with an exclusive directory per serial. Before driving the device directly, create the same directory atomically, wait if held, and remove it in a trap or `finally`.
+
+- Windows: `$env:LOCALAPPDATA\Celastrina\locks\emulator-5554.lock`. Use `New-Item -ItemType Directory -ErrorAction Stop` for acquisition without `-Force`.
+- Linux and macOS: `$HOME/.cache/celastrina/locks/emulator-5554.lock`. Use `mkdir`.
+- For other serials, replace the basename with the serial plus `.lock`, escaping `%`, `:` and `/` as `%25`, `%3A` and `%2F`. Set `CELASTRINA_TV_LOCK_DIR` to use a different directory and share that path with other callers.
+
+Ask the maintainer before using the household TV for Fire OS behavior, hardware decoders, frame times, or the physical remote.

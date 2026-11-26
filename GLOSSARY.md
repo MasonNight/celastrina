@@ -149,7 +149,7 @@ Any other Stream failure. Failover memory moves the Stream to the end of the Can
 
 **Failover memory**:
 What the TV remembers of Permanent failures in the past 24 hours, so those Streams go last among the Candidates.
-Passing failures apply only to the current playback. HTTP 429 or 503 also skips the server's other Streams for that playback.
+Passing failures apply only to the current playback. HTTP 429 or 503 also skips the other Streams from the server that returned the response after redirects.
 _Avoid_: Blacklist, ban list, history
 
 **Give up**:

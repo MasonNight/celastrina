@@ -14,6 +14,7 @@ import dev.celastrina.core.source.StreamLookup
 import dev.celastrina.core.testing.JvmExtensionLoader
 import dev.celastrina.core.testing.RecordedExtensionSites
 import dev.celastrina.core.testing.RecordingLogger
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.AfterEach
@@ -25,6 +26,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /** An Extension that throws, hangs or needs a newer Celastrina fails only its own Lookups. */
+@OptIn(ExperimentalCoroutinesApi::class)
 class ExtensionFailureTest {
 
     @TempDir

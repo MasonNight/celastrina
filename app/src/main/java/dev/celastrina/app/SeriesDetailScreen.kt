@@ -79,6 +79,7 @@ fun SeriesDetailScreen(
     failoverMemory: FailoverMemory,
     continueWatching: ContinueWatching,
     watchlist: Watchlist,
+    autoPlay: Boolean,
     onPlay: (season: Int, request: PlayRequest) -> Unit,
 ) {
     var state by remember(tmdbId) { mutableStateOf<SeriesState>(SeriesState.Loading) }
@@ -92,7 +93,7 @@ fun SeriesDetailScreen(
     when (val s = state) {
         SeriesState.Loading -> Message("Loading…")
         is SeriesState.Failed -> Message(s.reason.message())
-        is SeriesState.Loaded -> SeriesDetail(s.details, seasonNumber, catalogue, lookUp, failoverMemory, continueWatching, watchlist, onPlay)
+        is SeriesState.Loaded -> SeriesDetail(s.details, seasonNumber, catalogue, lookUp, failoverMemory, continueWatching, watchlist, autoPlay, onPlay)
     }
 }
 
@@ -105,6 +106,7 @@ private fun SeriesDetail(
     failoverMemory: FailoverMemory,
     continueWatching: ContinueWatching,
     watchlist: Watchlist,
+    autoPlay: Boolean,
     onPlay: (season: Int, request: PlayRequest) -> Unit,
 ) {
     var seasonIndex by remember(details) { mutableStateOf(details.seasons.indexOfFirst { it.number == seasonNumber }.coerceAtLeast(0)) }
@@ -158,9 +160,9 @@ private fun SeriesDetail(
                 SeasonTabs(details.seasons, seasonIndex) { seasonIndex = it }
             }
             if (season != null) {
-                EpisodeRow(details, season, catalogue) { picked = it }
+                EpisodeRow(details, season, catalogue, pickFirstEpisode = autoPlay && season.number == 1) { picked = it }
             }
-            PickedEpisode(picked, lookup, failoverMemory, watched, onPlay = { play(it, handPicked = false) }, onChoose = { choosing = true })
+            PickedEpisode(picked, lookup, failoverMemory, watched, autoPlay, onPlay = { play(it, handPicked = false) }, onChoose = { choosing = true })
         }
     }
 }
@@ -186,11 +188,13 @@ private fun SeasonTabs(seasons: List<Season>, selected: Int, onSelect: (Int) -> 
 }
 
 @Composable
-private fun EpisodeRow(details: SeriesDetails, season: Season, catalogue: Catalogue, onPick: (Episode) -> Unit) {
+private fun EpisodeRow(details: SeriesDetails, season: Season, catalogue: Catalogue, pickFirstEpisode: Boolean, onPick: (Episode) -> Unit) {
     var state by remember(details, season) { mutableStateOf<EpisodesState>(EpisodesState.Loading) }
     LaunchedEffect(details, season) {
         state = try {
-            EpisodesState.Loaded(catalogue.episodes(details, season))
+            val episodes = catalogue.episodes(details, season)
+            if (pickFirstEpisode) episodes.firstOrNull { it.number == 1 }?.let(onPick)
+            EpisodesState.Loaded(episodes)
         } catch (e: CatalogueUnreadable) {
             EpisodesState.Failed(e.reason)
         }
@@ -240,12 +244,12 @@ private fun EpisodeCard(episode: Episode, onClick: () -> Unit) {
 
 /** The picked episode, with Play, Choose Stream and its Lookup's status line. Picking an episode is what asks the Sources for it. */
 @Composable
-private fun PickedEpisode(episode: Episode?, lookup: Lookup?, failoverMemory: FailoverMemory, watched: Watched?, onPlay: (Stream) -> Unit, onChoose: () -> Unit) {
+private fun PickedEpisode(episode: Episode?, lookup: Lookup?, failoverMemory: FailoverMemory, watched: Watched?, autoPlay: Boolean, onPlay: (Stream) -> Unit, onChoose: () -> Unit) {
     Box(Modifier.fillMaxWidth().height(48.dp).padding(start = 48.dp), contentAlignment = Alignment.CenterStart) {
         if (episode == null) {
             Text("Pick an episode to find Streams for it.", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.7f))
         } else {
-            PlayRow(lookup, failoverMemory, onPlay, onChoose, label = episode.label(), watched = watched)
+            PlayRow(lookup, failoverMemory, onPlay, onChoose, label = episode.label(), watched = watched, autoPlay = autoPlay)
         }
     }
 }

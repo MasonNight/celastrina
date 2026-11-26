@@ -1,6 +1,8 @@
 // Plain Kotlin on Gradle's own Kotlin, so build scripts can load it.
 plugins { `embedded-kotlin` }
 
+kotlin { compilerOptions { allWarningsAsErrors.set(true) } }
+
 group = "dev.celastrina.build"
 
 dependencies {

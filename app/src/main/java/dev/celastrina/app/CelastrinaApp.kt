@@ -44,13 +44,13 @@ private sealed interface Screen {
     data object Search : Screen
 
     /** [back] is where Back goes: home, or search when it was opened from there. */
-    data class MovieDetail(val tmdbId: Int, val back: Screen = Home) : Screen
+    data class MovieDetail(val tmdbId: Int, val back: Screen = Home, val autoPlay: Boolean = false) : Screen
 
     /** A Continue watching card, resuming. */
     data class Resume(val watched: Watched) : Screen
 
     /** [season] is the season tab it opens on; null opens on the first. */
-    data class SeriesDetail(val tmdbId: Int, val season: Int? = null, val back: Screen = Home) : Screen
+    data class SeriesDetail(val tmdbId: Int, val season: Int? = null, val back: Screen = Home, val autoPlay: Boolean = false) : Screen
     data class Player(val request: PlayRequest, val back: Screen) : Screen
     data class Settings(val back: Screen) : Screen
     data class About(val back: Settings) : Screen
@@ -85,6 +85,7 @@ fun CelastrinaApp(
     menuPresses: Flow<Unit>,
     openMovie: Int? = null,
     openSeries: Int? = null,
+    autoPlay: Boolean = false,
 ) {
     // Home lives here, so coming back from a detail screen finds its rows, hero and focus as they were.
     val scope = rememberCoroutineScope()
@@ -96,7 +97,11 @@ fun CelastrinaApp(
     var searchGrid by remember { mutableStateOf(LazyGridState()) }
     val lookupScope = rememberCoroutineScope()
     var screen by remember {
-        mutableStateOf(openMovie?.let(Screen::MovieDetail) ?: openSeries?.let { Screen.SeriesDetail(it) } ?: Screen.Home)
+        mutableStateOf(
+            openMovie?.let { Screen.MovieDetail(it, autoPlay = autoPlay) }
+                ?: openSeries?.let { Screen.SeriesDetail(it, season = 1.takeIf { autoPlay }, autoPlay = autoPlay) }
+                ?: Screen.Home,
+        )
     }
 
     LaunchedEffect(menuPresses) {
@@ -148,7 +153,9 @@ fun CelastrinaApp(
                 is Screen.MovieDetail -> {
                     BackHandler { screen = s.back }
                     val lookUp = remember(s) { lookUpIn(lookupScope, newStreamLookup()) }
-                    DetailScreen(s.tmdbId, catalogue, lookUp, failoverMemory, continueWatching, watchlist) { request -> screen = Screen.Player(request, back = s) }
+                    DetailScreen(s.tmdbId, catalogue, lookUp, failoverMemory, continueWatching, watchlist, autoPlay = s.autoPlay) { request ->
+                        screen = Screen.Player(request, back = s.copy(autoPlay = false))
+                    }
                 }
                 is Screen.Resume -> {
                     BackHandler { screen = Screen.Home }
@@ -164,8 +171,8 @@ fun CelastrinaApp(
                 is Screen.SeriesDetail -> {
                     BackHandler { screen = s.back }
                     val lookUp = remember(s) { lookUpIn(lookupScope, newStreamLookup()) }
-                    SeriesDetailScreen(s.tmdbId, s.season, catalogue, lookUp, failoverMemory, continueWatching, watchlist) { season, request ->
-                        screen = Screen.Player(request, back = s.copy(season = season))
+                    SeriesDetailScreen(s.tmdbId, s.season, catalogue, lookUp, failoverMemory, continueWatching, watchlist, autoPlay = s.autoPlay) { season, request ->
+                        screen = Screen.Player(request, back = s.copy(season = season, autoPlay = false))
                     }
                 }
                 is Screen.Player -> {

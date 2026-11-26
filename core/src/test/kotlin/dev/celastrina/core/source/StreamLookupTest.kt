@@ -4,6 +4,7 @@ import dev.celastrina.core.catalogue.Title
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.testing.RecordingLogger
 import dev.celastrina.core.testing.VirtualClock
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
@@ -17,6 +18,7 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class StreamLookupTest {
 
     private val nightOfTheLivingDead = TitleReference(

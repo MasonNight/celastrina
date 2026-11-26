@@ -149,14 +149,14 @@ class InternetArchiveProvider : MainAPI() {
         }
     }
 
-    private class SearchResult(@JsonProperty("response") val response: Docs)
+    private class SearchResult(@param:JsonProperty("response") val response: Docs)
 
-    private class Docs(@JsonProperty("docs") val docs: List<Doc>)
+    private class Docs(@param:JsonProperty("docs") val docs: List<Doc>)
 
     private class Doc(
-        @JsonProperty("identifier") val identifier: String,
-        @JsonProperty("title") val title: String,
-        @JsonProperty("year") val year: String?,
+        @param:JsonProperty("identifier") val identifier: String,
+        @param:JsonProperty("title") val title: String,
+        @param:JsonProperty("year") val year: String?,
     )
 
     private companion object {
