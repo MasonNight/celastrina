@@ -94,7 +94,8 @@ private fun PlaybackSession(
     var playback by remember {
         mutableStateOf<Playback?>(Playback(request.stream, request.startAtMillis, checkAddress = failover.addressCheck != null))
     }
-    var step by remember { mutableStateOf<FailoverStep?>(null) }
+    var notice by remember { mutableStateOf<String?>(null) }
+    var gaveUp by remember { mutableStateOf<FailoverStep.GaveUp?>(null) }
     var durationMillis by remember { mutableStateOf<Long?>(null) }
     fun saveProgress() {
         val watching = request.watching ?: return
@@ -102,15 +103,15 @@ private fun PlaybackSession(
         continueWatching.save(watching, worked, failover.positionMillis, durationMillis)
     }
     fun take(next: FailoverStep?) {
+        notice = failover.notice?.text
         when (next) {
             null -> Unit
             is FailoverStep.Play -> playback = Playback(next.stream, next.startAtMillis, checkAddress = false)
-            is FailoverStep.Switch -> {
-                step = next
+            is FailoverStep.Switch ->
                 playback = Playback(next.stream, next.startAtMillis, checkAddress = failover.addressCheck != null)
-            }
-            is FailoverStep.Waiting, is FailoverStep.GaveUp -> {
-                step = next
+            is FailoverStep.Waiting -> playback = null
+            is FailoverStep.GaveUp -> {
+                gaveUp = next
                 playback = null
             }
         }
@@ -118,10 +119,10 @@ private fun PlaybackSession(
 
     LaunchedEffect(failover) { request.lookup.lookups.filterNotNull().collect { take(failover.lookupChanged(it)) } }
 
-    val gaveUp = step as? FailoverStep.GaveUp
-    if (gaveUp != null) {
+    val failure = gaveUp
+    if (failure != null) {
         // Leaving the player here releases it.
-        GiveUpScreen(request.title, gaveUp, request.lookup, failoverMemory) { stream, handPicked ->
+        GiveUpScreen(request.title, failure, request.lookup, failoverMemory) { stream, handPicked ->
             playAgain(request.copy(stream = stream, handPicked = handPicked, startAtMillis = failover.positionMillis))
         }
         return
@@ -175,23 +176,7 @@ private fun PlaybackSession(
             update = { it.player = player },
             modifier = Modifier.fillMaxSize(),
         )
-        step?.let { FailoverNotice(it) { step = null } }
-    }
-}
-
-/** The notice for a Failover step. A switch's notice goes after about 6 s; one saying Failover is waiting for Sources stays until the next step. */
-@Composable
-private fun FailoverNotice(step: FailoverStep, onGone: () -> Unit) {
-    when (step) {
-        is FailoverStep.Switch -> {
-            LaunchedEffect(step) {
-                delay(NOTICE_MILLIS)
-                onGone()
-            }
-            CornerNotice(step.notice.text)
-        }
-        is FailoverStep.Waiting -> CornerNotice(step.notice.text)
-        is FailoverStep.Play, is FailoverStep.GaveUp -> Unit
+        notice?.let { CornerNotice(it) }
     }
 }
 
@@ -224,6 +209,7 @@ private fun Stream.toMediaItem(): MediaItem = MediaItem.Builder()
     .setMimeType(when (delivery) {
         Stream.Delivery.Hls -> MimeTypes.APPLICATION_M3U8
         Stream.Delivery.Dash -> MimeTypes.APPLICATION_MPD
+        // An explicit MIME type makes Media3 use the settled delivery even if the address suggests an adaptive format.
         Stream.Delivery.Progressive -> "application/octet-stream"
         else -> null
     })
