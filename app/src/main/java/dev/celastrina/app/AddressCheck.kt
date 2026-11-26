@@ -3,6 +3,10 @@ package dev.celastrina.app
 import dev.celastrina.core.failover.Failover
 import dev.celastrina.core.failover.PlayerEvent
 import dev.celastrina.core.source.Stream
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Call
@@ -13,6 +17,27 @@ import okhttp3.Response
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
+
+/** Runs the checks Failover requests. A Candidate keeps its in-flight check when chosen for playback. */
+internal class AddressChecks(private val scope: CoroutineScope) {
+    private val jobs = mutableMapOf<Stream, Job>()
+
+    /** Called on the player thread when Failover's requests may have changed. */
+    fun update(failover: Failover, onAnswer: (PlayerEvent.CandidateAddressChecked) -> Unit) {
+        val requested = listOfNotNull(failover.addressCheck) + failover.backgroundAddressChecks
+        for (candidate in jobs.keys - requested.toSet()) jobs.remove(candidate)?.cancel()
+        for (candidate in requested) {
+            jobs.getOrPut(candidate) {
+                scope.launch(start = CoroutineStart.LAZY) {
+                    val answer = candidate.checkAddress()
+                    jobs.remove(candidate)
+                    onAnswer(PlayerEvent.CandidateAddressChecked(candidate, answer))
+                }
+            }
+        }
+        jobs.values.toList().forEach { it.start() }
+    }
+}
 
 /** Asks where the Stream leads and what it serves, bounded across redirects and reading the response. */
 internal suspend fun Stream.checkAddress(): PlayerEvent.AddressCheckAnswer {
