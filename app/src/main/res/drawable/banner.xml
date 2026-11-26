@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Fire TV and Android TV launcher tile (320x180 at xhdpi).
+     Celastrina is a genus of small blue butterflies (the holly blue, the spring azure), so: a dark butterfly
+     against a blue moon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="160dp" android:height="90dp"
+    android:viewportWidth="320" android:viewportHeight="180">
+    <path android:fillColor="#FF070B18" android:pathData="M0,0 H320 V180 H0 Z" />
+        <path android:pathData="M96,90 a64,64 0 1,0 128,0 a64,64 0 1,0 -128,0 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient android:type="radial" android:centerX="147.2" android:centerY="70.8" android:gradientRadius="89.6">
+                    <item android:offset="0" android:color="#FFD6E8FF" />
+                    <item android:offset="0.6" android:color="#FF7AA7F5" />
+                    <item android:offset="1" android:color="#FF3F62C9" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <group android:translateX="160" android:translateY="94.0" android:scaleX="0.56" android:scaleY="0.56">
+            <path android:fillColor="#FF070B18" android:pathData="M3,-4 C18,-38 58,-64 86,-58 C97,-54 94,-32 82,-15 C66,4 32,7 3,3 Z M3,5 C30,5 62,13 67,35 C70,53 51,64 34,57 C17,50 6,30 3,11 Z" />
+            <group android:scaleX="-1">
+                <path android:fillColor="#FF070B18" android:pathData="M3,-4 C18,-38 58,-64 86,-58 C97,-54 94,-32 82,-15 C66,4 32,7 3,3 Z M3,5 C30,5 62,13 67,35 C70,53 51,64 34,57 C17,50 6,30 3,11 Z" />
+            </group>
+            <path android:fillColor="#FF070B18" android:pathData="M-3.4,4 a3.4,30 0 1,0 6.8,0 a3.4,30 0 1,0 -6.8,0 Z M-4.6,-28 a4.6,4.6 0 1,0 9.2,0 a4.6,4.6 0 1,0 -9.2,0 Z M-20.5,-63 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0 Z M14.5,-63 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0 Z" />
+            <path android:strokeColor="#FF070B18" android:strokeWidth="2" android:strokeLineCap="round" android:pathData="M-1.5,-31 Q-8,-50 -17,-62 M1.5,-31 Q8,-50 17,-62" />
+        </group>
+</vector>
