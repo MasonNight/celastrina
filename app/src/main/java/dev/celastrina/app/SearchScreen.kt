@@ -48,11 +48,22 @@ import dev.celastrina.core.catalogue.Title
 private val SearchBackground = Color(0xFF0E0F13)
 private val SearchDim = Color(0xFF9AA0AA)
 
-/** The keyboard's character keys, six to a row: A–Z, then 0–9. */
-private val CharacterKeys = (('A'..'Z') + ('0'..'9')).chunked(6)
+/** The keyboard's character keys as on a QWERTY keyboard: the digits, then the three letter rows. */
+private val CharacterKeys = listOf("1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM")
 
 /**
- * The search screen: the app's own grid keyboard on the left, which edits [search]'s query, and its live results on
+ * How far each row of [CharacterKeys] is indented, in keys, so the letter rows stagger like a real keyboard. No two
+ * adjacent rows differ by half a key: a key centred between the two keys above it would make Up and Down pick
+ * the left one every time, so U went down to H and N up to H instead of J.
+ */
+private val RowIndent = listOf(0f, 0f, 0.3f, 0.7f)
+
+private val KeySize = 38.dp
+private val KeyGap = 6.dp
+private val KeyboardWidth = KeySize * 10 + KeyGap * 9
+
+/**
+ * The search screen: the app's own QWERTY keyboard on the left, which edits [search]'s query, and its live results on
  * the right. Selecting a card calls [onOpen]. Coming back from a Title opened here ([opened]) puts focus on its card,
  * with the results scrolled as they were ([gridState]).
  */
@@ -76,9 +87,9 @@ fun SearchScreen(search: Search, gridState: LazyGridState, opened: Title?, onOpe
     }
 
     Row(Modifier.fillMaxSize().background(SearchBackground).padding(horizontal = 48.dp, vertical = 32.dp)) {
-        Column(Modifier.width(340.dp).focusRestorer(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.width(KeyboardWidth).focusRestorer(), verticalArrangement = Arrangement.spacedBy(KeyGap)) {
             Text(
-                if (query.isEmpty()) "Search Movies and Series" else query.takeLast(22),
+                if (query.isEmpty()) "Search Movies and Series" else query.takeLast(30),
                 style = MaterialTheme.typography.headlineSmall,
                 color = if (query.isEmpty()) SearchDim else Color.White,
                 maxLines = 1,
@@ -86,19 +97,24 @@ fun SearchScreen(search: Search, gridState: LazyGridState, opened: Title?, onOpe
                 modifier = Modifier.padding(bottom = 8.dp),
             )
             CharacterKeys.forEachIndexed { row, keys ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    Modifier.padding(start = (KeySize + KeyGap) * RowIndent[row]),
+                    horizontalArrangement = Arrangement.spacedBy(KeyGap),
+                ) {
                     keys.forEachIndexed { column, key ->
                         Key(
                             key.toString(),
-                            Modifier.size(48.dp).then(if (row == 0 && column == 0) Modifier.focusRequester(firstKey) else Modifier),
+                            // Focus starts on Q, where a QWERTY typist's hand starts.
+                            Modifier.size(KeySize).then(if (row == 1 && column == 0) Modifier.focusRequester(firstKey) else Modifier),
                         ) { search.type(key.lowercaseChar()) }
                     }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Key("Space", Modifier.width(104.dp).height(48.dp)) { search.type(' ') }
-                Key("Delete", Modifier.width(104.dp).height(48.dp)) { search.delete() }
-                Key("Clear", Modifier.width(104.dp).height(48.dp)) { search.clear() }
+            Row(horizontalArrangement = Arrangement.spacedBy(KeyGap)) {
+                val wide = Modifier.weight(1f).height(KeySize)
+                Key("Space", wide) { search.type(' ') }
+                Key("Delete", wide) { search.delete() }
+                Key("Clear", wide) { search.clear() }
             }
         }
         Column(Modifier.padding(start = 32.dp).fillMaxSize()) {
