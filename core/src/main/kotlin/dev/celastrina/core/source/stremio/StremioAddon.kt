@@ -10,6 +10,7 @@ import dev.celastrina.core.source.Source
 import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.source.SourceKind
 import dev.celastrina.core.source.Stream
+import dev.celastrina.core.source.deliveryFromAddress
 import dev.celastrina.core.source.failureReason
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
@@ -118,7 +119,7 @@ internal class StremioAddon(private val http: HttpClient, private val manifestUr
         private fun AddonStream.toStream(): Stream? {
             val hints = behaviorHints?.celastrina
             val (locator, delivery) = when {
-                url != null -> url to (hints?.delivery?.let(::deliveryNamed) ?: deliveryOf(url))
+                url != null -> url to (hints?.delivery?.let(::deliveryNamed) ?: deliveryFromAddress(url))
                 infoHash != null -> "magnet:?xt=urn:btih:$infoHash" to Stream.Delivery.Torrent
                 nzbUrl != null -> nzbUrl to Stream.Delivery.Usenet
                 externalUrl != null -> externalUrl to Stream.Delivery.ExternalApp
@@ -265,15 +266,6 @@ internal class StremioAddon(private val http: HttpClient, private val manifestUr
             "hls" -> Stream.Delivery.Hls
             "dash" -> Stream.Delivery.Dash
             else -> null
-        }
-
-        private fun deliveryOf(url: String): Stream.Delivery {
-            val path = url.substringBefore('?').substringBefore('#').lowercase()
-            return when {
-                path.endsWith(".m3u8") -> Stream.Delivery.Hls
-                path.endsWith(".mpd") -> Stream.Delivery.Dash
-                else -> Stream.Delivery.Progressive
-            }
         }
 
         private val RESOLUTION = Regex("""(?i)\b(?:(2160|1440|1080|720|576|480|360|240)p|(4k|uhd))\b""")

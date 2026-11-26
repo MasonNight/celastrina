@@ -23,6 +23,7 @@ import dev.celastrina.core.source.Source
 import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.source.SourceKind
 import dev.celastrina.core.source.Stream
+import dev.celastrina.core.source.deliveryFromAddress
 import java.security.MessageDigest
 import java.text.Normalizer
 import kotlin.math.abs
@@ -117,7 +118,7 @@ internal class ExtensionSource(
                 id = streamId,
                 url = link.url,
                 delivery = when (link.type) {
-                    ExtractorLinkType.VIDEO -> Stream.Delivery.Progressive
+                    ExtractorLinkType.VIDEO -> deliveryFromAddress(link.url)
                     ExtractorLinkType.M3U8 -> Stream.Delivery.Hls
                     ExtractorLinkType.DASH -> Stream.Delivery.Dash
                     ExtractorLinkType.TORRENT, ExtractorLinkType.MAGNET -> Stream.Delivery.Torrent

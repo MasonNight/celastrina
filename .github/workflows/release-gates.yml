@@ -2,7 +2,8 @@ name: Release gates
 
 # The gates the minified release APK must pass, signed with a throwaway key so they need no secrets: it is built with R8,
 # keeps the platform rules (verifyReleaseApk: no lib/, minSdk 25), is signed with v2 and v3, and loads the test
-# Extension on an emulator (ExtensionLoadingTest). CI runs them on every push; the release workflow before publishing.
+# Extension and verifies Address checks and Failover playback on an emulator. CI runs these gates on every push
+# and before publishing.
 on:
   workflow_call:
 
@@ -40,7 +41,7 @@ jobs:
         run: ./gradlew -PtestBuildType=release :app:assembleRelease :app:verifyReleaseApk :app:assembleReleaseAndroidTest --console=plain
       - name: Signed with v2 and v3
         run: scripts/verify-apk-signature.sh app/build/outputs/apk/release/app-release.apk
-      - name: Load the test Extension
+      - name: Load the test Extension and verify Failover playback
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
@@ -48,7 +49,7 @@ jobs:
           target: default
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          script: ./gradlew -PtestBuildType=release :app:connectedReleaseAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.celastrina.app.ExtensionLoadingTest --console=plain
+          script: ./gradlew -PtestBuildType=release :app:connectedReleaseAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.celastrina.app.ExtensionLoadingTest,dev.celastrina.app.FailoverPlaybackTest --console=plain
       - name: Reports
         if: failure()
         uses: actions/upload-artifact@v4

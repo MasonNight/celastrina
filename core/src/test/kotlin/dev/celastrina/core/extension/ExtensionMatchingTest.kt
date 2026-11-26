@@ -82,6 +82,17 @@ class ExtensionMatchingTest {
     }
 
     @Test
+    fun `an Extension can give delivery explicitly or leave it unknown`() = runTest {
+        val streams = streamsFor(movie("Night of the Living Dead", 1968, imdbId = "tt0063350"))
+        val testStreams = streams.filter { "/test-stream/" in it.url }
+
+        assertEquals(
+            mapOf("video" to Stream.Delivery.Unknown, "hls" to Stream.Delivery.Hls, "dash" to Stream.Delivery.Dash),
+            testStreams.associate { it.url.substringAfterLast('/') to it.delivery },
+        )
+    }
+
+    @Test
     fun `each Stream keeps its ID from one Lookup to the next`() = runTest {
         val title = movie("Night of the Living Dead", 1968, imdbId = "tt0063350")
 

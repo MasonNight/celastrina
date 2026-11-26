@@ -70,6 +70,11 @@ const streams = {
 			url: 'https://archive.org/download/PioneerOneS01E01720pHD/Content/Pioneer.One.S01E01.REFIX.720p.x264-VODO.mp4',
 		},
 	],
+	'series:tt1748166:1:2': [
+		{ url: 'https://nas.example/season.1/episode?next=manifest.mpd' },
+		{ url: 'https://nas.example/pioneer/manifest.MPD?token=example' },
+		{ url: 'https://nas.example/pioneer/playlist', behaviorHints: { celastrina: { delivery: 'hls' } } },
+	],
 }
 
 builder.defineStreamHandler(({ type, id }) => {

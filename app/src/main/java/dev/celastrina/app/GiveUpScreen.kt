@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import dev.celastrina.core.failover.Failover
 import dev.celastrina.core.failover.FailoverMemory
 import dev.celastrina.core.failover.FailoverStep
 import dev.celastrina.core.failover.GiveUpReason
@@ -73,15 +74,14 @@ fun GiveUpScreen(title: String, gaveUp: FailoverStep.GaveUp, lookup: TitleLookup
 
 private fun GiveUpReason.message(): String = when (this) {
     GiveUpReason.NothingLeftToTry -> "None of the Streams found would play."
-    GiveUpReason.FailuresInARow -> "5 Streams in a row wouldn't play, so Celastrina stopped trying."
-    GiveUpReason.NoPlaybackForAMinute -> "Nothing played for a minute, so Celastrina stopped trying."
+    GiveUpReason.NoPlaybackTimeLimit -> "Nothing played for ${Failover.NO_PLAYBACK_LIMIT.inWholeSeconds} seconds, so Celastrina stopped trying."
 }
 
 /** What happened at one Source, such as "2 Streams didn't play: an HTTP error, no picture within 15 s · 1 not tried". */
 private fun SourceSummary.State.message(): String = when (this) {
     is SourceSummary.State.StreamsFailed -> buildString {
         append(if (failures.size == 1) "Its Stream didn't play: " else "${failures.size} Streams didn't play: ")
-        append(failures.distinct().joinToString(", ") { it.message() })
+        append(failures.map { it.message() }.distinct().joinToString(", "))
         if (notTried > 0) append(" · $notTried not tried")
     }
     is SourceSummary.State.NotTried -> if (streams == 1) "1 Stream not tried" else "$streams Streams not tried"
@@ -92,11 +92,12 @@ private fun SourceSummary.State.message(): String = when (this) {
 }
 
 private fun StreamFailure.message(): String = when (this) {
+    StreamFailure.AddressCheckTimeout -> "address check timed out"
     StreamFailure.NoFirstFrame -> "no picture within 15 s"
     StreamFailure.LongStall -> "stalled for over 20 s"
     StreamFailure.RepeatedStalls -> "stalled 3 times in 2 minutes"
     is StreamFailure.Fault -> when (fault) {
-        PlayerFault.Http -> "an HTTP error"
+        is PlayerFault.Http -> "an HTTP error"
         PlayerFault.Network -> "a network error"
         PlayerFault.UnsupportedFormat -> "a format this TV can't play"
         PlayerFault.Decoder -> "a decoder error"

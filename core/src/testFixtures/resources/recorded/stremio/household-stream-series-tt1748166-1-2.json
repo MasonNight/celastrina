@@ -1,0 +1,1 @@
+{"streams":[{"url":"https://nas.example/season.1/episode?next=manifest.mpd"},{"url":"https://nas.example/pioneer/manifest.MPD?token=example"},{"url":"https://nas.example/pioneer/playlist","behaviorHints":{"celastrina":{"delivery":"hls"}}}]}

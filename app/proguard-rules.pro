@@ -42,12 +42,25 @@
 -dontwarn javax.script.**
 -dontwarn jdk.dynalink.**
 
-# The instrumented tests run against this APK (-PtestBuildType=release), and AGP 8.7 doesn't apply the app's mapping to
-# the test APK, so the classes they use keep their names: Celastrina's own (small, and it keeps the stack traces in the
-# TV's log readable without a mapping file), and androidx.tracing, which AndroidJUnitRunner calls and the app carries
-# for OkHttp's startup initializer. A test may use another library the app carries only if this file keeps it whole;
-# kotlinx.serialization isn't kept, so the tests read JSON with Android's org.json. A dependency also bundles
-# org.json:json, which R8 would otherwise rename under the tests (InstantiationError), so it's kept too.
+# The instrumented tests run against this APK (-PtestBuildType=release). The test APK links to Celastrina's classes
+# and to androidx.tracing, which AndroidJUnitRunner calls and the app carries for OkHttp's startup initializer.
+# Keeping Celastrina's names also keeps the TV's stack traces readable. The tests read JSON with Android's org.json.
+# A dependency also bundles org.json:json, which R8 would otherwise rename under the tests (InstantiationError).
 -keep class dev.celastrina.** { *; }
 -keep class androidx.tracing.Trace { *; }
 -keep class org.json.** { *; }
+
+# The redirected HLS test calls these Media3 APIs from the test APK and implements the error callback.
+-keep interface androidx.media3.exoplayer.ExoPlayer {
+    void release();
+}
+-keep interface androidx.media3.common.Player {
+    void addListener(androidx.media3.common.Player$Listener);
+    long getCurrentPosition();
+}
+-keep interface androidx.media3.common.Player$Listener {
+    void onPlayerError(androidx.media3.common.PlaybackException);
+}
+-keep class androidx.media3.common.PlaybackException {
+    java.lang.String getErrorCodeName();
+}
