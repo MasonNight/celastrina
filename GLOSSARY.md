@@ -90,7 +90,13 @@ _Avoid_: Repo, store, marketplace, feed
 
 **Stream**:
 One offering of a Title from a specific Source. Celastrina plays only unencrypted http(s), HLS and DASH Streams; it drops the rest.
+Whether a Stream is a single file, HLS or DASH can be unknown until its Address check.
 _Avoid_: Link, URL, file
+
+**Address check**:
+Asking a Stream's server, before playing it, where its address leads and whether it serves a single file, HLS or DASH.
+Done for Streams whose delivery is unknown, and in the background for the next two Candidates.
+_Avoid_: Probe, preflight, HEAD request
 
 **Stream details**:
 What a Stream says about itself: its picture height, codecs, container, audio languages, subtitles and size. A
@@ -135,12 +141,13 @@ Playback stopping to wait for data after its first picture, other than after a p
 _Avoid_: Freeze, hang, lag
 
 **Failover memory**:
-What the TV remembers of the Streams that failed on it in the past 24 hours, which go last among the candidates.
+What the TV remembers of the Streams that failed for good on it in the past 24 hours, which go last among the
+candidates. A Stream that was rate limited, temporarily unavailable or too slow to answer its Address check is skipped
+for that playback only, along with its server's other Streams when it was rate limited.
 _Avoid_: Blacklist, ban list, history
 
 **Give up**:
-Failover stopping for good: when the candidates run out, after five failures in a row, or after a minute without
-playback. The Household then sees what happened at each Source.
+Failover stopping for good: when the candidates run out, or after 90 seconds without playback. The Household then sees what happened at each Source.
 _Avoid_: Abort, crash, error screen
 
 ### Getting it onto a TV
