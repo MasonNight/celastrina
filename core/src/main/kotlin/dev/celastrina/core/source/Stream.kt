@@ -31,6 +31,9 @@ data class Stream(
         Progressive(true),
         Hls(true),
         Dash(true),
+
+        /** An http(s) Stream whose delivery is still to be checked. */
+        Unknown(true),
         Torrent(false),
 
         /** A page to open in another app or a browser. */
@@ -66,4 +69,18 @@ data class Stream(
 
     /** A sidecar subtitle file. [language] is a BCP 47 tag where known. */
     data class Subtitle(val url: String, val language: String? = null, val label: String? = null)
+}
+
+/** Delivery inferred from the filename in an http(s) address. */
+internal fun deliveryFromAddress(url: String): Stream.Delivery {
+    val filename = url.substringAfter("://", "").substringBefore('?').substringBefore('#')
+        .substringAfter('/', "").substringAfterLast('/')
+    val dot = filename.lastIndexOf('.')
+    if (dot !in 1 until filename.lastIndex) return Stream.Delivery.Unknown
+
+    return when (filename.substring(dot + 1).lowercase()) {
+        "m3u8" -> Stream.Delivery.Hls
+        "mpd" -> Stream.Delivery.Dash
+        else -> Stream.Delivery.Progressive
+    }
 }

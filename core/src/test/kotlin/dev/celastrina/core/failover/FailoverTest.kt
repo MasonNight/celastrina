@@ -92,6 +92,14 @@ class FailoverTest {
     }
 
     @Test
+    fun `a Stream with unknown delivery remains a Candidate until its address is checked`() {
+        val unknown = friendsHevc.copy(delivery = Stream.Delivery.Unknown)
+        val lookup = lookup(friends to listOf(unknown), movieNight to listOf(nightly1080))
+
+        assertEquals(listOf(unknown, nightly1080), lookup.candidates(Decoders { it == "video/avc" }, memory))
+    }
+
+    @Test
     fun `Play's automatic choice is the first candidate, skipping Streams the TV can't decode`() {
         val noHevc = Decoders { it != "video/hevc" }
 
