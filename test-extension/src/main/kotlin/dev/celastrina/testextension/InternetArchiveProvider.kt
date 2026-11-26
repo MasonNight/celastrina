@@ -97,6 +97,12 @@ class InternetArchiveProvider : MainAPI() {
                 },
             )
         }
+        // The Archive only lists files. These test links exercise Extension link types without live Streams.
+        if (item.id == "Night.Of.The.Living.Dead_1080p") {
+            callback(newExtractorLink(name, "Plain video", "$mainUrl/test-stream/video", ExtractorLinkType.VIDEO))
+            callback(newExtractorLink(name, "HLS", "$mainUrl/test-stream/hls", ExtractorLinkType.M3U8))
+            callback(newExtractorLink(name, "DASH", "$mainUrl/test-stream/dash", ExtractorLinkType.DASH))
+        }
         return files.isNotEmpty()
     }
 
