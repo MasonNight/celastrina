@@ -2,11 +2,16 @@ package dev.celastrina.app
 
 import android.os.Handler
 import android.os.Looper
+import androidx.annotation.OptIn
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.celastrina.core.failover.PlayerEvent
+import dev.celastrina.core.failover.PlayerFault
 import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.source.Stream
 import kotlinx.coroutines.Dispatchers
@@ -21,14 +26,17 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
  * A Stremio-compatible add-on that offers one Stream per host gives each as an address with no file extension, such
  * as `https://host/redirect?…`, which redirects to an HLS playlist. Nothing in the address says it is HLS, so the
- * add-on's Stream arrives as a progressive one. Play must still play it.
+ * add-on's Stream arrives with unknown delivery. Play must still play it.
  *
  * The add-on and the host it redirects to are a server in this test, answering from this test's assets: a few seconds
  * of synthetic video made with ffmpeg's test pattern. Run on the emulator.
@@ -52,9 +60,20 @@ class RedirectedHlsPlaybackTest {
     }
 
     @Test
+    @OptIn(UnstableApi::class)
+    fun a_known_single_file_with_an_extensionless_address_skips_the_check() = runBlocking {
+        val stream = Stream(SourceId("jellyfin"), "file-1", "${host.url}/Videos/1/stream", Stream.Delivery.Progressive)
+
+        val address = stream.playbackAddress(DefaultHttpDataSource.Factory())
+
+        assertEquals(PlaybackAddress(stream.url, null), address)
+        assertFalse(host.receivedRequest.get(), "Known delivery should skip the Address check")
+    }
+
+    @Test
     fun an_add_on_stream_that_redirects_to_hls_plays() {
         // As the add-on's Stream arrives: its address says nothing of HLS.
-        val stream = Stream(SourceId("notorrent"), "redirect-1", "${host.url}/redirect?id=1", Stream.Delivery.Progressive)
+        val stream = Stream(SourceId("notorrent"), "redirect-1", "${host.url}/redirect?id=1", Stream.Delivery.Unknown)
         val error = arrayOfNulls<PlaybackException>(1)
         val failed = CountDownLatch(1)
 
@@ -72,6 +91,27 @@ class RedirectedHlsPlaybackTest {
 
         assertNull(error[0], "Playback failed: ${error[0]?.errorCodeName} ${error[0]?.cause}")
         assertTrue(advanced, "Playback never got 1 s in")
+    }
+
+    @Test
+    fun a_rate_limited_stream_reports_its_http_status_to_failover() {
+        val stream = Stream(SourceId("notorrent"), "busy", "${host.url}/busy.mp4", Stream.Delivery.Progressive)
+        val failed = CountDownLatch(1)
+        var failure: PlayerEvent.Failed? = null
+
+        runBlocking(Dispatchers.Main) {
+            player = newPlayer(instrumentation.targetContext, stream, startAtMillis = 0).apply {
+                addListener(Media3FailoverEvents(this) { event ->
+                    if (event is PlayerEvent.Failed) {
+                        failure = event
+                        failed.countDown()
+                    }
+                })
+            }
+        }
+
+        assertTrue(failed.await(PLAYBACK_WAIT_MILLIS, TimeUnit.MILLISECONDS), "The player did not report a failure")
+        assertEquals(PlayerEvent.Failed(PlayerFault.Http(429)), failure)
     }
 
     private fun waitFor(millis: Long, failed: CountDownLatch, done: () -> Boolean): Boolean {
@@ -98,6 +138,7 @@ class RedirectedHlsPlaybackTest {
     private inner class AssetHost : AutoCloseable {
         private val server = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
         val url = "http://127.0.0.1:${server.localPort}"
+        val receivedRequest = AtomicBoolean()
         private val assets = instrumentation.context.assets
 
         init {
@@ -112,6 +153,7 @@ class RedirectedHlsPlaybackTest {
         private fun answer(socket: Socket) {
             val reader = BufferedReader(InputStreamReader(socket.getInputStream()))
             val path = reader.readLine()?.split(" ")?.getOrNull(1) ?: return
+            receivedRequest.set(true)
             while (!reader.readLine().isNullOrEmpty()) Unit
             val out = socket.getOutputStream()
             when {
@@ -124,6 +166,8 @@ class RedirectedHlsPlaybackTest {
                     out.write("HTTP/1.1 200 OK\r\nContent-Type: $type\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n".toByteArray())
                     out.write(body)
                 }
+                path == "/busy.mp4" ->
+                    out.write("HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
                 else -> out.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
             }
             out.flush()

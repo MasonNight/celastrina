@@ -52,6 +52,7 @@ class StreamLookupTest {
             stream("mp4", "https://example.org/film.mp4", Stream.Delivery.Progressive),
             stream("hls", "http://example.org/film.m3u8", Stream.Delivery.Hls),
             stream("dash", "https://example.org/film.mpd", Stream.Delivery.Dash),
+            stream("unknown", "https://example.org/watch?id=film", Stream.Delivery.Unknown),
         )
         val unplayable = listOf(
             stream("widevine", "https://example.org/locked.mpd", Stream.Delivery.Dash).copy(drm = true),

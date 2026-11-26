@@ -1,6 +1,5 @@
 package dev.celastrina.app
 
-import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MimeTypes
@@ -18,25 +17,16 @@ internal data class PlaybackAddress(val url: String, val mimeType: String?)
 /**
  * Where and as what the player loads this Stream.
  *
- * A Stream's own delivery says HLS or DASH when its Source knows. A Stremio-compatible add-on that offers one Stream
- * per host often doesn't: it gives an address that says nothing of what it serves, such as `https://host/redirect?…`
- * leading to an HLS playlist, so the Stream arrives as a progressive one, and played as a single file it fails as a
- * format this TV can't play. So for a progressive Stream whose address has no file extension, the server is asked
- * first, through [http] with the Stream's headers: the Content-Type it answers with after any redirects, or failing
- * that the first bytes, tell HLS and DASH apart from a file, and an HLS or DASH Stream then plays from where the
- * redirects ended. When asking fails, the Stream plays as it came, so the player meets the same failure and Failover
- * moves on as usual.
+ * Only a Stream with unknown delivery gets an Address check. The server's Content-Type or the first bytes of its
+ * response tell HLS and DASH apart from a file. An HLS or DASH Stream then plays from where the redirects ended.
+ * If the check fails, the player tries the original address so it can report the failure to Failover.
  */
 @OptIn(UnstableApi::class)
-internal suspend fun Stream.playbackAddress(http: DataSource.Factory): PlaybackAddress {
-    when (delivery) {
-        Stream.Delivery.Hls -> return PlaybackAddress(url, MimeTypes.APPLICATION_M3U8)
-        Stream.Delivery.Dash -> return PlaybackAddress(url, MimeTypes.APPLICATION_MPD)
-        else -> Unit
-    }
-    val asItCame = PlaybackAddress(url, null)
-    if (Uri.parse(url).lastPathSegment.orEmpty().contains('.')) return asItCame
-    return runInterruptible(Dispatchers.IO) { askServer(http) } ?: asItCame
+internal suspend fun Stream.playbackAddress(http: DataSource.Factory): PlaybackAddress = when (delivery) {
+    Stream.Delivery.Hls -> PlaybackAddress(url, MimeTypes.APPLICATION_M3U8)
+    Stream.Delivery.Dash -> PlaybackAddress(url, MimeTypes.APPLICATION_MPD)
+    Stream.Delivery.Unknown -> runInterruptible(Dispatchers.IO) { askServer(http) } ?: PlaybackAddress(url, null)
+    else -> PlaybackAddress(url, null)
 }
 
 @OptIn(UnstableApi::class)
