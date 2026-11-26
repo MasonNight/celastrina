@@ -33,3 +33,8 @@ fingerprint, without the colons, in lower case.
 <img src="docs/images/tmdb-logo.svg" alt="TMDB" width="240">
 
 This product uses the TMDB API but is not endorsed or certified by TMDB.
+
+## License
+
+Celastrina is free software under the [GNU General Public License v3.0](LICENSE). It bundles CloudStream's `library`,
+which is GPL-3.0 too.
