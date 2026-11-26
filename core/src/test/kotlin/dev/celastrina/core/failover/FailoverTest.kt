@@ -209,28 +209,41 @@ class FailoverTest {
             val failover = playing(checked, lookup, started = false)
             val next = failover.on(PlayerEvent.AddressCheckHttpError(status, "https://video.example/watch"))
 
-            if (status == 404) {
-                assertSwitchedTo(sameHost, next)
-                assertEquals(sameHost, lookup.candidates(everythingDecodes, memory).first())
-            } else {
-                assertSwitchedTo(archiveMp4, next)
-                assertEquals(checked, lookup.candidates(everythingDecodes, memory).first())
-            }
+            assertSwitchedTo(sameHost, next)
+            assertEquals(if (status == 404) sameHost else checked, lookup.candidates(everythingDecodes, memory).first())
             assertEquals(StreamFailure.Fault(PlayerFault.Http(status)), next.notice.reason)
         }
     }
 
     @Test
-    fun `a redirected Stream's passing HTTP failure skips both servers for this playback`() {
+    fun `Candidates sharing a redirector can still play after one resolved server is rate limited`() {
+        val first = nightly1080.copy(delivery = Stream.Delivery.Unknown)
+        val sameServer = nightly720.copy(delivery = Stream.Delivery.Unknown)
+        val otherServer = movieNight.stream("other-server").copy(delivery = Stream.Delivery.Unknown)
+        val failover = playing(first, lookup(movieNight to listOf(first, sameServer, otherServer)), started = false)
+        val busy = PlayerEvent.AddressChecked("https://busy.example/first", Stream.Delivery.Hls)
+        val alsoBusy = PlayerEvent.AddressChecked("https://busy.example/second", Stream.Delivery.Hls)
+        val available = PlayerEvent.AddressChecked("https://available.example/third", Stream.Delivery.Hls)
+
+        failover.on(busy)
+        failover.on(PlayerEvent.CandidateAddressChecked(sameServer, alsoBusy))
+        failover.on(PlayerEvent.CandidateAddressChecked(otherServer, available))
+
+        assertSwitchedTo(otherServer.copy(url = available.url, delivery = available.delivery), failover.failUnstarted(PlayerFault.Http(429)))
+    }
+
+    @Test
+    fun `a redirected Stream's passing HTTP failure skips its resolved server for this playback`() {
         val unknown = nightly1080.copy(delivery = Stream.Delivery.Unknown)
         val redirectedHost = archiveMp4.copy(url = "https://video.example/other")
-        val lookup = lookup(movieNight to listOf(unknown, nightly720), archive to listOf(redirectedHost, archiveOgv))
-
         for (status in listOf(429, 503)) {
+            val sameOrigin = nightly720.copy(id = "same-origin-$status")
+            val lookup = lookup(movieNight to listOf(unknown, sameOrigin), archive to listOf(redirectedHost, archiveOgv))
             val failover = playing(unknown, lookup, started = false)
             failover.on(PlayerEvent.AddressChecked("https://video.example/watch", Stream.Delivery.Hls))
 
-            assertSwitchedTo(archiveOgv, failover.failUnstarted(PlayerFault.Http(status)))
+            assertSwitchedTo(sameOrigin, failover.failUnstarted(PlayerFault.Http(status)))
+            assertSwitchedTo(archiveOgv, failover.failUnstarted())
             assertEquals(unknown, lookup.candidates(everythingDecodes, memory).first())
         }
     }
@@ -250,6 +263,7 @@ class FailoverTest {
         val busy = PlayerEvent.AddressCheckHttpError(503, "https://video.example/busy")
         assertNull(failover.on(PlayerEvent.CandidateAddressChecked(passing, busy)))
 
+        assertSwitchedTo(sameOrigin, failover.failUnstarted())
         assertSwitchedTo(archiveOgv, failover.failUnstarted())
     }
 

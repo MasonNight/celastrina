@@ -42,8 +42,9 @@ internal class AddressChecks(private val scope: CoroutineScope) {
 /** Asks where the Stream leads and what it serves, bounded across redirects and reading the response. */
 internal suspend fun Stream.checkAddress(): PlayerEvent.AddressCheckAnswer {
     val request = try {
+        // Like playback's initial load, send a Range only if the Stream supplies one.
         Request.Builder().url(url).apply {
-            for ((name, value) in headers) header(name, value)
+            for ((name, value) in playbackHeaders()) header(name, value)
         }.build()
     } catch (e: IllegalArgumentException) {
         return PlayerEvent.AddressCheckUnavailable

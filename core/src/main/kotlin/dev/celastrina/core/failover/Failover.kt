@@ -18,7 +18,7 @@ import kotlin.time.Duration.Companion.seconds
  *
  * Candidates are the [Lookup]'s Streams this TV can decode, in the Household's Source order and then each Source's own
  * ranking; quality isn't compared across Sources, and Streams that failed on this TV in the last 24 hours ([memory])
- * go last. Each Stream is tried at most once per session. HTTP 429 and 503 skip the Stream's original and resolved hosts for this session.
+ * go last. Each Stream is tried at most once per session. HTTP 429 and 503 skip the server that answered for this session.
  * Permanent failures are remembered in [memory]. Give it every newer Lookup with [lookupChanged], so Streams that
  * arrive late join the candidates.
  *
@@ -77,7 +77,6 @@ class Failover(
     var notice: FailoverNotice? = null
         private set
 
-    private var currentCandidate = chosen
     private var onHouseholdsChoice = handPicked
     private val tried = mutableSetOf(chosen.key)
     private val skippedHosts = mutableSetOf<String>()
@@ -156,7 +155,7 @@ class Failover(
             is CheckedAddress.Failed -> {
                 tried += candidate.key
                 val failed = Failed(result.stream, result.reason, handPicked = false)
-                recordFailure(failed, "Background Address check", candidate.host)
+                recordFailure(failed, "Background Address check")
                 if (!failed.isPassing) askAgainIfOld(now)
             }
         }
@@ -181,19 +180,16 @@ class Failover(
     private fun fail(current: Stream, failure: StreamFailure): FailoverStep? {
         val failed = Failed(current, failure, onHouseholdsChoice)
         onHouseholdsChoice = false
-        recordFailure(failed, "Stream", currentCandidate.host)
+        recordFailure(failed, "Stream")
         return next(failed)
     }
 
-    private fun recordFailure(failed: Failed, subject: String, originalHost: String? = null) {
+    private fun recordFailure(failed: Failed, subject: String) {
         failures += failed
         val classification = if (failed.isPassing) "passing" else "permanent"
         val detail = failed.httpStatus?.let { "HTTP $it" } ?: "HTTP status unavailable, ${failed.reason}"
         logger.info("Failover: $subject failed ($classification, $detail)")
-        if (failed.skipsHost) {
-            failed.stream.host?.let { skippedHosts += it }
-            originalHost?.let { skippedHosts += it }
-        }
+        if (failed.skipsHost) failed.stream.host?.let { skippedHosts += it }
         if (!failed.isPassing) memory.demote(failed.stream)
     }
 
@@ -227,7 +223,6 @@ class Failover(
                 tried += next.key
                 val checked = checkedCandidates[next]
                 val toPlay = checked ?: next
-                currentCandidate = next
                 playing = toPlay
                 addressCheck = next.takeIf { checked == null && it.delivery == Stream.Delivery.Unknown }
                 chosenAtMillis = now
@@ -297,8 +292,8 @@ class Failover(
 
     private fun candidates(): List<Stream> = lookup.candidates(decoders, memory)
 
-    private fun canTry(candidate: Stream) = candidate.key !in tried && candidate.host !in skippedHosts &&
-        checkedCandidates[candidate]?.host !in skippedHosts
+    private fun canTry(candidate: Stream) =
+        candidate.key !in tried && (checkedCandidates[candidate] ?: candidate).host !in skippedHosts
 
     private fun knownCandidateCount(candidates: List<Stream>): Int = (tried + candidates.map { it.key }).size
 

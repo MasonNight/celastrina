@@ -91,7 +91,7 @@ class FailoverPlaybackTest {
     }
 
     @Test
-    fun an_add_on_stream_that_redirects_to_hls_plays() {
+    fun an_add_on_stream_that_redirects_to_hls_plays_with_the_players_user_agent() {
         // As the add-on's Stream arrives: its address says nothing of HLS.
         val stream = Stream(
             SourceId("notorrent"), "redirect-1", "${host.url}/redirect?id=1", Stream.Delivery.Unknown,
@@ -282,13 +282,19 @@ class FailoverPlaybackTest {
             receivedRequest.set(true)
             val headers = generateSequence { reader.readLine()?.takeIf { it.isNotEmpty() } }.toList()
             val out = socket.getOutputStream()
+            val isRedirectedHls = path.startsWith("/redirect") || path.startsWith("/hls/")
+            val userAgent = headers.firstOrNull { it.startsWith("User-Agent:", ignoreCase = true) }?.substringAfter(':')?.trim()
             when {
                 path == "/starting.mp4" -> {
                     startingStreamMayFail.await(5, TimeUnit.SECONDS)
                     out.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
                 }
-                (path.startsWith("/redirect") || path.startsWith("/hls/")) && headers.none { it.equals("Referer: $url", ignoreCase = true) } ->
+                isRedirectedHls && (userAgent != System.getProperty("http.agent") ||
+                    headers.none { it.equals("Referer: $url", ignoreCase = true) }) ->
                     out.write("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
+                (path.startsWith("/redirect") || path.startsWith("/hls/playlist")) &&
+                    headers.any { it.startsWith("Range:", ignoreCase = true) } ->
+                    out.write("HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
                 path.startsWith("/redirect") ->
                     out.write("HTTP/1.1 302 Found\r\nLocation: $url/hls/playlist?token=synthetic\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
                 path.startsWith("/hls/") -> {

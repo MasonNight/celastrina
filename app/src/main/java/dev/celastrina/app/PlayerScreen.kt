@@ -192,7 +192,7 @@ internal fun newPlayer(context: android.content.Context, stream: Stream, startAt
     // The Stream's headers (a token, a Referer) go with every request, its subtitles' included.
     val http = DefaultHttpDataSource.Factory()
         .setAllowCrossProtocolRedirects(true)
-        .setDefaultRequestProperties(stream.headers)
+        .setDefaultRequestProperties(stream.playbackHeaders())
     return ExoPlayer.Builder(context)
         .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, http)))
         .build()
