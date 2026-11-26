@@ -1,0 +1,21 @@
+{
+  "head" : {
+    "vars" : [ "film", "archiveId", "copyrightStatus" ]
+  },
+  "results" : {
+    "bindings" : [ {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q639740"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "pioneer.one.season1.720p.x264-vodo"
+      },
+      "copyrightStatus" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q50423863"
+      }
+    } ]
+  }
+}

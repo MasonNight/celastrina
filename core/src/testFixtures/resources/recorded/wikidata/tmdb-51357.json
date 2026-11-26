@@ -1,0 +1,47 @@
+{
+  "head" : {
+    "vars" : [ "film", "archiveId", "copyrightStatus" ]
+  },
+  "results" : {
+    "bindings" : [ {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q1057612"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "BusterKeatonthescarecrow"
+      },
+      "copyrightStatus" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q19652"
+      }
+    }, {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q1057612"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "BusterKeatonthescarecrow"
+      },
+      "copyrightStatus" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q19652"
+      }
+    }, {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q1057612"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "BusterKeatonthescarecrow"
+      },
+      "copyrightStatus" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q19652"
+      }
+    } ]
+  }
+}

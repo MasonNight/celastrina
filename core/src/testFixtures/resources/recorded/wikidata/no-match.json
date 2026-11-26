@@ -1,0 +1,8 @@
+{
+  "head" : {
+    "vars" : [ "film", "archiveId", "copyrightStatus" ]
+  },
+  "results" : {
+    "bindings" : [ ]
+  }
+}

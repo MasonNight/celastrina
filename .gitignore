@@ -1,0 +1,9 @@
+local.properties
+.gradle/
+.kotlin/
+# Build outputs; anchored, so a source package named `build` isn't ignored.
+/build/
+/*/build/
+.idea/
+*.iml
+.claude/worktrees/

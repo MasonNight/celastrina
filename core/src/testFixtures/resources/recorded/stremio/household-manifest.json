@@ -1,0 +1,1 @@
+{"id":"org.household.archive","version":"1.0.0","name":"Household Archive","description":"Films from the household NAS and the Internet Archive","resources":["catalog","meta","stream"],"types":["movie","series"],"idPrefixes":["tt"],"catalogs":[{"type":"movie","id":"household","name":"Household Archive"}]}

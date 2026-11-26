@@ -22,9 +22,45 @@ _Avoid_: Film
 A Title made of seasons and episodes.
 _Avoid_: Show, TV show
 
+**Title kind**:
+Whether a Title is a Movie or a Series.
+_Avoid_: Type, format, media type
+
+**Season**:
+One numbered part of a Series, holding its episodes in order. Season 0, where a Series has one, holds its specials.
+_Avoid_: Series (for one part), volume, part
+
+**Episode**:
+One piece of a Series, known by its Season and its number within it.
+_Avoid_: Chapter, part
+
 **Category**:
 A label that groups Titles for browsing, such as Anime or Cartoons; it does not change what kind of Title something is.
+Anime is animation made in Japanese; Cartoons is any other animation.
 _Avoid_: Type, kind, section
+
+**Search**:
+Finding Titles in the Catalogue by name. Search asks only the Catalogue, never the Sources.
+_Avoid_: Lookup, find, query
+
+### Browsing on home
+
+**Row**:
+One named line of Titles on home, such as Movies, Series, Anime, Cartoons, Continue watching or the Watchlist.
+_Avoid_: Shelf, rail, carousel, list
+
+**Hero**:
+The large area at the top of home that shows the focused Title's backdrop, title logo and details.
+_Avoid_: Banner, billboard, spotlight
+
+**Continue watching**:
+The Row of Titles and episodes the Household started but didn't finish, each resuming where playback got to, on the
+Stream that last worked.
+_Avoid_: Recently watched, history, resume list
+
+**Watchlist**:
+The Row of Titles the Household saved to watch later.
+_Avoid_: Favourites, my list, bookmarks
 
 ### Where it plays from
 
@@ -33,8 +69,16 @@ A provider that, given a Title (or episode), can offer Streams for it; Sources c
 _Avoid_: Provider, addon, plugin, scraper
 
 **Source Kind**:
-A type of Source that Celastrina knows how to talk to, such as Internet Archive, Jellyfin or Stremio-compatible add-on; a Household can have several Sources of the same Kind.
+A type of Source that Celastrina knows how to talk to, such as Internet Archive, Jellyfin, Emby or Stremio-compatible add-on; a Household can have several Sources of the same Kind.
 _Avoid_: Source type, adapter, integration
+
+**Media server**:
+A Jellyfin or Emby server, run by the Household or someone it knows; Jellyfin and Emby are two Source Kinds that work alike.
+_Avoid_: Library server, Plex (a different product)
+
+**Quick Connect**:
+Logging a Jellyfin Source in by approving, from another device already signed in to the server, a code the TV shows.
+_Avoid_: Pairing, device code
 
 **Extension**:
 An unverified package of third-party code, such as a web scraper, that a Household imports into Celastrina after installation and that provides one or more Sources; Celastrina itself ships none.
@@ -45,14 +89,79 @@ A list of Extensions, published by a third party at a URL, that a Household impo
 _Avoid_: Repo, store, marketplace, feed
 
 **Stream**:
-One playable offering of a Title from a specific Source.
+One offering of a Title from a specific Source. Celastrina plays only unencrypted http(s), HLS and DASH Streams; it drops the rest.
+Whether a Stream is a single file, HLS or DASH can be unknown until its Address check.
 _Avoid_: Link, URL, file
+
+**Address check**:
+Asking a Stream's server, before playing it, where its address leads and whether it serves a single file, HLS or DASH.
+Done for Streams whose delivery is unknown, and in the background for the next two Candidates.
+_Avoid_: Probe, preflight, HEAD request
+
+**Stream details**:
+What a Stream says about itself: its picture height, codecs, container, audio languages, subtitles and size. A
+Stremio-compatible add-on can give them in Celastrina's own extension to the add-on protocol.
+_Avoid_: Metadata (that's the Catalogue's), quality info
+
+**Choose Stream**:
+The screen that lists every Stream a Lookup found, grouped by Source, for the Household to pick one by hand.
+_Avoid_: Stream picker, source list
+
+**Title reference**:
+What Celastrina tells a Source about the Title (or episode) it wants Streams for: the Title's IDs, names and year, as the Catalogue knows them.
+_Avoid_: Query, request
+
+**Lookup**:
+Asking a Household's Sources for Streams of one Title or episode: when its detail screen opens, an episode is picked or
+a Continue watching card resumes it, and again when Failover finds its Stream list may have expired.
+_Avoid_: Search, scrape, resolve
+
+**Not available**:
+A Source's answer that it has no Streams for a Title: a normal outcome, not a Failure.
+_Avoid_: Not found, no results
+
+**Failure**:
+A Source's answer that it couldn't complete a Lookup, with a reason: unreachable, login needed, rate limited, or a Source error. A Stream that stops playing is not a Failure; Failover handles it.
+_Avoid_: Error
+
+**Not playable**:
+Said of a Title whose latest Lookup, within the past week, found every Source Not available.
+_Avoid_: Unavailable, dead
 
 **Failover**:
 Automatically moving playback to another Stream for the same Title when the current one doesn't work.
 _Avoid_: Auto-switch, fallback
 
+**Candidate**:
+A Stream Failover may move to: one this TV can decode, in the Household's Source order.
+_Avoid_: Option, alternative, backup
+
+**Stall**:
+Playback stopping to wait for data after its first picture, other than after a pause or a seek.
+_Avoid_: Freeze, hang, lag
+
+**Passing failure**:
+A Stream failure caused by a rate limit (HTTP 429), a temporarily unavailable server (HTTP 503), or an Address check
+timeout. Failover skips the Stream for this playback.
+
+**Permanent failure**:
+Any other Stream failure. Failover memory moves the Stream to the end of the Candidate order for 24 hours.
+
+**Failover memory**:
+What the TV remembers of Permanent failures in the past 24 hours, so those Streams go last among the Candidates.
+Passing failures apply only to the current playback. HTTP 429 or 503 also skips the other Streams from the server that returned the response after redirects.
+_Avoid_: Blacklist, ban list, history
+
+**Give up**:
+Failover stopping for good: when the candidates run out, or after 90 seconds without playback. The Household then sees what happened at each Source.
+_Avoid_: Abort, crash, error screen
+
 ### Getting it onto a TV
+
+**TMDB key**:
+The credential the Catalogue is read from TMDB with: the project's, built into Celastrina, unless the Household has set
+its own, which overrides it.
+_Avoid_: API key, token, licence
 
 **Install Runbook**:
 The instructions, written for an AI agent, that let it install, update, configure, or remove Celastrina on a household's TV, asking the user only for what it cannot do itself.

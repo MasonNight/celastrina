@@ -1,0 +1,62 @@
+{
+  "head" : {
+    "vars" : [ "film", "archiveId", "copyrightStatus" ]
+  },
+  "results" : {
+    "bindings" : [ {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q5619405"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "gunsmoke-ranch"
+      }
+    }, {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q5619405"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "gunsmoke_ranch"
+      }
+    }, {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q5619405"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "gunsmoke-ranch"
+      }
+    }, {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q5619405"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "gunsmoke_ranch"
+      }
+    }, {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q5619405"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "gunsmoke-ranch"
+      }
+    }, {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q5619405"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "gunsmoke_ranch"
+      }
+    } ]
+  }
+}

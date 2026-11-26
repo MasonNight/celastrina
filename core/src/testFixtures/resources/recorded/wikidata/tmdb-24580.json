@@ -1,0 +1,35 @@
+{
+  "head" : {
+    "vars" : [ "film", "archiveId", "copyrightStatus" ]
+  },
+  "results" : {
+    "bindings" : [ {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q1683913"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "the-quatermass-xperiment"
+      }
+    }, {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q1683913"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "the-quatermass-xperiment"
+      }
+    }, {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q1683913"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "the-quatermass-xperiment"
+      }
+    } ]
+  }
+}

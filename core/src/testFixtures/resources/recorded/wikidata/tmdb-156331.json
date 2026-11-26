@@ -1,0 +1,35 @@
+{
+  "head" : {
+    "vars" : [ "film", "archiveId", "copyrightStatus" ]
+  },
+  "results" : {
+    "bindings" : [ {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q12126345"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "Murder_at_Midnight_1931"
+      }
+    }, {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q12126345"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "Murder_at_Midnight_1931"
+      }
+    }, {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q12126345"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "Murder_at_Midnight_1931"
+      }
+    } ]
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "head" : {
+    "vars" : [ "film", "archiveId", "copyrightStatus" ]
+  },
+  "results" : {
+    "bindings" : [ {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q1196539"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "Pygmalion"
+      }
+    }, {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q1196539"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "Pygmalion"
+      }
+    }, {
+      "film" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q1196539"
+      },
+      "archiveId" : {
+        "type" : "literal",
+        "value" : "Pygmalion"
+      }
+    } ]
+  }
+}

@@ -1,0 +1,58 @@
+name: Release gates
+
+# The gates the minified release APK must pass, signed with a throwaway key so they need no secrets: it is built with R8,
+# keeps the platform rules (verifyReleaseApk: no lib/, minSdk 25), is signed with v2 and v3, and loads the test
+# Extension and verifies Address checks and Failover playback on an emulator. CI runs these gates on every push
+# and before publishing.
+on:
+  workflow_call:
+
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Celastrina's minSdk, and a current Android that enforces read-only loaded code.
+        api-level: [25, 34]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Throwaway signing key
+        run: |
+          keytool -genkeypair -keystore "$RUNNER_TEMP/throwaway.jks" -storetype PKCS12 -alias throwaway \
+            -storepass throwaway -keypass throwaway -keyalg RSA -keysize 2048 -validity 1 -dname CN=throwaway
+          {
+            echo "CELASTRINA_KEYSTORE=$RUNNER_TEMP/throwaway.jks"
+            echo "CELASTRINA_KEYSTORE_PASSWORD=throwaway"
+            echo "CELASTRINA_KEY_ALIAS=throwaway"
+            echo "CELASTRINA_KEY_PASSWORD=throwaway"
+          } >> "$GITHUB_ENV"
+      - name: Build the minified release APK and its tests
+        run: ./gradlew -PtestBuildType=release :app:assembleRelease :app:verifyReleaseApk :app:assembleReleaseAndroidTest --console=plain
+      - name: Signed with v2 and v3
+        run: scripts/verify-apk-signature.sh app/build/outputs/apk/release/app-release.apk
+      - name: Load the test Extension and verify Failover playback
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          target: default
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: ./gradlew -PtestBuildType=release :app:connectedReleaseAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.celastrina.app.ExtensionLoadingTest,dev.celastrina.app.FailoverPlaybackTest --console=plain
+      - name: Reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gates-api-${{ matrix.api-level }}
+          path: app/build/reports/
