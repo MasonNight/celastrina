@@ -92,6 +92,7 @@ private fun SourceSummary.State.message(): String = when (this) {
 }
 
 private fun StreamFailure.message(): String = when (this) {
+    StreamFailure.AddressCheckTimeout -> "address check timed out"
     StreamFailure.NoFirstFrame -> "no picture within 15 s"
     StreamFailure.LongStall -> "stalled for over 20 s"
     StreamFailure.RepeatedStalls -> "stalled 3 times in 2 minutes"

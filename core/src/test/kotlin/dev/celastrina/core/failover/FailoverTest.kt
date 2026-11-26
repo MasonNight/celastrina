@@ -57,6 +57,87 @@ class FailoverTest {
     private val archiveOgv = archive.stream("ogv", resolution = 360)
     private val friendsHevc = friends.stream("hevc", resolution = 2160, videoCodec = "hevc")
 
+    @Test
+    fun `only an unknown Stream is checked and it plays from the settled address`() {
+        val unknown = nightly1080.copy(delivery = Stream.Delivery.Unknown)
+        val lookup = lookup(movieNight to listOf(unknown, nightly720))
+        assertNull(playing(nightly720, lookup, started = false).addressCheck)
+
+        val failover = playing(unknown, lookup, started = false)
+        assertEquals(unknown, failover.addressCheck)
+        assertNull(failover.report(9.seconds, started = false))
+        val finalUrl = "https://video.example/watch"
+        val play = assertIs<FailoverStep.Play>(failover.on(PlayerEvent.AddressChecked(finalUrl, Stream.Delivery.Hls)))
+        assertEquals(unknown.copy(url = finalUrl, delivery = Stream.Delivery.Hls), play.stream)
+        assertNull(failover.addressCheck)
+        assertNull(failover.report(14.seconds, started = false))
+        assertNull(failover.on(PlayerEvent.FirstFrame))
+        assertEquals(play.stream, failover.worked)
+    }
+
+    @Test
+    fun `an Address check still waiting after 10 s skips just that Stream for this playback`() {
+        val slow = nightly1080.copy(delivery = Stream.Delivery.Unknown)
+        val lookup = lookup(movieNight to listOf(slow, nightly720))
+        val failover = playing(slow, lookup, handPicked = true, started = false)
+        assertEquals(slow, failover.addressCheck)
+        assertNull(failover.report(9.seconds, started = false))
+
+        clock.advanceBy(1_001.milliseconds)
+        val step = failover.on(PlayerEvent.Position(0))
+        assertSwitchedTo(nightly720, step)
+        assertTrue(step.notice.awayFromHouseholdsChoice)
+        assertEquals(slow, lookup.candidates(everythingDecodes, memory).first())
+    }
+
+    @Test
+    fun `an HTTP error from the Address check has the same classification as a player failure`() {
+        for (status in listOf(429, 503, 404)) {
+            val checked = nightly1080.copy(id = "checked-$status", delivery = Stream.Delivery.Unknown)
+            val sameHost = nightly720.copy(id = "same-$status")
+            val lookup = lookup(movieNight to listOf(checked, sameHost), archive to listOf(archiveMp4))
+            val failover = playing(checked, lookup, started = false)
+            val next = failover.on(PlayerEvent.AddressCheckHttpError(status))
+
+            if (status == 404) {
+                assertSwitchedTo(sameHost, next)
+                assertEquals(sameHost, lookup.candidates(everythingDecodes, memory).first())
+            } else {
+                assertSwitchedTo(archiveMp4, next)
+                assertEquals(checked, lookup.candidates(everythingDecodes, memory).first())
+            }
+            assertEquals(StreamFailure.Fault(PlayerFault.Http(status)), next.notice.reason)
+        }
+    }
+
+    @Test
+    fun `an inconclusive Address check plays the original Stream with a full 15 s for its first frame`() {
+        val unknown = nightly1080.copy(delivery = Stream.Delivery.Unknown)
+        val lookup = lookup(movieNight to listOf(unknown, nightly720))
+        val failover = playing(unknown, lookup, started = false)
+        assertNull(failover.report(9.seconds, started = false))
+
+        val play = assertIs<FailoverStep.Play>(failover.on(PlayerEvent.AddressCheckUnavailable))
+        assertEquals(unknown, play.stream)
+        assertNull(failover.report(14.seconds, started = false))
+        val next = failover.report(1.seconds, started = false)
+        assertSwitchedTo(nightly720, next)
+        assertEquals(StreamFailure.NoFirstFrame, next.notice.reason)
+    }
+
+    @Test
+    fun `checks count toward the 90 s without playback`() {
+        val streams = (1..11).map { movieNight.stream("check-$it").copy(delivery = Stream.Delivery.Unknown) }
+        val failover = playing(streams.first(), lookup(movieNight to streams), started = false)
+        for (next in streams.drop(1).take(8)) {
+            assertEquals(next, assertIs<FailoverStep.Switch>(failover.report(10.seconds, started = false)).stream)
+            assertEquals(next, failover.addressCheck)
+        }
+        assertNull(failover.report(9.seconds, started = false))
+        val gaveUp = assertIs<FailoverStep.GaveUp>(failover.report(1.seconds, started = false))
+        assertEquals(GiveUpReason.NoPlaybackTimeLimit, gaveUp.because)
+    }
+
     // Candidate order
 
     @Test
