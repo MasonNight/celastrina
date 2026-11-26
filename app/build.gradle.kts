@@ -104,6 +104,9 @@ android {
         // Lint fails the build on any warning. "A newer version exists" is news, not a defect, and would turn CI red
         // whenever a library ships.
         disable += setOf("GradleDependency", "NewerVersionAvailable", "AndroidGradlePluginVersion", "OldTargetApi")
+        // The shape rule is for phone launchers. Fire OS shows a sideloaded app's square icon whole in its tile, where
+        // a full-bleed square looks right and a transparent margin shows the launcher's grey through.
+        disable += "IconLauncherShape"
     }
 }
 

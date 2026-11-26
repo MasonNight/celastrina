@@ -14,7 +14,7 @@
         android:name=".CelastrinaApplication"
         android:usesCleartextTraffic="true"
         android:label="${appName}"
-        android:icon="@drawable/ic_launcher"
+        android:icon="@mipmap/ic_launcher"
         android:banner="@drawable/banner"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
