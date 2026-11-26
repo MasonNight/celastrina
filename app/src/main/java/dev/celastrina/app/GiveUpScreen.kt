@@ -81,7 +81,7 @@ private fun GiveUpReason.message(): String = when (this) {
 private fun SourceSummary.State.message(): String = when (this) {
     is SourceSummary.State.StreamsFailed -> buildString {
         append(if (failures.size == 1) "Its Stream didn't play: " else "${failures.size} Streams didn't play: ")
-        append(failures.distinct().joinToString(", ") { it.message() })
+        append(failures.map { it.message() }.distinct().joinToString(", "))
         if (notTried > 0) append(" · $notTried not tried")
     }
     is SourceSummary.State.NotTried -> if (streams == 1) "1 Stream not tried" else "$streams Streams not tried"
@@ -96,7 +96,7 @@ private fun StreamFailure.message(): String = when (this) {
     StreamFailure.LongStall -> "stalled for over 20 s"
     StreamFailure.RepeatedStalls -> "stalled 3 times in 2 minutes"
     is StreamFailure.Fault -> when (fault) {
-        PlayerFault.Http -> "an HTTP error"
+        is PlayerFault.Http -> "an HTTP error"
         PlayerFault.Network -> "a network error"
         PlayerFault.UnsupportedFormat -> "a format this TV can't play"
         PlayerFault.Decoder -> "a decoder error"

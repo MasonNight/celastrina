@@ -7,6 +7,8 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.celastrina.core.failover.PlayerEvent
+import dev.celastrina.core.failover.PlayerFault
 import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.source.Stream
 import kotlinx.coroutines.Dispatchers
@@ -22,6 +24,7 @@ import java.net.Socket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
+import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -74,6 +77,27 @@ class RedirectedHlsPlaybackTest {
         assertTrue(advanced, "Playback never got 1 s in")
     }
 
+    @Test
+    fun a_rate_limited_stream_reports_its_http_status_to_failover() {
+        val stream = Stream(SourceId("notorrent"), "busy", "${host.url}/busy.mp4", Stream.Delivery.Progressive)
+        val failed = CountDownLatch(1)
+        var failure: PlayerEvent.Failed? = null
+
+        runBlocking(Dispatchers.Main) {
+            player = newPlayer(instrumentation.targetContext, stream, startAtMillis = 0).apply {
+                addListener(Media3FailoverEvents(this) { event ->
+                    if (event is PlayerEvent.Failed) {
+                        failure = event
+                        failed.countDown()
+                    }
+                })
+            }
+        }
+
+        assertTrue(failed.await(PLAYBACK_WAIT_MILLIS, TimeUnit.MILLISECONDS), "The player did not report a failure")
+        assertEquals(PlayerEvent.Failed(PlayerFault.Http(429)), failure)
+    }
+
     private fun waitFor(millis: Long, failed: CountDownLatch, done: () -> Boolean): Boolean {
         val until = System.currentTimeMillis() + millis
         while (System.currentTimeMillis() < until) {
@@ -124,6 +148,8 @@ class RedirectedHlsPlaybackTest {
                     out.write("HTTP/1.1 200 OK\r\nContent-Type: $type\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n".toByteArray())
                     out.write(body)
                 }
+                path == "/busy.mp4" ->
+                    out.write("HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
                 else -> out.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
             }
             out.flush()

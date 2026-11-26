@@ -7,6 +7,8 @@ import dev.celastrina.core.source.Lookup
 import dev.celastrina.core.source.LookupOutcome
 import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.source.Stream
+import java.net.URI
+import java.net.URISyntaxException
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -16,10 +18,11 @@ import kotlin.time.Duration.Companion.seconds
  *
  * Candidates are the [Lookup]'s Streams this TV can decode, in the Household's Source order and then each Source's own
  * ranking; quality isn't compared across Sources, and Streams that failed on this TV in the last 24 hours ([memory])
- * go last. Each Stream is tried at most once per session, and each that fails is remembered in [memory]. Give it every
- * newer Lookup with [lookupChanged], so Streams that arrive late join the candidates.
+ * go last. Each Stream is tried at most once per session. HTTP 429 and 503 skip the Stream's host for this session.
+ * Permanent failures are remembered in [memory]. Give it every newer Lookup with [lookupChanged], so Streams that
+ * arrive late join the candidates.
  *
- * When a Failover happens on a Stream list over 30 minutes old, Failover calls [askSourcesAgain], which asks the Sources
+ * After a permanent failure on a Stream list over 30 minutes old, Failover calls [askSourcesAgain], which asks the Sources
  * again in the background (see [dev.celastrina.core.source.StreamLookup.watch]) while the Streams already known are
  * still tried. It gives up when the candidates run out, after 5 failures in a row, or after 60 s without playback.
  *
@@ -56,6 +59,7 @@ class Failover(
 
     private var onHouseholdsChoice = handPicked
     private val tried = mutableSetOf(chosen.key)
+    private val skippedHosts = mutableSetOf<String>()
     private var stream = StreamWatch(clock.nowMillis())
 
     /** What failed last while Failover waits for Sources still being asked, so the notice can name it. */
@@ -91,7 +95,14 @@ class Failover(
         onHouseholdsChoice = false
         failures += failed
         failuresInARow++
-        memory.demote(current)
+        val classification = if (failed.isPassing) "passing" else "permanent"
+        val detail = failed.httpStatus?.let { "HTTP $it" } ?: "HTTP status unavailable, $failure"
+        logger.info("Failover: Stream failed ($classification, $detail)")
+        if (failed.isPassing) {
+            current.host?.let { skippedHosts += it }
+        } else {
+            memory.demote(current)
+        }
         return next(failed)
     }
 
@@ -106,11 +117,11 @@ class Failover(
     /** Moves to the first untried candidate after [failed]; null when it is still waiting for Sources, as before. */
     private fun next(failed: Failed): FailoverStep? {
         val now = clock.nowMillis()
-        if (failuresInARow >= FAILURES_IN_A_ROW) return giveUp(GiveUpReason.FailuresInARow, failed)
-        if (now - lastPlaybackAtMillis >= NO_PLAYBACK_FOR) return giveUp(GiveUpReason.NoPlaybackForAMinute, failed)
-        askAgainIfOld(now)
-        val next = candidates().firstOrNull { it.key !in tried }
-        val step = when {
+        if (failuresInARow >= FAILURES_IN_A_ROW) return giveUp(GiveUpReason.FailuresInARow)
+        if (now - lastPlaybackAtMillis >= NO_PLAYBACK_FOR) return giveUp(GiveUpReason.NoPlaybackForAMinute)
+        if (!failed.isPassing) askAgainIfOld(now)
+        val next = candidates().firstOrNull { it.key !in tried && it.host !in skippedHosts }
+        return when {
             next != null -> {
                 tried += next.key
                 playing = next
@@ -125,16 +136,8 @@ class Failover(
                 waitingAfter = failed
                 FailoverStep.Waiting(notice(failed, FailoverNotice.Next.WaitingForSources))
             }
-            else -> return giveUp(GiveUpReason.NothingLeftToTry, failed)
+            else -> giveUp(GiveUpReason.NothingLeftToTry)
         }
-        logger.info(
-            "Failover: Stream ${failed.stream.id} from Source ${failed.stream.sourceId} failed (${failed.reason}); " +
-                when (step) {
-                    is FailoverStep.Switch -> "trying Stream ${step.stream.id} from Source ${step.stream.sourceId} at ${step.startAtMillis} ms"
-                    else -> "waiting for Sources still being asked"
-                },
-        )
-        return step
     }
 
     /** Asks the Sources again when the Stream list Failover has is over 30 minutes old. */
@@ -151,19 +154,15 @@ class Failover(
 
     private fun giveUpIfNoPlayback(now: Long): FailoverStep? {
         if (now - lastPlaybackAtMillis < NO_PLAYBACK_FOR) return null
-        return giveUp(GiveUpReason.NoPlaybackForAMinute, failures.lastOrNull())
+        return giveUp(GiveUpReason.NoPlaybackForAMinute)
     }
 
-    private fun giveUp(because: GiveUpReason, last: Failed?): FailoverStep.GaveUp {
+    private fun giveUp(because: GiveUpReason): FailoverStep.GaveUp {
         gaveUp = true
         playing = null
         waitingAfter = null
-        val step = FailoverStep.GaveUp(because, summary())
-        logger.info(
-            "Failover gave up ($because) after ${failures.size} failed Streams" +
-                (last?.let { "; the last, Stream ${it.stream.id} from Source ${it.stream.sourceId}, failed (${it.reason})" } ?: ""),
-        )
-        return step
+        logger.info("Failover gave up ($because) after ${failures.size} failed Streams")
+        return FailoverStep.GaveUp(because, summary())
     }
 
     /** What happened at each Source this session, in the Household's order. */
@@ -197,7 +196,10 @@ class Failover(
 
     private fun sourceName(sourceId: SourceId) = lookup.sources.firstOrNull { it.source.id == sourceId }?.source?.name ?: sourceId.value
 
-    private class Failed(val stream: Stream, val reason: StreamFailure, val handPicked: Boolean)
+    private class Failed(val stream: Stream, val reason: StreamFailure, val handPicked: Boolean) {
+        val httpStatus = ((reason as? StreamFailure.Fault)?.fault as? PlayerFault.Http)?.status
+        val isPassing = httpStatus == 429 || httpStatus == 503
+    }
 
     /** The rules for when one Stream counts as not working, from the moment it was chosen. */
     private class StreamWatch(private val chosenAtMillis: Long) {
@@ -257,6 +259,13 @@ class Failover(
 
 private val Stream.key get() = sourceId to id
 
+private val Stream.host: String?
+    get() = try {
+        URI(url).host?.lowercase()
+    } catch (e: URISyntaxException) {
+        null
+    }
+
 /** What the player adapter reports. Media3 has already retried loading before it reports [Failed]. */
 sealed interface PlayerEvent {
     /** The Stream's first picture is on screen. */
@@ -282,19 +291,19 @@ sealed interface PlayerEvent {
 }
 
 /** Why the player gave up on a Stream. */
-enum class PlayerFault {
-    /** An HTTP 4xx or 5xx. */
-    Http,
+sealed interface PlayerFault {
+    /** An HTTP error. [status] is null when the player cannot report the response code. */
+    data class Http(val status: Int? = null) : PlayerFault
 
     /** The connection failed or timed out. */
-    Network,
+    data object Network : PlayerFault
 
     /** A container, format or codec the player can't handle. */
-    UnsupportedFormat,
+    data object UnsupportedFormat : PlayerFault
 
     /** The decoder couldn't start or failed while decoding. */
-    Decoder,
-    Other,
+    data object Decoder : PlayerFault
+    data object Other : PlayerFault
 }
 
 /** Why Failover counted a Stream as not working. */
@@ -329,7 +338,7 @@ sealed interface FailoverStep {
 
 /** Which rule made Failover give up. */
 enum class GiveUpReason {
-    /** Every candidate has been tried, and no Source is still being asked. */
+    /** No eligible candidate remains, and no Source is still being asked. */
     NothingLeftToTry,
 
     /** 5 Streams failed one after another without a picture in between. */
@@ -345,7 +354,7 @@ data class SourceSummary(val sourceName: String, val state: State) {
         /** Its Streams tried this session failed, for these reasons in order; [notTried] more were never reached. */
         data class StreamsFailed(val failures: List<StreamFailure>, val notTried: Int) : State
 
-        /** It has Streams this TV can decode, but Failover gave up before reaching them. */
+        /** It has Streams this TV can decode that Failover didn't try. */
         data class NotTried(val streams: Int) : State
 
         /** It found Streams, but none this TV can decode. */

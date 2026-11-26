@@ -1,9 +1,12 @@
 package dev.celastrina.app
 
+import androidx.annotation.OptIn
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import dev.celastrina.core.failover.PlayerFault
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException
 import dev.celastrina.core.failover.PlayerEvent
+import dev.celastrina.core.failover.PlayerFault
 
 /**
  * The Media3 adapter for Failover: turns [player]'s callbacks into the Core's [PlayerEvent]s. The player's position,
@@ -36,13 +39,19 @@ class Media3FailoverEvents(private val player: Player, private val report: (Play
     override fun onPlayerError(error: PlaybackException) = report(PlayerEvent.Failed(error.toPlayerFault()))
 }
 
-private fun PlaybackException.toPlayerFault(): PlayerFault = when (errorCode) {
-    PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> PlayerFault.Http
-    in 2000..2999 -> PlayerFault.Network
-    in 3000..3999,
-    PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
-    PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
-    -> PlayerFault.UnsupportedFormat
-    in 4000..4999 -> PlayerFault.Decoder
-    else -> PlayerFault.Other
+@OptIn(UnstableApi::class)
+private fun PlaybackException.toPlayerFault(): PlayerFault {
+    val response = generateSequence(cause) { it.cause }.filterIsInstance<InvalidResponseCodeException>().firstOrNull()
+    if (response != null) return PlayerFault.Http(response.responseCode)
+
+    return when (errorCode) {
+        PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> PlayerFault.Http()
+        in 2000..2999 -> PlayerFault.Network
+        in 3000..3999,
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+        -> PlayerFault.UnsupportedFormat
+        in 4000..4999 -> PlayerFault.Decoder
+        else -> PlayerFault.Other
+    }
 }
