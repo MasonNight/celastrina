@@ -1,6 +1,6 @@
 # On-device checks
 
-Use the `celastrina-tv` Android TV emulator (API 28), serial `emulator-5554`. Drive it with `scripts/tv.sh` or `adb -s emulator-5554`. Use the T3 Device panel to view it.
+Use the `celastrina-tv2` Android TV emulator (API 28), serial `emulator-5554`. Drive it with `scripts/tv.sh` or `adb -s emulator-5554`. Use the T3 Device panel to view it.
 
 - Start with `powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\mason\.config\celastrina\start-tv-emulator.ps1`. Add `-NoWindow` for headless use.
 - In Git Bash, export `CELASTRINA_ADB_SERIAL=emulator-5554` and install the debug APK with `scripts/tv.sh install`.
