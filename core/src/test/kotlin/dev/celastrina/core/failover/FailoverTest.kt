@@ -58,6 +58,87 @@ class FailoverTest {
     private val friendsHevc = friends.stream("hevc", resolution = 2160, videoCodec = "hevc")
 
     @Test
+    fun `Failover checks up to two upcoming unknown Candidates and asks again when it moves on`() {
+        val first = nightly720.copy(delivery = Stream.Delivery.Unknown)
+        val second = archiveMp4.copy(delivery = Stream.Delivery.Unknown)
+        val third = archiveOgv.copy(delivery = Stream.Delivery.Unknown)
+        val lookup = lookup(movieNight to listOf(nightly1080, first), archive to listOf(second, archive.stream("known"), third))
+        val failover = playing(nightly1080, lookup, started = false)
+
+        assertEquals(listOf(first, second), failover.backgroundAddressChecks)
+        assertSwitchedTo(first, failover.failUnstarted())
+        assertEquals(listOf(second, third), failover.backgroundAddressChecks)
+    }
+
+    @Test
+    fun `Failover skips Candidates found dead while the current Stream loads and remembers only permanent failures`() {
+        val permanent = nightly720.copy(delivery = Stream.Delivery.Unknown)
+        val passing = archiveMp4.copy(delivery = Stream.Delivery.Unknown)
+        val next = friendsHevc.copy(delivery = Stream.Delivery.Unknown)
+        val lookup = lookup(movieNight to listOf(nightly1080, permanent), archive to listOf(passing, archiveOgv), friends to listOf(next))
+
+        for (answer in listOf(PlayerEvent.AddressCheckHttpError(503), PlayerEvent.AddressCheckTimedOut)) {
+            val failover = playing(nightly1080, lookup, started = false)
+            val checks = failover.backgroundAddressChecks
+            assertEquals(setOf(permanent, passing), checks.toSet())
+            assertNull(failover.on(PlayerEvent.CandidateAddressChecked(permanent, PlayerEvent.AddressCheckHttpError(404))))
+            assertNull(failover.on(PlayerEvent.CandidateAddressChecked(passing, answer)))
+            assertTrue(failover.backgroundAddressChecks.isEmpty())
+            assertEquals(listOf(permanent), lookup.candidates(everythingDecodes, memory).takeLast(1))
+
+            val expected = if (answer == PlayerEvent.AddressCheckTimedOut) archiveOgv else next
+            assertSwitchedTo(expected, failover.failUnstarted())
+            clock.advanceBy(25.hours)
+        }
+    }
+
+    @Test
+    fun `Failover plays a Candidate checked alive from its final address without another check`() {
+        val unknown = nightly720.copy(delivery = Stream.Delivery.Unknown)
+        val lookup = lookup(movieNight to listOf(nightly1080, unknown))
+        val failover = playing(nightly1080, lookup, started = false)
+        val answer = PlayerEvent.AddressChecked("https://video.example/watch", Stream.Delivery.Hls)
+        assertNull(failover.on(PlayerEvent.CandidateAddressChecked(unknown, answer)))
+        assertTrue(failover.backgroundAddressChecks.isEmpty())
+
+        val resolved = unknown.copy(url = answer.url, delivery = answer.delivery)
+        assertSwitchedTo(resolved, failover.failUnstarted())
+        assertNull(failover.addressCheck)
+        assertNull(failover.on(PlayerEvent.FirstFrame))
+        assertEquals(resolved, failover.worked)
+    }
+
+    @Test
+    fun `giving up lists background Address check failures under their Sources`() {
+        val unknown = archiveMp4.copy(delivery = Stream.Delivery.Unknown)
+        val lookup = lookup(movieNight to listOf(nightly1080), archive to listOf(unknown))
+        val failover = playing(nightly1080, lookup, started = false)
+        val notFound = PlayerEvent.AddressCheckHttpError(404)
+        assertNull(failover.on(PlayerEvent.CandidateAddressChecked(unknown, notFound)))
+        assertNull(failover.on(PlayerEvent.CandidateAddressChecked(unknown, notFound)))
+
+        val gaveUp = assertIs<FailoverStep.GaveUp>(failover.failUnstarted())
+        assertEquals(
+            SourceSummary(archive.name, SourceSummary.State.StreamsFailed(listOf(StreamFailure.Fault(PlayerFault.Http(404))), 0)),
+            gaveUp.sources.last(),
+        )
+    }
+
+    @Test
+    fun `an in-flight background check can answer for the Candidate now chosen to play`() {
+        val unknown = nightly720.copy(delivery = Stream.Delivery.Unknown)
+        val lookup = lookup(movieNight to listOf(nightly1080, unknown))
+        val failover = playing(nightly1080, lookup, started = false)
+        assertEquals(listOf(unknown), failover.backgroundAddressChecks)
+        assertSwitchedTo(unknown, failover.failUnstarted())
+        assertEquals(unknown, failover.addressCheck)
+
+        val answer = PlayerEvent.AddressChecked("https://video.example/watch", Stream.Delivery.Hls)
+        val play = assertIs<FailoverStep.Play>(failover.on(PlayerEvent.CandidateAddressChecked(unknown, answer)))
+        assertEquals(answer.url, play.stream.url)
+    }
+
+    @Test
     fun `only an unknown Stream is checked and it plays from the settled address`() {
         val unknown = nightly1080.copy(delivery = Stream.Delivery.Unknown)
         val lookup = lookup(movieNight to listOf(unknown, nightly720))

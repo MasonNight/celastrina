@@ -10,6 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -102,6 +103,8 @@ private fun PlaybackSession(
         val worked = failover.worked ?: return
         continueWatching.save(watching, worked, failover.positionMillis, durationMillis)
     }
+    val scope = rememberCoroutineScope()
+    val addressChecks = remember(scope) { AddressChecks(scope) }
     fun take(next: FailoverStep?) {
         notice = failover.notice?.text
         when (next) {
@@ -115,6 +118,7 @@ private fun PlaybackSession(
                 playback = null
             }
         }
+        addressChecks.update(failover) { take(failover.on(it)) }
     }
 
     LaunchedEffect(failover) { request.lookup.lookups.filterNotNull().collect { take(failover.lookupChanged(it)) } }
@@ -132,12 +136,7 @@ private fun PlaybackSession(
     var player by remember { mutableStateOf<ExoPlayer?>(null) }
     val attempt = playback
     LaunchedEffect(attempt) {
-        attempt ?: return@LaunchedEffect
-        if (attempt.checkAddress) {
-            val answer = attempt.stream.checkAddress()
-            if (playback === attempt) take(failover.on(answer))
-            return@LaunchedEffect
-        }
+        if (attempt == null || attempt.checkAddress) return@LaunchedEffect
         val made = newPlayer(context, attempt.stream, attempt.startAtMillis)
         val events = Media3FailoverEvents(made) { if (playback === attempt) take(failover.on(it)) }
         made.addListener(events)

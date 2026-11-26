@@ -50,6 +50,10 @@ class Failover(
     var addressCheck: Stream? = chosen.takeIf { it.delivery == Stream.Delivery.Unknown }
         private set
 
+    /** The upcoming unknown Candidates the adapter may check while [playing] loads. */
+    val backgroundAddressChecks: List<Stream>
+        get() = if (playing == null || stream.firstFrameShown) emptyList() else backgroundCandidates.filter { canTry(it) && it !in checkedCandidates }
+
     /** Where [playing] should start, in milliseconds into the Title. */
     var startAtMillis: Long = startAtMillis
         private set
@@ -84,11 +88,24 @@ class Failover(
     /** When Failover last asked the Sources again, if it has. */
     private var askedAgainAtMillis: Long? = null
     private var gaveUp = false
+    private val checkedCandidates = mutableMapOf<Stream, Stream>()
+    private var backgroundCandidates = nominateBackgroundCandidates(candidates())
 
     /** Tells Failover what the player just did. Returns what to do next, or null to carry on. */
     fun on(event: PlayerEvent): FailoverStep? {
         if (gaveUp) return null
         val now = clock.nowMillis()
+        return when (event) {
+            is PlayerEvent.CandidateAddressChecked -> if (event.candidate == addressCheck) {
+                onCurrent(event.answer, now)
+            } else {
+                onBackgroundAddressCheck(event, now)
+            }
+            else -> onCurrent(event, now)
+        }
+    }
+
+    private fun onCurrent(event: PlayerEvent, now: Long): FailoverStep? {
         val current = playing ?: return if (event is PlayerEvent.Position) giveUpIfNoPlayback(now) else null
         if (addressCheck != null) {
             giveUpIfNoPlayback(now)?.let { return it }
@@ -116,16 +133,45 @@ class Failover(
         return fail(current, failure)
     }
 
+    private fun onBackgroundAddressCheck(event: PlayerEvent.CandidateAddressChecked, now: Long): FailoverStep? {
+        val candidate = event.candidate
+        if (candidate !in backgroundAddressChecks) return null
+        giveUpIfNoPlayback(now)?.let { return it }
+        val failure = when (val answer = event.answer) {
+            is PlayerEvent.AddressCheckHttpError -> StreamFailure.Fault(PlayerFault.Http(answer.status))
+            PlayerEvent.AddressCheckTimedOut -> StreamFailure.AddressCheckTimeout
+            is PlayerEvent.AddressChecked -> {
+                checkedCandidates[candidate] = candidate.copy(url = answer.url, delivery = answer.delivery)
+                logger.info("Failover: Background Address check settled delivery as ${answer.delivery}")
+                return null
+            }
+            PlayerEvent.AddressCheckUnavailable -> {
+                checkedCandidates[candidate] = candidate
+                logger.info("Failover: Background Address check unavailable")
+                return null
+            }
+        }
+        tried += candidate.key
+        val failed = Failed(candidate, failure, handPicked = false)
+        recordFailure(failed, "Background Address check")
+        if (!failed.isPassing) askAgainIfOld(now)
+        return null
+    }
+
     private fun fail(current: Stream, failure: StreamFailure): FailoverStep? {
         val failed = Failed(current, failure, onHouseholdsChoice)
         onHouseholdsChoice = false
+        recordFailure(failed, "Stream")
+        return next(failed)
+    }
+
+    private fun recordFailure(failed: Failed, subject: String) {
         failures += failed
         val classification = if (failed.isPassing) "passing" else "permanent"
-        val detail = failed.httpStatus?.let { "HTTP $it" } ?: "HTTP status unavailable, $failure"
-        logger.info("Failover: Stream failed ($classification, $detail)")
-        if (failed.skipsHost) current.host?.let { skippedHosts += it }
-        if (!failed.isPassing) memory.demote(current)
-        return next(failed)
+        val detail = failed.httpStatus?.let { "HTTP $it" } ?: "HTTP status unavailable, ${failed.reason}"
+        logger.info("Failover: $subject failed ($classification, $detail)")
+        if (failed.skipsHost) failed.stream.host?.let { skippedHosts += it }
+        if (!failed.isPassing) memory.demote(failed.stream)
     }
 
     private fun playChecked(checked: Stream, now: Long): FailoverStep.Play {
@@ -140,9 +186,11 @@ class Failover(
         if (gaveUp) return null
         this.lookup = lookup
         waitingAfter?.let { return next(it) }
+        val candidates = candidates()
+        backgroundCandidates = nominateBackgroundCandidates(candidates, backgroundCandidates.filter { it in candidates })
         val currentNotice = notice ?: return null
         val progress = currentNotice.next as? FailoverNotice.Next.Trying ?: return null
-        notice = currentNotice.copy(next = progress.copy(known = knownCandidateCount(candidates())))
+        notice = currentNotice.copy(next = progress.copy(known = knownCandidateCount(candidates)))
         return null
     }
 
@@ -152,18 +200,21 @@ class Failover(
         if (now - lastPlaybackAtMillis >= NO_PLAYBACK_LIMIT.inWholeMilliseconds) return giveUp(GiveUpReason.NoPlaybackTimeLimit)
         if (!failed.isPassing) askAgainIfOld(now)
         val candidates = candidates()
-        val next = candidates.firstOrNull { it.key !in tried && it.host !in skippedHosts }
+        val next = candidates.firstOrNull(::canTry)
         return when {
             next != null -> {
                 tried += next.key
-                playing = next
-                addressCheck = next.takeIf { it.delivery == Stream.Delivery.Unknown }
+                backgroundCandidates = nominateBackgroundCandidates(candidates)
+                val checked = checkedCandidates[next]
+                val toPlay = checked ?: next
+                playing = toPlay
+                addressCheck = next.takeIf { checked == null && it.delivery == Stream.Delivery.Unknown }
                 chosenAtMillis = now
                 startAtMillis = (positionMillis - RESUME_BEFORE_FAILURE).coerceAtLeast(0)
                 stream = StreamWatch(now)
                 waitingAfter = null
                 val progress = FailoverNotice.Next.Trying(sourceName(next.sourceId), tried.size, knownCandidateCount(candidates))
-                FailoverStep.Switch(next, startAtMillis, showNotice(failed, progress))
+                FailoverStep.Switch(toPlay, startAtMillis, showNotice(failed, progress))
             }
             !lookup.isFinished || isAskingAgain() -> {
                 playing = null
@@ -225,6 +276,14 @@ class Failover(
 
     private fun candidates(): List<Stream> = lookup.candidates(decoders, memory)
 
+    private fun canTry(candidate: Stream) = candidate.key !in tried && candidate.host !in skippedHosts
+
+    private fun nominateBackgroundCandidates(candidates: List<Stream>, alreadyNominated: List<Stream> = emptyList()): List<Stream> =
+        (alreadyNominated.asSequence() + candidates.asSequence().filter { it.delivery == Stream.Delivery.Unknown && canTry(it) })
+            .distinctBy { it.key }
+            .take(BACKGROUND_ADDRESS_CHECK_LIMIT)
+            .toList()
+
     private fun knownCandidateCount(candidates: List<Stream>): Int = (tried + candidates.map { it.key }).size
 
     private fun showNotice(failed: Failed, next: FailoverNotice.Next) = FailoverNotice(
@@ -278,7 +337,7 @@ class Failover(
                 }
                 is PlayerEvent.Failed -> return StreamFailure.Fault(event.fault)
                 is PlayerEvent.Position -> Unit
-                is PlayerEvent.AddressCheckAnswer -> Unit
+                is PlayerEvent.AddressCheckAnswer, is PlayerEvent.CandidateAddressChecked -> Unit
             }
             if (!firstFrameShown && now - chosenAtMillis >= FIRST_FRAME_WITHIN.inWholeMilliseconds) return StreamFailure.NoFirstFrame
             val stallStarted = stallStartedAtMillis
@@ -289,6 +348,7 @@ class Failover(
 
     companion object {
         val ADDRESS_CHECK_LIMIT = 10.seconds
+        private const val BACKGROUND_ADDRESS_CHECK_LIMIT = 2
         private val FIRST_FRAME_WITHIN = 15.seconds
         val NO_PLAYBACK_LIMIT = 90.seconds
         private val LONGEST_STALL = 20.seconds
@@ -310,6 +370,9 @@ private val Stream.host: String?
 
 /** What the player adapter reports. Media3 has already retried loading before it reports [Failed]. */
 sealed interface PlayerEvent {
+    /** The adapter answered an Address check for this Candidate, which may now be the current Stream. */
+    data class CandidateAddressChecked(val candidate: Stream, val answer: AddressCheckAnswer) : PlayerEvent
+
     sealed interface AddressCheckAnswer : PlayerEvent
 
     /** The Address check settled the Stream's final address and delivery. */

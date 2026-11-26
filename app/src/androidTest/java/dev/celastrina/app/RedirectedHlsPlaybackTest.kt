@@ -29,7 +29,9 @@ import dev.celastrina.core.source.SourceId
 import dev.celastrina.core.source.SourceKind
 import dev.celastrina.core.source.SourceLookup
 import dev.celastrina.core.source.Stream
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Rule
@@ -128,6 +130,53 @@ class RedirectedHlsPlaybackTest {
         assertTrue(elapsed in 9_900..13_000, "Address check took ${elapsed} ms")
     }
 
+    @Test
+    fun dead_hosts_are_checked_while_a_stream_loads_and_failover_reaches_the_working_stream() {
+        val starting = unknownStream("starting.mp4").copy(delivery = Stream.Delivery.Progressive)
+        val dead = unknownStream("dead-one")
+        val alsoDead = unknownStream("dead-two").let { it.copy(url = it.url.replace("127.0.0.1", "localhost")) }
+        val working = unknownStream("file")
+        val failover = failover(starting, dead, alsoDead, working)
+
+        runBlocking(Dispatchers.Main) {
+            val checks = AddressChecks(this)
+            val checkedDead = mutableSetOf<Stream>()
+            val switched = CompletableDeferred<FailoverStep>()
+            val ready = CompletableDeferred<FailoverStep>()
+            fun checkAddresses() {
+                checks.update(failover) { event ->
+                    val step = failover.on(event)
+                    if (event.candidate in listOf(dead, alsoDead) && event.answer is PlayerEvent.AddressCheckHttpError) {
+                        checkedDead += event.candidate
+                        if (checkedDead.size == 2) host.releaseStartingStream()
+                    }
+                    if (step != null) ready.complete(step)
+                    checkAddresses()
+                }
+            }
+            player = newPlayer(instrumentation.targetContext, starting, startAtMillis = 0).apply {
+                addListener(Media3FailoverEvents(this) { event ->
+                    failover.on(event)?.let { switched.complete(it) }
+                })
+            }
+            checkAddresses()
+
+            val next = assertIs<FailoverStep.Switch>(withTimeout(PLAYBACK_WAIT_MILLIS) { switched.await() })
+            assertEquals(working, next.stream)
+            assertEquals(setOf(dead, alsoDead), checkedDead)
+            player?.release()
+            player = null
+            checkAddresses()
+
+            val play = assertIs<FailoverStep.Play>(withTimeout(PLAYBACK_WAIT_MILLIS) { ready.await() })
+            assertEquals("${host.url}/video", play.stream.url)
+            player = newPlayer(instrumentation.targetContext, play.stream, play.startAtMillis)
+        }
+
+        assertTrue(waitFor(PLAYBACK_WAIT_MILLIS, CountDownLatch(1)) { (player?.currentPosition ?: 0) >= 1_000 },
+            "The working Stream never got 1 s in")
+    }
+
     private fun unknownStream(path: String) = Stream(SourceId("notorrent"), path, "${host.url}/$path", Stream.Delivery.Unknown)
 
     private fun assertCheckedPlayback(stream: Stream, delivery: Stream.Delivery, finalUrl: String) {
@@ -153,8 +202,8 @@ class RedirectedHlsPlaybackTest {
         assertTrue(advanced, "Playback never got 1 s in")
     }
 
-    private fun failover(stream: Stream) = Failover(
-        Lookup(listOf(SourceLookup(StreamSource(stream.sourceId), LookupOutcome.Streams(listOf(stream)))), Clock.System.nowMillis()),
+    private fun failover(stream: Stream, vararg candidates: Stream) = Failover(
+        Lookup(listOf(SourceLookup(StreamSource(stream.sourceId), LookupOutcome.Streams(listOf(stream) + candidates))), Clock.System.nowMillis()),
         stream,
         handPicked = false,
         Decoders { true },
@@ -217,6 +266,9 @@ class RedirectedHlsPlaybackTest {
         val url = "http://127.0.0.1:${server.localPort}"
         val receivedRequest = AtomicBoolean()
         private val closing = CountDownLatch(1)
+        private val startingStreamMayFail = CountDownLatch(1)
+
+        fun releaseStartingStream() = startingStreamMayFail.countDown()
         private val assets = instrumentation.context.assets
 
         init {
@@ -235,6 +287,10 @@ class RedirectedHlsPlaybackTest {
             val headers = generateSequence { reader.readLine()?.takeIf { it.isNotEmpty() } }.toList()
             val out = socket.getOutputStream()
             when {
+                path == "/starting.mp4" -> {
+                    startingStreamMayFail.await(5, TimeUnit.SECONDS)
+                    out.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
+                }
                 (path.startsWith("/redirect") || path.startsWith("/hls/")) && headers.none { it.equals("Referer: $url", ignoreCase = true) } ->
                     out.write("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
                 path.startsWith("/redirect") ->
@@ -274,6 +330,7 @@ class RedirectedHlsPlaybackTest {
 
         override fun close() {
             closing.countDown()
+            releaseStartingStream()
             server.close()
         }
     }
