@@ -36,7 +36,7 @@ you at `INSTALL.md` on GitHub's `main` branch), then start the job again.
 Every Release is signed with one key. Its certificate's SHA-256 fingerprint is:
 
 <!-- release-certificate-sha256 -->
-`PLACEHOLDER: the maintainer records the fingerprint here before the first release (docs/release-keystore.md)`
+`79:BB:5C:DC:7A:B5:0E:08:42:42:DF:F8:39:EB:37:53:D8:21:8F:CD:C7:42:6A:59:DA:15:F5:6A:9C:3C:21:71`
 
 Android itself refuses an update signed with a different key, so the fingerprint matters most on a first install. If
 `apksigner` is on PATH (it comes with the Android SDK build-tools), check a download with

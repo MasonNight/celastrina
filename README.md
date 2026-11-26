@@ -23,7 +23,7 @@ Each [GitHub Release](https://github.com/MasonNight/celastrina/releases) holds `
 `SHA256SUMS`. Every release is signed with the same key, whose certificate has this SHA-256 fingerprint:
 
 <!-- release-certificate-sha256 -->
-`PLACEHOLDER: the maintainer records the fingerprint here before the first release (docs/release-keystore.md)`
+`79:BB:5C:DC:7A:B5:0E:08:42:42:DF:F8:39:EB:37:53:D8:21:8F:CD:C7:42:6A:59:DA:15:F5:6A:9C:3C:21:71`
 
 Check a download with `apksigner verify --print-certs celastrina-<version>.apk`: its `certificate SHA-256 digest` is this
 fingerprint, without the colons, in lower case.
