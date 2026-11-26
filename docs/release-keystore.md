@@ -8,9 +8,6 @@ or a networked build box except as a secret of the `release` environment, which 
 These steps are the maintainer's to do by hand, once. Agents must not generate the key, create the environment or its
 secrets, or push tags.
 
-Environment secrets, deployment tag rules and rulesets need a public repository on GitHub Free (or GitHub Pro for a
-private one). Without them the signing key would be a repository secret that any branch's workflow could read.
-
 ## 1. Generate the key, offline
 
 On a machine that is offline (or at least not shared), with a JDK 17 `keytool`:
