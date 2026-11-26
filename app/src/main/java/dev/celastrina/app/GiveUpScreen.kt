@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import dev.celastrina.core.failover.Failover
 import dev.celastrina.core.failover.FailoverMemory
 import dev.celastrina.core.failover.FailoverStep
 import dev.celastrina.core.failover.GiveUpReason
@@ -73,8 +74,7 @@ fun GiveUpScreen(title: String, gaveUp: FailoverStep.GaveUp, lookup: TitleLookup
 
 private fun GiveUpReason.message(): String = when (this) {
     GiveUpReason.NothingLeftToTry -> "None of the Streams found would play."
-    GiveUpReason.FailuresInARow -> "5 Streams in a row wouldn't play, so Celastrina stopped trying."
-    GiveUpReason.NoPlaybackForAMinute -> "Nothing played for a minute, so Celastrina stopped trying."
+    GiveUpReason.NoPlaybackTimeLimit -> "Nothing played for ${Failover.NO_PLAYBACK_LIMIT.inWholeSeconds} seconds, so Celastrina stopped trying."
 }
 
 /** What happened at one Source, such as "2 Streams didn't play: an HTTP error, no picture within 15 s · 1 not tried". */
