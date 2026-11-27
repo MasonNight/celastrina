@@ -9,7 +9,7 @@ object SourceStandards {
     private fun splitWords(value: String): List<String> = words.findAll(value).map { it.value.lowercase() }.toList()
 
     fun cloudStreamImports(relativePath: String, source: String): List<Int> {
-        val directives = tokens(source).filter { it.restOfLine.isNotEmpty() }.toList()
+        val directives = tokens(source, java = relativePath.endsWith(".java")).filter { it.restOfLine.isNotEmpty() }.toList()
         val packageName = directives.firstOrNull { it.text == "package" }?.restOfLine?.joinToString("")
         if (packageName == "dev.celastrina.core.extension") return emptyList()
         return directives.filter { it.text == "import" }.mapNotNull { directive ->
@@ -77,7 +77,7 @@ object SourceStandards {
         val restOfLine: List<String> = emptyList(),
     )
 
-    private fun tokens(source: String): Sequence<Token> = sequence {
+    private fun tokens(source: String, java: Boolean = false): Sequence<Token> = sequence {
         val lexer = KotlinLexer().apply { start(source) }
         var line = 1
         var atStatementStart = true
@@ -87,7 +87,7 @@ object SourceStandards {
             val kind = lexer.tokenType
             val text = source.substring(lexer.tokenStart, lexer.tokenEnd)
             when {
-                directive != null && ('\n' in text || kind == KtTokens.SEMICOLON) -> {
+                directive != null && (kind == KtTokens.SEMICOLON || (!java && kind == KtTokens.WHITE_SPACE && '\n' in text)) -> {
                     yield(directive.copy(restOfLine = directiveTokens.toList()))
                     directive = null
                     directiveTokens.clear()
@@ -97,7 +97,12 @@ object SourceStandards {
                     directive = Token(text, line, identifier = false)
                 }
                 kind in KtTokens.WHITE_SPACE_OR_COMMENT_BIT_SET -> Unit
-                directive != null -> directiveTokens += text
+                directive != null -> {
+                    if (directiveTokens.lastOrNull() == "as" && kind == KtTokens.IDENTIFIER) {
+                        yield(Token(text.removeSurrounding("`"), line, identifier = true))
+                    }
+                    directiveTokens += text
+                }
                 kind == KtTokens.IDENTIFIER -> yield(Token(text.removeSurrounding("`"), line, identifier = true))
             }
             val newlines = text.count { it == '\n' }

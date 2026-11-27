@@ -52,6 +52,25 @@ build_apks() {
 build_apks debug Debug
 build_apks release Release
 
+sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+case "$OSTYPE" in
+  msys*|cygwin*) aapt2="$sdk_root/build-tools/34.0.0/aapt2.exe" ;;
+  *) aapt2="$sdk_root/build-tools/34.0.0/aapt2" ;;
+esac
+
+verify_package() {
+  local apk="$1" expected="$2" actual
+  actual="$("$aapt2" dump badging "$apk" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
+  if [ "$actual" != "$expected" ]; then
+    echo "Expected $expected in $apk, found ${actual:-no package}. Rebuild the isolated test APKs." >&2
+    return 1
+  fi
+}
+verify_package "$work/debug.apk" dev.celastrina.debug.devicecheck
+verify_package "$work/debug-test.apk" dev.celastrina.debug.devicecheck.test
+verify_package "$work/release.apk" dev.celastrina.devicecheck
+verify_package "$work/release-test.apk" dev.celastrina.devicecheck.test
+
 # Use the same per-device lock as tv.sh.
 lock_key="${serial//%/%25}"
 lock_key="${lock_key//:/%3A}"
@@ -62,10 +81,18 @@ case "$OSTYPE" in
 esac
 lock="${CELASTRINA_TV_LOCK_DIR:-$lock_root/$lock_key.lock}"
 mkdir -p "$(dirname "$lock")"
-if ! mkdir "$lock"; then
-  echo "Could not lock $serial at $lock. Finish the other device session before rerunning." >&2
-  exit 1
-fi
+reported=false
+until mkdir "$lock" 2>/dev/null; do
+  if [ ! -d "$lock" ]; then
+    mkdir "$lock"
+    break
+  fi
+  if [ "$reported" = false ]; then
+    echo "Waiting for the device lock at $lock." >&2
+    reported=true
+  fi
+  sleep 1
+done
 device_lock="$lock"
 
 list_packages() {

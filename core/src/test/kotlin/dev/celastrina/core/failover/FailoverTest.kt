@@ -147,7 +147,7 @@ class FailoverTest {
 
         val gaveUp = assertIs<FailoverStep.GaveUp>(failover.failUnstarted())
         assertEquals(
-            SourceSummary(archive.name, SourceSummary.State.StreamsFailed(listOf(StreamFailure.Fault(PlayerFault.Http(404))), 0)),
+            SourceSummary(archive.name, SourceSummary.State.StreamsFailed(listOf(FailoverReason.Fault(PlayerFault.Http(404))), 0)),
             gaveUp.sources.last(),
         )
     }
@@ -211,7 +211,7 @@ class FailoverTest {
 
             assertSwitchedTo(sameHost, next)
             assertEquals(if (status == 404) sameHost else checked, lookup.candidates(everythingDecodes, memory).first())
-            assertEquals(StreamFailure.Fault(PlayerFault.Http(status)), next.notice.reason)
+            assertEquals(FailoverReason.Fault(PlayerFault.Http(status)), next.notice.reason)
         }
     }
 
@@ -279,7 +279,7 @@ class FailoverTest {
         assertNull(failover.report(14.seconds, started = false))
         val next = failover.report(1.seconds, started = false)
         assertSwitchedTo(nightly720, next)
-        assertEquals(StreamFailure.NoFirstFrame, next.notice.reason)
+        assertEquals(FailoverReason.NoFirstFrame, next.notice.reason)
     }
 
     @Test
@@ -492,7 +492,7 @@ class FailoverTest {
         val step = failover.report(1.seconds)
 
         assertSwitchedTo(archiveMp4, step)
-        assertEquals(StreamFailure.NoFirstFrame, step.notice.reason)
+        assertEquals(FailoverReason.NoFirstFrame, step.notice.reason)
         assertEquals(listOf(archiveMp4, nightly1080), lookup.candidates(everythingDecodes, memory))
     }
 
@@ -522,7 +522,7 @@ class FailoverTest {
             val step = failover.on(PlayerEvent.Failed(error))
 
             assertSwitchedTo(archiveMp4, step)
-            assertEquals(StreamFailure.Fault(error), step.notice.reason)
+            assertEquals(FailoverReason.Fault(error), step.notice.reason)
         }
     }
 
@@ -537,7 +537,7 @@ class FailoverTest {
         val step = failover.report(1.seconds)
 
         assertSwitchedTo(archiveMp4, step)
-        assertEquals(StreamFailure.LongStall, step.notice.reason)
+        assertEquals(FailoverReason.LongStall, step.notice.reason)
         assertEquals(listOf(archiveMp4, nightly1080), lookup.candidates(everythingDecodes, memory))
     }
 
@@ -564,7 +564,7 @@ class FailoverTest {
         val step = failover.on(PlayerEvent.Buffering)
 
         assertSwitchedTo(archiveMp4, step)
-        assertEquals(StreamFailure.RepeatedStalls, step.notice.reason)
+        assertEquals(FailoverReason.RepeatedStalls, step.notice.reason)
         assertEquals(listOf(archiveMp4, nightly1080), lookup.candidates(everythingDecodes, memory))
     }
 
@@ -1047,14 +1047,14 @@ class FailoverTest {
         assertIs<FailoverStep.GaveUp>(step)
         assertEquals(
             listOf(
-                SourceSummary("Movie Night Jellyfin", SourceSummary.State.StreamsFailed(listOf(StreamFailure.Fault(PlayerFault.Decoder), StreamFailure.NoFirstFrame), notTried = 0)),
+                SourceSummary("Movie Night Jellyfin", SourceSummary.State.StreamsFailed(listOf(FailoverReason.Fault(PlayerFault.Decoder), FailoverReason.NoFirstFrame), notTried = 0)),
                 SourceSummary("Friends' Emby", SourceSummary.State.NothingThisTvCanDecode),
                 SourceSummary("Empty Shelf", SourceSummary.State.NotAvailable),
                 SourceSummary("Offline Server", SourceSummary.State.LookupFailed(LookupOutcome.Failure.Reason.AuthRequired)),
                 SourceSummary("Slow Add-on", SourceSummary.State.StillLooking),
                 SourceSummary(
                     "Internet Archive",
-                    SourceSummary.State.StreamsFailed(listOf(StreamFailure.Fault(PlayerFault.Network), StreamFailure.Fault(PlayerFault.Network)), notTried = 0),
+                    SourceSummary.State.StreamsFailed(listOf(FailoverReason.Fault(PlayerFault.Network), FailoverReason.Fault(PlayerFault.Network)), notTried = 0),
                 ),
             ),
             step.sources,
@@ -1072,8 +1072,8 @@ class FailoverTest {
 
         assertEquals(
             listOf(
-                SourceSummary("Movie Night Jellyfin", SourceSummary.State.StreamsFailed(listOf(StreamFailure.Fault(PlayerFault.Http(503))), notTried = 1)),
-                SourceSummary("Internet Archive", SourceSummary.State.StreamsFailed(listOf(StreamFailure.Fault(PlayerFault.Http(410))), notTried = 1)),
+                SourceSummary("Movie Night Jellyfin", SourceSummary.State.StreamsFailed(listOf(FailoverReason.Fault(PlayerFault.Http(503))), notTried = 1)),
+                SourceSummary("Internet Archive", SourceSummary.State.StreamsFailed(listOf(FailoverReason.Fault(PlayerFault.Http(410))), notTried = 1)),
             ),
             step.sources,
         )
@@ -1090,8 +1090,8 @@ class FailoverTest {
         assertIs<FailoverStep.GaveUp>(step)
         assertEquals(
             listOf(
-                SourceSummary("Movie Night Jellyfin", SourceSummary.State.StreamsFailed(listOf(StreamFailure.NoFirstFrame), notTried = 0)),
-                SourceSummary("Internet Archive", SourceSummary.State.StreamsFailed(List(5) { StreamFailure.NoFirstFrame }, notTried = 2)),
+                SourceSummary("Movie Night Jellyfin", SourceSummary.State.StreamsFailed(listOf(FailoverReason.NoFirstFrame), notTried = 0)),
+                SourceSummary("Internet Archive", SourceSummary.State.StreamsFailed(List(5) { FailoverReason.NoFirstFrame }, notTried = 2)),
             ),
             step.sources,
         )

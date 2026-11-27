@@ -167,18 +167,18 @@ class Failover(
         is PlayerEvent.AddressChecked -> CheckedAddress.Ready(candidate.copy(url = url, delivery = delivery))
         is PlayerEvent.AddressCheckHttpError -> CheckedAddress.Failed(
             candidate.copy(url = url ?: candidate.url),
-            StreamFailure.Fault(PlayerFault.Http(status)),
+            FailoverReason.Fault(PlayerFault.Http(status)),
         )
-        PlayerEvent.AddressCheckTimedOut -> CheckedAddress.Failed(candidate, StreamFailure.AddressCheckTimeout)
+        PlayerEvent.AddressCheckTimedOut -> CheckedAddress.Failed(candidate, FailoverReason.AddressCheckTimeout)
         PlayerEvent.AddressCheckUnavailable -> CheckedAddress.Ready(candidate)
     }
 
     private sealed interface CheckedAddress {
         data class Ready(val stream: Stream) : CheckedAddress
-        data class Failed(val stream: Stream, val reason: StreamFailure) : CheckedAddress
+        data class Failed(val stream: Stream, val reason: FailoverReason) : CheckedAddress
     }
 
-    private fun fail(current: Stream, failure: StreamFailure): FailoverStep? {
+    private fun fail(current: Stream, failure: FailoverReason): FailoverStep? {
         val failed = Failed(current, failure, onHouseholdsChoice)
         onHouseholdsChoice = false
         recordFailure(failed, "Stream")
@@ -307,10 +307,10 @@ class Failover(
 
     private fun sourceName(sourceId: SourceId) = lookup.sources.firstOrNull { it.source.id == sourceId }?.source?.name ?: sourceId.value
 
-    private class Failed(val stream: Stream, val reason: StreamFailure, val handPicked: Boolean) {
-        val httpStatus = ((reason as? StreamFailure.Fault)?.fault as? PlayerFault.Http)?.status
+    private class Failed(val stream: Stream, val reason: FailoverReason, val handPicked: Boolean) {
+        val httpStatus = ((reason as? FailoverReason.Fault)?.fault as? PlayerFault.Http)?.status
         val skipsHost = httpStatus == 429 || httpStatus == 503
-        val isPassing = skipsHost || reason == StreamFailure.AddressCheckTimeout
+        val isPassing = skipsHost || reason == FailoverReason.AddressCheckTimeout
     }
 
     /** The rules for when one Stream counts as not working, from the moment it was ready to play. */
@@ -325,7 +325,7 @@ class Failover(
         private var stallStartedAtMillis: Long? = null
         private val stallStarts = ArrayDeque<Long>()
 
-        fun on(event: PlayerEvent, now: Long): StreamFailure? {
+        fun on(event: PlayerEvent, now: Long): FailoverReason? {
             when (event) {
                 PlayerEvent.FirstFrame -> firstFrameShown = true
                 PlayerEvent.Paused -> {
@@ -345,15 +345,15 @@ class Failover(
                     stallStartedAtMillis = now
                     stallStarts.addLast(now)
                     while (now - stallStarts.first() > STALL_WINDOW.inWholeMilliseconds) stallStarts.removeFirst()
-                    if (stallStarts.size >= STALLS_IN_WINDOW) return StreamFailure.RepeatedStalls
+                    if (stallStarts.size >= STALLS_IN_WINDOW) return FailoverReason.RepeatedStalls
                 }
-                is PlayerEvent.Failed -> return StreamFailure.Fault(event.fault)
+                is PlayerEvent.Failed -> return FailoverReason.Fault(event.fault)
                 is PlayerEvent.Position -> Unit
                 is PlayerEvent.AddressCheckAnswer, is PlayerEvent.CandidateAddressChecked -> Unit
             }
-            if (!firstFrameShown && now - chosenAtMillis >= FIRST_FRAME_WITHIN.inWholeMilliseconds) return StreamFailure.NoFirstFrame
+            if (!firstFrameShown && now - chosenAtMillis >= FIRST_FRAME_WITHIN.inWholeMilliseconds) return FailoverReason.NoFirstFrame
             val stallStarted = stallStartedAtMillis
-            if (stallStarted != null && now - stallStarted > LONGEST_STALL.inWholeMilliseconds) return StreamFailure.LongStall
+            if (stallStarted != null && now - stallStarted > LONGEST_STALL.inWholeMilliseconds) return FailoverReason.LongStall
             return null
         }
     }
@@ -441,20 +441,20 @@ sealed interface PlayerFault {
  * Why Failover counted a Stream's playback or Address check as a passing or permanent failure.
  * A Source's failed answer to a Lookup is a [LookupOutcome.Failure].
  */
-sealed interface StreamFailure {
+sealed interface FailoverReason {
     /** The Address check did not finish within 10 s. */
-    data object AddressCheckTimeout : StreamFailure
+    data object AddressCheckTimeout : FailoverReason
 
     /** No first frame within 15 s of the Stream being ready to play. */
-    data object NoFirstFrame : StreamFailure
+    data object NoFirstFrame : FailoverReason
 
     /** A stall over 20 s. */
-    data object LongStall : StreamFailure
+    data object LongStall : FailoverReason
 
     /** 3 stalls within 2 minutes. */
-    data object RepeatedStalls : StreamFailure
+    data object RepeatedStalls : FailoverReason
 
-    data class Fault(val fault: PlayerFault) : StreamFailure
+    data class Fault(val fault: PlayerFault) : FailoverReason
 }
 
 /** What the player must do now that a Stream has failed. */
@@ -489,7 +489,7 @@ enum class GiveUpReason {
 data class SourceSummary(val sourceName: String, val state: State) {
     sealed interface State {
         /** Its Streams tried this session failed, for these reasons in order; [notTried] more were never reached. */
-        data class StreamsFailed(val failures: List<StreamFailure>, val notTried: Int) : State
+        data class StreamsFailed(val failures: List<FailoverReason>, val notTried: Int) : State
 
         /** It has Streams this TV can decode that Failover didn't try. */
         data class NotTried(val streams: Int) : State
@@ -510,7 +510,7 @@ data class SourceSummary(val sourceName: String, val state: State) {
 /** The running notice for the Stream being tried or while Failover is waiting for Sources. */
 data class FailoverNotice(
     val failedSourceName: String,
-    val reason: StreamFailure,
+    val reason: FailoverReason,
     /** The Stream that failed was the one the Household picked by hand. */
     val awayFromHouseholdsChoice: Boolean,
     val next: Next,

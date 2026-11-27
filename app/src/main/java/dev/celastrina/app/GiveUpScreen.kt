@@ -30,7 +30,7 @@ import dev.celastrina.core.failover.FailoverStep
 import dev.celastrina.core.failover.GiveUpReason
 import dev.celastrina.core.failover.PlayerFault
 import dev.celastrina.core.failover.SourceSummary
-import dev.celastrina.core.failover.StreamFailure
+import dev.celastrina.core.failover.FailoverReason
 import dev.celastrina.core.source.Stream
 
 /**
@@ -91,12 +91,12 @@ private fun SourceSummary.State.message(): String = when (this) {
     SourceSummary.State.StillLooking -> "Still looking…"
 }
 
-private fun StreamFailure.message(): String = when (this) {
-    StreamFailure.AddressCheckTimeout -> "address check timed out"
-    StreamFailure.NoFirstFrame -> "no picture within 15 s"
-    StreamFailure.LongStall -> "stalled for over 20 s"
-    StreamFailure.RepeatedStalls -> "stalled 3 times in 2 minutes"
-    is StreamFailure.Fault -> when (fault) {
+private fun FailoverReason.message(): String = when (this) {
+    FailoverReason.AddressCheckTimeout -> "address check timed out"
+    FailoverReason.NoFirstFrame -> "no picture within 15 s"
+    FailoverReason.LongStall -> "stalled for over 20 s"
+    FailoverReason.RepeatedStalls -> "stalled 3 times in 2 minutes"
+    is FailoverReason.Fault -> when (fault) {
         is PlayerFault.Http -> "an HTTP error"
         PlayerFault.Network -> "a network error"
         PlayerFault.UnsupportedFormat -> "a format this TV can't play"

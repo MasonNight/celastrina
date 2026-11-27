@@ -17,6 +17,10 @@ class SourceStandardsTest {
         assertEquals(listOf(2), SourceStandards.cloudStreamImports("port/ExtensionLoader.kt", "$port as Foundation"))
         assertEquals(listOf(1), SourceStandards.cloudStreamImports("extension/helper/Other.kt", import))
         assertEquals(listOf(1), SourceStandards.cloudStreamImports("source/Service.kt", "import com . lagradost.*"))
+        assertEquals(listOf(1), SourceStandards.cloudStreamImports(
+            "java/dev/celastrina/core/Service.java",
+            "import com /* comment\n continues */ .lagradost.cloudstream3.plugins.BasePlugin;",
+        ))
         assertTrue(SourceStandards.cloudStreamImports("source/Service.kt", "/*\n$import\n*/").isEmpty())
     }
 
@@ -66,5 +70,11 @@ class SourceStandardsTest {
             listOf("metadata", "quality info"),
             SourceStandards.glossaryNames(glossary, "val streamMetadata = qualityInfo").map { it.avoid.joinToString(" ") },
         )
+    }
+
+    @Test
+    fun `import aliases are names chosen by Celastrina`() {
+        val source = "import kotlin.collections.Map as Provider"
+        assertEquals(listOf("Provider"), SourceStandards.glossaryNames("_Avoid_: Provider", source).map { it.identifier })
     }
 }

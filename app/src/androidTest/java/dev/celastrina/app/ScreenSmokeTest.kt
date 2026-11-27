@@ -29,6 +29,7 @@ class ScreenSmokeTest {
     @Test
     fun household_settings_screens_open_with_focus() {
         openActivity()
+        await("Home ready for remote input") { it.hasLabel("Search") }
         press(KeyEvent.KEYCODE_MENU)
         screen("Settings")
         press(KeyEvent.KEYCODE_DPAD_CENTER)
