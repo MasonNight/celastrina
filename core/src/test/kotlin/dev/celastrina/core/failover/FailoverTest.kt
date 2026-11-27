@@ -695,10 +695,10 @@ class FailoverTest {
         val failover = playing(nightly1080, lookup(movieNight to listOf(nightly1080, nightly720), archive to listOf(archiveMp4)))
 
         assertSwitchedTo(nightly720, failover.failUnstarted())
-        assertEquals("Movie Night Jellyfin: trying another Stream (2 of 3)…", failover.notice?.text)
+        assertEquals(FailoverNotice.Next.Trying("Movie Night Jellyfin", 2, 3), failover.notice?.next)
 
         assertSwitchedTo(archiveMp4, failover.failUnstarted())
-        assertEquals("Internet Archive: trying another Stream (3 of 3)…", failover.notice?.text)
+        assertEquals(FailoverNotice.Next.Trying("Internet Archive", 3, 3), failover.notice?.next)
     }
 
     @Test
@@ -707,7 +707,7 @@ class FailoverTest {
 
         assertSwitchedTo(archiveMp4, failover.failUnstarted())
         failover.report(10.seconds, started = false)
-        assertEquals("Internet Archive: trying another Stream (2 of 2)…", failover.notice?.text)
+        assertEquals(FailoverNotice.Next.Trying("Internet Archive", 2, 2), failover.notice?.next)
 
         failover.on(PlayerEvent.FirstFrame)
         assertNull(failover.notice)
@@ -718,11 +718,11 @@ class FailoverTest {
         val failover = playing(nightly1080, lookup(movieNight to listOf(nightly1080, nightly720), archive to null))
 
         assertSwitchedTo(nightly720, failover.failUnstarted())
-        assertEquals("Movie Night Jellyfin: trying another Stream (2 of 2)…", failover.notice?.text)
+        assertEquals(FailoverNotice.Next.Trying("Movie Night Jellyfin", 2, 2), failover.notice?.next)
 
         failover.lookupChanged(lookup(movieNight to listOf(nightly1080, nightly720), archive to listOf(archiveMp4, archiveOgv)))
 
-        assertEquals("Movie Night Jellyfin: trying another Stream (2 of 4)…", failover.notice?.text)
+        assertEquals(FailoverNotice.Next.Trying("Movie Night Jellyfin", 2, 4), failover.notice?.next)
     }
 
     @Test
@@ -732,12 +732,12 @@ class FailoverTest {
         val first = failover.fail()
         assertSwitchedTo(nightly1080, first)
         assertTrue(first.notice.awayFromHouseholdsChoice)
-        assertEquals("The Stream you chose from Internet Archive isn't working. Movie Night Jellyfin: trying another Stream (2 of 3)…", first.notice.text)
+        assertEquals(FailoverNotice.Next.Trying("Movie Night Jellyfin", 2, 3), first.notice.next)
 
         // Once playback has left the Household's choice, later Failovers are ordinary ones.
         val second = failover.fail()
         assertEquals(false, second.notice.awayFromHouseholdsChoice)
-        assertEquals("Internet Archive: trying another Stream (3 of 3)…", second.notice.text)
+        assertEquals(FailoverNotice.Next.Trying("Internet Archive", 3, 3), second.notice.next)
     }
 
     @Test
@@ -771,13 +771,14 @@ class FailoverTest {
 
         val waiting = failover.failAndGetStep()
         assertIs<FailoverStep.Waiting>(waiting)
-        assertEquals("Internet Archive isn't working, waiting for your other Sources…", waiting.notice.text)
+        assertEquals("Internet Archive", waiting.notice.failedSourceName)
+        assertEquals(FailoverNotice.Next.WaitingForSources, waiting.notice.next)
 
         assertNull(failover.lookupChanged(lookup(movieNight to LookupOutcome.NotAvailable, friends to null, archive to listOf(archiveMp4))))
         val step = failover.lookupChanged(lookup(movieNight to LookupOutcome.NotAvailable, friends to listOf(friendsHevc), archive to listOf(archiveMp4)))
 
         assertSwitchedTo(friendsHevc, step)
-        assertEquals("Friends' Emby: trying another Stream (2 of 2)…", step.notice.text)
+        assertEquals(FailoverNotice.Next.Trying("Friends' Emby", 2, 2), step.notice.next)
     }
 
     @Test

@@ -26,6 +26,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import dev.celastrina.core.failover.Failover
 import dev.celastrina.core.failover.FailoverMemory
+import dev.celastrina.core.failover.FailoverNotice
 import dev.celastrina.core.failover.FailoverStep
 import dev.celastrina.core.failover.PlayerEvent
 import dev.celastrina.core.household.ContinueWatching
@@ -106,7 +107,7 @@ private fun PlaybackSession(
     val scope = rememberCoroutineScope()
     val addressChecks = remember(scope) { AddressChecks(scope) }
     fun take(next: FailoverStep?) {
-        notice = failover.notice?.text
+        notice = failover.notice?.message()
         when (next) {
             null -> Unit
             is FailoverStep.Play -> playback = Playback(next.stream, next.startAtMillis, checkAddress = false)
@@ -228,4 +229,15 @@ private fun subtitleMimeType(url: String): String = when (Uri.parse(url).lastPat
     "ass", "ssa" -> MimeTypes.TEXT_SSA
     "ttml", "dfxp", "xml" -> MimeTypes.APPLICATION_TTML
     else -> MimeTypes.TEXT_VTT
+}
+
+private fun FailoverNotice.message(): String {
+    val failed = if (awayFromHouseholdsChoice) "The Stream you chose from $failedSourceName" else failedSourceName
+    return when (val attempt = next) {
+        is FailoverNotice.Next.Trying -> {
+            val progress = "${attempt.sourceName}: trying another Stream (${attempt.tried} of ${attempt.known})…"
+            if (awayFromHouseholdsChoice) "$failed isn't working. $progress" else progress
+        }
+        FailoverNotice.Next.WaitingForSources -> "$failed isn't working, waiting for your other Sources…"
+    }
 }

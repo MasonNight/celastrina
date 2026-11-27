@@ -204,7 +204,7 @@ fun CelastrinaApp(
                 }
                 is Screen.About -> {
                     BackHandler { screen = s.back }
-                    AboutScreen(appVersion)
+                    AboutScreen(appVersion) { screen = s.back }
                 }
                 is Screen.TmdbKey -> {
                     BackHandler { screen = s.back }

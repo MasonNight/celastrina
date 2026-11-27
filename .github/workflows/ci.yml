@@ -31,6 +31,26 @@ jobs:
   release-gates:
     uses: ./.github/workflows/release-gates.yml
 
+  windows-check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Check script line endings
+        run: |
+          git ls-files --eol -- '*.sh' gradlew | ForEach-Object {
+            if ($_ -notmatch '^i/lf\s+w/lf\s') { throw "Expected LF: $_" }
+          }
+          git ls-files --eol -- '*.bat' | ForEach-Object {
+            if ($_ -notmatch '^i/lf\s+w/crlf\s') { throw "Expected CRLF in the checkout: $_" }
+          }
+      - name: Core tests and debug APK verification
+        run: ./gradlew.bat :core:test :app:verifyDebugApk --console=plain
+
   secrets:
     runs-on: ubuntu-latest
     steps:

@@ -437,7 +437,10 @@ sealed interface PlayerFault {
     data object Other : PlayerFault
 }
 
-/** Why Failover counted a Stream as not working. */
+/**
+ * Why Failover counted a Stream's playback or Address check as a passing or permanent failure.
+ * A Source's failed answer to a Lookup is a [LookupOutcome.Failure].
+ */
 sealed interface StreamFailure {
     /** The Address check did not finish within 10 s. */
     data object AddressCheckTimeout : StreamFailure
@@ -516,16 +519,4 @@ data class FailoverNotice(
         data class Trying(val sourceName: String, val tried: Int, val known: Int) : Next
         data object WaitingForSources : Next
     }
-
-    val text: String
-        get() {
-            val failed = if (awayFromHouseholdsChoice) "The Stream you chose from $failedSourceName" else failedSourceName
-            return when (next) {
-                is Next.Trying -> {
-                    val progress = "${next.sourceName}: trying another Stream (${next.tried} of ${next.known})…"
-                    if (awayFromHouseholdsChoice) "$failed isn't working. $progress" else progress
-                }
-                Next.WaitingForSources -> "$failed isn't working, waiting for your other Sources…"
-            }
-        }
 }
