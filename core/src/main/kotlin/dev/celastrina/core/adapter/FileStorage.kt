@@ -16,13 +16,7 @@ class FileStorage(private val dir: File) : Storage {
         val target = fileFor(key)
         val temp = File(dir, "$key.tmp")
         temp.writeBytes(value)
-        // On Android and Linux the rename replaces the old file atomically. On Windows, where developers also run the
-        // Core's tests, renaming onto an existing file fails, so the old one is removed first. java.nio's
-        // Files.move(REPLACE_EXISTING) would do both, but it needs API 26 and Celastrina supports 25.
-        if (!temp.renameTo(target)) {
-            target.delete()
-            check(temp.renameTo(target)) { "Couldn't save $key" }
-        }
+        check(temp.renameTo(target)) { "Couldn't save $key" }
     }
 
     override fun delete(key: String) {

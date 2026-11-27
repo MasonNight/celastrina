@@ -1,36 +1,6 @@
-name: CI
-
-on:
-  push:
-    # Every branch; a release tag runs the same jobs in the release workflow instead.
-    branches: ['**']
-    tags-ignore: ['v*']
-  pull_request:
-
+name: Windows FileStorage regression proof
+on: push
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-      - uses: gradle/actions/setup-gradle@v4
-      # Unit tests, Android lint, and the debug APK's platform rules (no native code, minSdk 25, TV manifest).
-      - name: Check
-        run: ./gradlew check --console=plain
-      - name: Reports
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: reports
-          path: "**/build/reports/"
-
-  # The minified release APK's gates, including loading the test Extension on an emulator.
-  release-gates:
-    uses: ./.github/workflows/release-gates.yml
-
   windows-check:
     runs-on: windows-latest
     steps:
@@ -51,15 +21,3 @@ jobs:
       - name: Core tests and debug APK verification
         run: ./gradlew.bat :core:test :app:verifyDebugApk --console=plain
 
-  secrets:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Scan history for secrets
-        env:
-          GITLEAKS_VERSION: 8.21.2
-        run: |
-          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar xz gitleaks
-          ./gitleaks git --redact --no-banner -v .
