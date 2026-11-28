@@ -77,4 +77,19 @@ class SourceStandardsTest {
         val source = "import kotlin.collections.Map as Provider"
         assertEquals(listOf("Provider"), SourceStandards.glossaryNames("_Avoid_: Provider", source).map { it.identifier })
     }
+
+    @Test
+    fun `legacy names need an explicit exception in the file that uses them`() {
+        val glossary = "_Avoid_: User, Kind, Metadata"
+        val source = "class User; enum class Kind { Title }; val metadata = Unit"
+
+        assertEquals(
+            listOf("User", "Kind", "metadata"),
+            SourceStandards.glossaryNames(glossary, source).map { it.identifier },
+        )
+        assertEquals(
+            listOf("Kind", "metadata"),
+            SourceStandards.glossaryNames(glossary, source, fileExceptions = setOf("User")).map { it.identifier },
+        )
+    }
 }

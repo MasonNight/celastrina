@@ -8,6 +8,7 @@ buildscript {
 val coreSources = fileTree("core/src/main") { include("**/*.kt", "**/*.java") }
 val applicationSources = fileTree("app/src/main") { include("**/*.kt") }
 val sourceGlossary = layout.projectDirectory.file("GLOSSARY.md")
+val glossaryExceptions = layout.projectDirectory.file("gradle/glossary-exceptions.txt")
 
 val checkCloudStreamImports by tasks.registering {
     group = "verification"
@@ -31,12 +32,18 @@ val checkGlossaryNames by tasks.registering {
     group = "verification"
     description = "Checks Kotlin identifiers against the glossary's Avoid entries."
     inputs.files(coreSources, applicationSources).withPathSensitivity(PathSensitivity.RELATIVE)
-    inputs.file(sourceGlossary).withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(sourceGlossary, glossaryExceptions).withPathSensitivity(PathSensitivity.RELATIVE)
     doLast {
         val glossary = sourceGlossary.asFile.readText()
+        val exceptionsByFile = glossaryExceptions.asFile.readLines()
+            .filter { it.isNotBlank() && !it.startsWith("#") }
+            .associate { line ->
+                val fields = line.split(' ')
+                fields.first() to fields.drop(1).toSet()
+            }
         val violations = (coreSources.files + applicationSources.files).filter { it.extension == "kt" }.sortedBy { it.path }.flatMap { source ->
             val path = source.relativeTo(projectDir).invariantSeparatorsPath
-            SourceStandards.glossaryNames(glossary, source.readText(), path).map { violation ->
+            SourceStandards.glossaryNames(glossary, source.readText(), exceptionsByFile[path].orEmpty()).map { violation ->
                 "$path:${violation.line}: ${violation.identifier} uses the glossary's Avoid entry '${violation.avoid.joinToString(" ")}'"
             }
         }

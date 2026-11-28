@@ -3,6 +3,14 @@
 set -euo pipefail
 
 serial="${CELASTRINA_ADB_SERIAL:?Set CELASTRINA_ADB_SERIAL to the device serial.}"
+release_apks=
+if [ "$#" -ne 0 ]; then
+  if [ "$#" -ne 2 ] || [ "$1" != "--release-apks" ] || [ ! -d "$2" ]; then
+    echo "Usage: scripts/emulator-check.sh [--release-apks DIRECTORY]" >&2
+    exit 2
+  fi
+  release_apks="$(cd "$2" && pwd)"
+fi
 cd "$(dirname "$0")/.."
 device=(adb -s "$serial")
 [ "$("${device[@]}" get-state)" = device ]
@@ -32,16 +40,6 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
 
-# Use a disposable signing key for the minified build, as the release gates do.
-export CELASTRINA_KEYSTORE="$work/device-check.p12"
-case "$OSTYPE" in
-  msys*|cygwin*) CELASTRINA_KEYSTORE="$(cygpath -m "$CELASTRINA_KEYSTORE")" ;;
-esac
-export CELASTRINA_KEYSTORE_PASSWORD=device-check CELASTRINA_KEY_ALIAS=device-check CELASTRINA_KEY_PASSWORD=device-check
-keytool -genkeypair -keystore "$CELASTRINA_KEYSTORE" -storetype PKCS12 -alias "$CELASTRINA_KEY_ALIAS" \
-  -storepass "$CELASTRINA_KEYSTORE_PASSWORD" -keypass "$CELASTRINA_KEY_PASSWORD" \
-  -keyalg RSA -keysize 2048 -validity 1 -dname CN=CelastrinaDeviceCheck
-
 build_apks() {
   local build_type="$1" build="$2"
   ./gradlew -PisolatedDeviceCheck=true "-PtestBuildType=$build_type" \
@@ -50,7 +48,21 @@ build_apks() {
   cp "app/build/outputs/apk/androidTest/$build_type/app-$build_type-androidTest.apk" "$work/$build_type-test.apk"
 }
 build_apks debug Debug
-build_apks release Release
+if [ -n "$release_apks" ]; then
+  cp "$release_apks/app-release.apk" "$work/release.apk"
+  cp "$release_apks/app-release-androidTest.apk" "$work/release-test.apk"
+else
+  # Use a disposable signing key for the minified build, as the release gates do.
+  export CELASTRINA_KEYSTORE="$work/device-check.p12"
+  case "$OSTYPE" in
+    msys*|cygwin*) CELASTRINA_KEYSTORE="$(cygpath -m "$CELASTRINA_KEYSTORE")" ;;
+  esac
+  export CELASTRINA_KEYSTORE_PASSWORD=device-check CELASTRINA_KEY_ALIAS=device-check CELASTRINA_KEY_PASSWORD=device-check
+  keytool -genkeypair -keystore "$CELASTRINA_KEYSTORE" -storetype PKCS12 -alias "$CELASTRINA_KEY_ALIAS" \
+    -storepass "$CELASTRINA_KEYSTORE_PASSWORD" -keypass "$CELASTRINA_KEY_PASSWORD" \
+    -keyalg RSA -keysize 2048 -validity 1 -dname CN=CelastrinaDeviceCheck
+  build_apks release Release
+fi
 
 sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
 case "$OSTYPE" in
@@ -70,6 +82,18 @@ verify_package "$work/debug.apk" dev.celastrina.debug.devicecheck
 verify_package "$work/debug-test.apk" dev.celastrina.debug.devicecheck.test
 verify_package "$work/release.apk" dev.celastrina.devicecheck
 verify_package "$work/release-test.apk" dev.celastrina.devicecheck.test
+
+verify_test_target() {
+  local apk="$1" expected="$2" actual
+  actual="$("$aapt2" dump xmltree "$apk" --file AndroidManifest.xml \
+    | sed -n 's/.*android:targetPackage([^)]*)="\([^"]*\)".*/\1/p')"
+  if [ "$actual" != "$expected" ]; then
+    echo "Expected instrumentation to target $expected in $apk, found ${actual:-no target}." >&2
+    return 1
+  fi
+}
+verify_test_target "$work/debug-test.apk" dev.celastrina.debug.devicecheck
+verify_test_target "$work/release-test.apk" dev.celastrina.devicecheck
 
 # Use the same per-device lock as tv.sh.
 lock_key="${serial//%/%25}"

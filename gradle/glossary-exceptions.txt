@@ -1,0 +1,72 @@
+# Existing implementation and wire names whose meaning differs from the glossary.
+# Each exception applies only to the named file. Remove entries when the name is retired.
+# The Kotlin/JVM standard library and Android callbacks are handled by SourceStandards.
+app/src/main/java/com/lagradost/cloudstream3/plugins/Plugin.kt BasePlugin Plugin
+app/src/main/java/dev/celastrina/app/AddSourceScreen.kt KindChoice headlineContent index keyboardType kind kindHint kindName requestFocusOnceShown supportingContent url
+app/src/main/java/dev/celastrina/app/AddressCheck.kt AddressCheckHttpError AddressCheckUnavailable addressCheckClient contentType request url
+app/src/main/java/dev/celastrina/app/CelastrinaApp.kt Kind PlayRequest ServiceError contentColor focusTarget kind request
+app/src/main/java/dev/celastrina/app/CelastrinaApplication.kt FileStorage JdkHttpClient TMDB_API_KEY
+app/src/main/java/dev/celastrina/app/ChooseStreamScreen.kt SourceError StreamItem contentPadding format headlineContent item requestFocusOnceShown supportingContent
+app/src/main/java/dev/celastrina/app/ConfigurationProvider.kt ConfigurationProvider PER_USER_RANGE content getType kind list query url wrongType
+app/src/main/java/dev/celastrina/app/DetailScreen.kt MediaCodecDecoders PlayRequest backdropUrl contentDescription contentScale imageUrl kind logoUrl metadataLine requestFocusOnceShown
+app/src/main/java/dev/celastrina/app/DexExtensionLoader.kt file isFile plugin
+app/src/main/java/dev/celastrina/app/ExtensionsScreen.kt EnterUrl ExtensionList contentPadding headlineContent item keyboardType repositoryUrl requestFocusOnceShown supportingContent url
+app/src/main/java/dev/celastrina/app/FocusOnEntry.kt requestFocus requestFocusOnceShown requestFocusUntil
+app/src/main/java/dev/celastrina/app/GiveUpScreen.kt UnsupportedFormat requestFocusOnceShown
+app/src/main/java/dev/celastrina/app/HomeModel.kt focusTarget showHero
+app/src/main/java/dev/celastrina/app/HomeScreen.kt Kind backdropUrl contentAlignment contentColor contentDescription contentPadding contentScale focusTarget focusedContentColor index kind listState logoUrl metadataLine posterUrl requestFocusUntil showHero target targetFocused targetRequester
+app/src/main/java/dev/celastrina/app/HouseholdRows.kt contentDescription contentPadding contentScale focusTarget imageUrl item kind requestFocusUntil target targetFocused targetRequester
+app/src/main/java/dev/celastrina/app/Media3FailoverEvents.kt ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES ERROR_CODE_DECODING_FORMAT_UNSUPPORTED ERROR_CODE_IO_BAD_HTTP_STATUS Media3FailoverEvents UnsupportedFormat errorCode onPlayerError
+app/src/main/java/dev/celastrina/app/MediaCodecDecoders.kt MediaCodecDecoders videoMimeType
+app/src/main/java/dev/celastrina/app/NotPlayableBadge.kt kind
+app/src/main/java/dev/celastrina/app/Notice.kt contentAlignment
+app/src/main/java/dev/celastrina/app/PlaybackHttp.kt userAgent
+app/src/main/java/dev/celastrina/app/PlayerScreen.kt Media3FailoverEvents MediaCodecDecoders PlayRequest SHOW_BUFFERING_WHEN_PLAYING content request requestFocus setDefaultRequestProperties setMediaItem setMediaSourceFactory setMimeType setShowBuffering subtitleMimeType toMediaItem url
+app/src/main/java/dev/celastrina/app/ResumeScreen.kt MediaCodecDecoders PlayRequest contentDescription contentScale imageUrl
+app/src/main/java/dev/celastrina/app/SearchScreen.kt Kind contentAlignment contentColor contentDescription contentPadding contentScale focusedContentColor kind posterUrl query requestFocus type
+app/src/main/java/dev/celastrina/app/SeriesDetailScreen.kt PlayRequest backdropUrl contentAlignment contentDescription contentPadding contentScale imageUrl index logoUrl metadataLine request requestFocusOnceShown seasonIndex selectedTabIndex stillUrl
+app/src/main/java/dev/celastrina/app/SettingsScreen.kt contentDescription firstItem headlineContent requestFocusOnceShown supportingContent
+app/src/main/java/dev/celastrina/app/SourcesScreen.kt SourceList contentPadding format headlineContent item kind kindName list requestFocusOnceShown supportingContent
+app/src/main/java/dev/celastrina/app/TitleLogo.kt Error contentDescription contentScale logoUrl
+app/src/main/java/dev/celastrina/app/TvTextField.kt keyboardType requestFocus requestFocusOnceShown show
+core/src/main/kotlin/dev/celastrina/core/adapter/FileStorage.kt FileStorage fileFor isFile target
+core/src/main/kotlin/dev/celastrina/core/adapter/JdkHttpClient.kt HttpClient JdkHttpClient errorStream request requestMethod setRequestProperty url
+core/src/main/kotlin/dev/celastrina/core/catalogue/ArtworkCache.kt isFile listFiles
+core/src/main/kotlin/dev/celastrina/core/catalogue/Catalogue.kt HttpClient IMAGE_BASE_URL Kind ListPage ListSource ServiceError TmdbAlternativeTitle TmdbAlternativeTitles TmdbListItem TmdbListPage TmdbSeriesAlternativeTitles alternativeTitles apiBaseUrl apiKey backdropUrl filePath imageUrl item kind list listPage logoUrl mediaType posterUrl query queryString request stillUrl store url usesBearerToken
+core/src/main/kotlin/dev/celastrina/core/catalogue/CatalogueCache.kt INDEX_KEY format index loadedIndex request saveIndex store
+core/src/main/kotlin/dev/celastrina/core/catalogue/CatalogueUnreadable.kt ServiceError
+core/src/main/kotlin/dev/celastrina/core/catalogue/Hero.kt backdropUrl logoUrl
+core/src/main/kotlin/dev/celastrina/core/catalogue/HomeRows.kt ANIMATION_QUERY Kind ListPage ListSource RowList kind list query target
+core/src/main/kotlin/dev/celastrina/core/catalogue/MovieDetails.kt backdropUrl logoUrl
+core/src/main/kotlin/dev/celastrina/core/catalogue/NotPlayableMemory.kt Kind kind
+core/src/main/kotlin/dev/celastrina/core/catalogue/Search.kt query type
+core/src/main/kotlin/dev/celastrina/core/catalogue/SeriesDetails.kt backdropUrl logoUrl stillUrl
+core/src/main/kotlin/dev/celastrina/core/catalogue/Title.kt Kind kind posterUrl
+core/src/main/kotlin/dev/celastrina/core/catalogue/TitleReference.kt Kind alternativeTitles kind
+core/src/main/kotlin/dev/celastrina/core/catalogue/TmdbSettings.kt apiBaseUrl apiKey
+core/src/main/kotlin/dev/celastrina/core/configuration/ConfigurationRules.kt BadUrl ConfiguredKind EXTENSION_KIND badUrl format kind rawQuery
+core/src/main/kotlin/dev/celastrina/core/configuration/ConfigurationService.kt ConfigurationStore HttpClient apiKey list repositoryUrl store url
+core/src/main/kotlin/dev/celastrina/core/configuration/ConfigurationStore.kt ConfigurationStore Kind StoreAccess kind repositoryUrl store url
+core/src/main/kotlin/dev/celastrina/core/configuration/ConfigurationTypes.kt BadUrl UnknownKind kind url
+core/src/main/kotlin/dev/celastrina/core/configuration/ConfiguredKind.kt ConfiguredKind Kind SourceError StremioAddon StremioAddonKind StremioAddonSource addon badUrl kind manifestUrlOf sourceError takesUrl testAddon
+core/src/main/kotlin/dev/celastrina/core/configuration/ConnectionTests.kt ConfigurationStore ConfiguredKind HttpClient SourceError StoreAccess StremioAddon addon kind sourceError store testAddon url
+core/src/main/kotlin/dev/celastrina/core/configuration/ExtensionSettings.kt BadUrl ConfigurationStore EXTENSION_KIND HttpClient SourceError StoreAccess kind repositoryUrl store url
+core/src/main/kotlin/dev/celastrina/core/configuration/SourceSettings.kt ConfigurationStore ConfiguredKind HttpClient SourceError StoreAccess UnknownKind badUrl index kind list newUrl store takesUrl url
+core/src/main/kotlin/dev/celastrina/core/extension/ExtensionHost.kt Kind SourceError content plugin pluginClassName sourcePlugin
+core/src/main/kotlin/dev/celastrina/core/extension/ExtensionRepository.kt HttpClient PluginJson RepoJson SourceError fileHash listUrl pluginLists resolve url
+core/src/main/kotlin/dev/celastrina/core/extension/ExtensionSource.kt Kind SourceError alternativeTitles dataUrl format getLoadUrl kind kindOf link linkData pageUrl provider type url
+core/src/main/kotlin/dev/celastrina/core/failover/Decoding.kt mimeType
+core/src/main/kotlin/dev/celastrina/core/failover/Failover.kt AddressCheckHttpError AddressCheckUnavailable STREAM_LIST_FRESH_FOR UnsupportedFormat listAskedAt showNotice url
+core/src/main/kotlin/dev/celastrina/core/household/ContinueWatching.kt imageUrl kind
+core/src/main/kotlin/dev/celastrina/core/household/StoredTitles.kt Kind alternativeTitles kind posterUrl
+core/src/main/kotlin/dev/celastrina/core/household/Watchlist.kt kind
+core/src/main/kotlin/dev/celastrina/core/port/Decoders.kt videoMimeType
+core/src/main/kotlin/dev/celastrina/core/port/ExtensionLoader.kt file list plugin
+core/src/main/kotlin/dev/celastrina/core/port/HttpClient.kt HttpClient url
+core/src/main/kotlin/dev/celastrina/core/source/HttpFailure.kt SourceError
+core/src/main/kotlin/dev/celastrina/core/source/Source.kt Kind SourceError kind
+core/src/main/kotlin/dev/celastrina/core/source/Stream.kt url
+core/src/main/kotlin/dev/celastrina/core/source/StreamLookup.kt SourceError kind
+core/src/main/kotlin/dev/celastrina/core/source/internetarchive/InternetArchiveSource.kt ArchiveFile ArchiveItem HttpClient Kind SourceError USER_AGENT WikidataFilm content downloadBaseUrl file format item kind metadata metadataBaseUrl query toArchiveFile url wikidataSparqlUrl
+core/src/main/kotlin/dev/celastrina/core/source/jellyfin/MediaServer.kt HttpClient Item Kind MediaSource MediaStream RequestFailed SourceError User accessToken alternativeTitles index item kind mediaSources providerIds token type url user userId
+core/src/main/kotlin/dev/celastrina/core/source/stremio/StremioAddon.kt AddonSource AddonStream AddonSubtitle HttpClient Kind SourceError StremioAddon StremioAddonKind content externalUrl fileIdx format kind manifestUrl manifestUrlOf nzbUrl rawQuery request type url
