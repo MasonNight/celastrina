@@ -149,7 +149,6 @@ fun PlayRow(
     failoverMemory: FailoverMemory,
     onPlay: (Stream) -> Unit,
     onChoose: () -> Unit,
-    label: String? = null,
     watched: Watched? = null,
     autoPlay: Boolean = false,
     more: @Composable () -> Unit = {},
@@ -163,7 +162,6 @@ fun PlayRow(
         else (if (best != null) play else choose).requestFocusOnceShown()
     }
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        label?.let { Text(it, style = MaterialTheme.typography.titleSmall) }
         Button(onClick = { best?.let(onPlay) }, enabled = best != null, modifier = Modifier.focusRequester(play)) { Text(if (resumes) "Resume" else "Play") }
         Button(onClick = onChoose, modifier = Modifier.focusRequester(choose)) { Text("Choose Stream") }
         more()

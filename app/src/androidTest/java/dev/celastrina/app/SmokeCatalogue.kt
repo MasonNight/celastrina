@@ -25,6 +25,7 @@ internal const val SMOKE_SERIES_ID = 90000002
 internal const val SMOKE_MOVIE = "Smoke Test Movie"
 internal const val SMOKE_SERIES = "Smoke Test Series"
 internal const val SMOKE_SEASON = "Smoke Season One"
+internal const val SMOKE_EPISODE = "Smoke Episode"
 
 /**
  * Synthetic Titles keep the smoke test independent of live Catalogue changes, credentials and artwork.
@@ -121,7 +122,7 @@ internal class SmokeCatalogue(private val app: CelastrinaApplication, assets: As
                 "/discover/movie", "/discover/tv" -> """{"results":[]}"""
                 "/movie/$SMOKE_MOVIE_ID" -> movie
                 "/tv/$SMOKE_SERIES_ID" -> series
-                "/tv/$SMOKE_SERIES_ID/season/1" -> """{"episodes":[{"episode_number":1,"name":"Smoke Episode"}]}"""
+                "/tv/$SMOKE_SERIES_ID/season/1" -> """{"episodes":[{"episode_number":1,"name":"$SMOKE_EPISODE"}]}"""
                 else -> error("No smoke-test Catalogue answer for $url")
             }
             return HttpResponse(200, body.encodeToByteArray())

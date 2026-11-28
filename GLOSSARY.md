@@ -112,8 +112,9 @@ What Celastrina tells a Source about the Title (or episode) it wants Streams for
 _Avoid_: Query, request
 
 **Lookup**:
-Asking a Household's Sources for Streams of one Title or episode: when its detail screen opens, an episode is picked or
-a Continue watching card resumes it, and again when Failover finds its Stream list may have expired.
+Asking a Household's Sources for Streams of one Title or episode: when a Movie's detail screen opens, an episode card is
+clicked or opens Choose Stream, or a Continue watching card resumes it, and again when Failover finds its Stream list
+may have expired.
 _Avoid_: Search, scrape, resolve
 
 **Not available**:

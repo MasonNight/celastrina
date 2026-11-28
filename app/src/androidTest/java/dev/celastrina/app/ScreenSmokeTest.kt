@@ -80,6 +80,7 @@ class ScreenSmokeTest {
                     press(KeyEvent.KEYCODE_DPAD_CENTER)
                 }
                 screen(SMOKE_SERIES, SMOKE_SEASON)
+                playEpisodeInOneClick()
 
                 if (BuildConfig.DEBUG) {
                     openActivity("dev.celastrina.OPEN_MOVIE" to SMOKE_MOVIE_ID)
@@ -105,6 +106,25 @@ class ScreenSmokeTest {
                 closeActivity()
             }
         }
+    }
+
+    /** From the Series screen with focus on its season tabs: Choose Stream by Menu and by holding OK, then one click plays. */
+    private fun playEpisodeInOneClick() {
+        assertTrue(!lastScreen.hasLabel("Pick an episode"), "The Series screen still asks to pick an episode")
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        await("episode card focused") { it.focusedLabelContains(SMOKE_EPISODE) }
+        press(KeyEvent.KEYCODE_MENU)
+        screen("Choose Stream", "Smoke video")
+        press(KeyEvent.KEYCODE_BACK)
+        await("Series screen with the episode card focused") { it.hasLabel(SMOKE_SEASON) && it.focusedLabelContains(SMOKE_EPISODE) }
+        press(KeyEvent.KEYCODE_DPAD_CENTER, longPress = true)
+        screen("Choose Stream", "Smoke video")
+        press(KeyEvent.KEYCODE_BACK)
+        await("Series screen with the episode card focused") { it.hasLabel(SMOKE_SEASON) && it.focusedLabelContains(SMOKE_EPISODE) }
+        press(KeyEvent.KEYCODE_DPAD_CENTER)
+        await("player with its controls visible and focused") { it.hasLabel("Rewind") && it.hasInputFocus }
+        press(KeyEvent.KEYCODE_BACK)
+        await("Series screen with the played episode card focused") { it.hasLabel(SMOKE_SEASON) && it.focusedLabelContains(SMOKE_EPISODE) }
     }
 
     private fun openChooseStream() {
@@ -134,9 +154,10 @@ class ScreenSmokeTest {
         activity = instrumentation.startActivitySync(intent)
     }
 
-    private fun press(key: Int) {
+    private fun press(key: Int, longPress: Boolean = false) {
         // UI Automation's shell UID can wake a sleeping TV and send D-pad inputs even while focus is transitioning.
-        ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand("input keyevent $key")).use { it.readBytes() }
+        val command = if (longPress) "input keyevent --longpress $key" else "input keyevent $key"
+        ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command)).use { it.readBytes() }
     }
 
     private fun screen(vararg labels: String) {
@@ -145,9 +166,10 @@ class ScreenSmokeTest {
         }
     }
 
+    private var lastScreen = VisibleScreen()
+
     private fun await(description: String, matches: (VisibleScreen) -> Boolean) {
         val deadline = SystemClock.uptimeMillis() + 12_000
-        var lastScreen = VisibleScreen()
         while (SystemClock.uptimeMillis() < deadline) {
             val root = automation.rootInActiveWindow
             if (root != null && root.packageName?.toString() == context.packageName) {

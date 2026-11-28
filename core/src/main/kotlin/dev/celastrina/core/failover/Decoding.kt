@@ -3,6 +3,8 @@ package dev.celastrina.core.failover
 import dev.celastrina.core.household.WorkedStream
 import dev.celastrina.core.port.Decoders
 import dev.celastrina.core.source.Lookup
+import dev.celastrina.core.source.LookupOutcome
+import dev.celastrina.core.source.SourceLookup
 import dev.celastrina.core.source.Stream
 import kotlin.time.Duration.Companion.seconds
 
@@ -76,3 +78,45 @@ sealed interface ResumeChoice {
     /** Every Source has answered, and none has a Stream this TV can play. */
     data object NothingToPlay : ResumeChoice
 }
+
+/**
+ * Which Stream one click on an episode plays: Play's choice, the first of the [candidates]. While a Source still being
+ * asked could give a better one (a Source ahead of it in the Household's order, the Source of the Stream that
+ * [lastWorked], or any Source when every Stream so far failed here lately), one click waits for it, but for no more than
+ * [ONE_CLICK_WAIT] after the Sources were asked. After that it plays the best Candidate so far, or the first to arrive.
+ * [nowMillis] is the time now, on the clock the Lookup was asked by.
+ */
+fun Lookup.oneClickChoice(decoders: Decoders, memory: FailoverMemory, lastWorked: WorkedStream?, nowMillis: Long): OneClickChoice {
+    val first = candidates(decoders, memory, lastWorked).firstOrNull()
+        ?: return if (isFinished) OneClickChoice.NothingToPlay(sources.map { it.summary() }) else OneClickChoice.Waiting
+    if (lastWorked?.isOf(first) == true || nowMillis - askedAtMillis >= ONE_CLICK_WAIT.inWholeMilliseconds) return OneClickChoice.Play(first)
+    val ahead = sources.takeWhile { it.source.id != first.sourceId }
+    val looking = sources.filter { it.isLooking }
+    val couldBeBetter = looking.isNotEmpty() && memory.isDemoted(first) ||
+        looking.any { it in ahead || it.source.id == lastWorked?.sourceId }
+    return if (couldBeBetter) OneClickChoice.Waiting else OneClickChoice.Play(first)
+}
+
+/** How long one click waits for Sources earlier in the Household's order before playing the best Candidate so far. */
+val ONE_CLICK_WAIT = 5.seconds
+
+/** Where one click on an episode has got to. */
+sealed interface OneClickChoice {
+    /** Sources are still being asked. */
+    data object Waiting : OneClickChoice
+
+    data class Play(val stream: Stream) : OneClickChoice
+
+    /** Every Source has answered, and none has a Stream this TV can play; [sources] says what happened at each. */
+    data class NothingToPlay(val sources: List<SourceSummary>) : OneClickChoice
+}
+
+/** What a Source that answered without a Stream this TV can play said, for the screen that lists each Source. */
+private fun SourceLookup.summary(): SourceSummary = SourceSummary(
+    source.name,
+    when (val outcome = outcome) {
+        is LookupOutcome.Failure -> SourceSummary.State.LookupFailed(outcome.reason)
+        is LookupOutcome.Streams -> SourceSummary.State.NothingThisTvCanDecode
+        LookupOutcome.NotAvailable, null -> SourceSummary.State.NotAvailable
+    },
+)

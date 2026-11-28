@@ -481,6 +481,70 @@ class FailoverTest {
         )
     }
 
+    // Playing an episode in one click
+
+    @Test
+    fun `one click waits for a Source earlier in the order that answers within 5 s, even when a later one answered sooner`() {
+        val laterAnsweredFirst = lookup(movieNight to null, archive to listOf(archiveMp4))
+        assertEquals(OneClickChoice.Waiting, laterAnsweredFirst.oneClickChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis() + 4_000))
+
+        val bothAnswered = lookup(movieNight to listOf(nightly1080), archive to listOf(archiveMp4))
+        assertEquals(OneClickChoice.Play(nightly1080), bothAnswered.oneClickChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis() + 4_500))
+    }
+
+    @Test
+    fun `one click waits at most 5 s for a Source earlier in the order, then plays the best Stream so far`() {
+        val firstStillAsking = lookup(movieNight to null, archive to listOf(archiveMp4))
+
+        assertEquals(OneClickChoice.Waiting, firstStillAsking.oneClickChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis() + 4_999))
+        assertEquals(OneClickChoice.Play(archiveMp4), firstStillAsking.oneClickChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis() + 5_000))
+    }
+
+    @Test
+    fun `when nothing has arrived after 5 s, one click plays the first Stream that does`() {
+        val later = clock.nowMillis() + 12_000
+
+        assertEquals(OneClickChoice.Waiting, lookup(movieNight to null, archive to null).oneClickChoice(everythingDecodes, memory, null, nowMillis = later))
+        assertEquals(OneClickChoice.Play(archiveMp4), lookup(movieNight to null, archive to listOf(archiveMp4)).oneClickChoice(everythingDecodes, memory, null, nowMillis = later))
+    }
+
+    @Test
+    fun `one click plays the Stream that last worked for the episode at once`() {
+        val lastWorked = WorkedStream(SourceId("internet-archive"), "mp4")
+
+        assertEquals(
+            OneClickChoice.Play(archiveMp4),
+            lookup(movieNight to null, archive to listOf(archiveMp4)).oneClickChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis()),
+        )
+    }
+
+    @Test
+    fun `one click waits up to 5 s for the Source of the Stream that last worked, even later in the order`() {
+        val lastWorked = WorkedStream(SourceId("internet-archive"), "mp4")
+        val archiveStillAsking = lookup(movieNight to listOf(nightly1080), archive to null)
+
+        assertEquals(OneClickChoice.Waiting, archiveStillAsking.oneClickChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis() + 4_999))
+        assertEquals(OneClickChoice.Play(nightly1080), archiveStillAsking.oneClickChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis() + 5_000))
+    }
+
+    @Test
+    fun `when no Source has a Stream this TV can play, one click says what happened at each Source`() {
+        val unreachable = LookupOutcome.Failure(LookupOutcome.Failure.Reason.Unreachable)
+
+        assertEquals(OneClickChoice.Waiting, lookup(movieNight to LookupOutcome.NotAvailable, archive to null).oneClickChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis()))
+        assertEquals(
+            OneClickChoice.NothingToPlay(
+                listOf(
+                    SourceSummary("Movie Night Jellyfin", SourceSummary.State.NotAvailable),
+                    SourceSummary("Internet Archive", SourceSummary.State.LookupFailed(LookupOutcome.Failure.Reason.Unreachable)),
+                    SourceSummary("Friends' Emby", SourceSummary.State.NothingThisTvCanDecode),
+                ),
+            ),
+            lookup(movieNight to LookupOutcome.NotAvailable, archive to unreachable, friends to listOf(friendsHevc))
+                .oneClickChoice(Decoders { it != "video/hevc" }, memory, null, nowMillis = clock.nowMillis()),
+        )
+    }
+
     // When a Stream counts as not working
 
     @Test
