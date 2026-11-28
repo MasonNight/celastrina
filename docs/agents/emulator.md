@@ -14,6 +14,10 @@ Before reporting an implementation ticket done, run `CELASTRINA_ADB_SERIAL=emula
 The script builds both debug and minified release, runs all instrumented tests for each, and removes both
 disposable app installations and their test packages. The disposable installations use their own application IDs.
 If the maintainer asks for a household TV check instead, pass that TV's serial from `scripts/tv.sh connect`.
+To reuse a minified release built on another machine, pass `--release-apks DIRECTORY`. Put the matching
+`app-release.apk` and `app-release-androidTest.apk` there, built with
+`-PisolatedDeviceCheck=true -PtestBuildType=release`. The script still builds debug and checks all four
+package IDs before installing anything.
 
 ## Device lock
 

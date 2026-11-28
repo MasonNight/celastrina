@@ -24,7 +24,11 @@ object SourceStandards {
 
     data class NameViolation(val line: Int, val identifier: String, val avoid: List<String>)
 
-    fun glossaryNames(glossary: String, source: String, path: String = ""): List<NameViolation> {
+    fun glossaryNames(
+        glossary: String,
+        source: String,
+        fileExceptions: Set<String> = emptySet(),
+    ): List<NameViolation> {
         val avoided = glossary.lineSequence().map(String::trim)
             .filter { it.startsWith("_Avoid_:") }
             .flatMap { it.substringAfter(':').split(',') }
@@ -46,9 +50,7 @@ object SourceStandards {
             .toSet()
 
         return tokens.asSequence().filter { it.identifier }
-            .filter { it.text !in externalImports && it.text !in implementationNames && it.text !in domainExceptions }
-            .filter { !path.startsWith("app/src/main/") || it.text !in appImplementationNames }
-            .filter { token -> scopedExceptions[token.text]?.let { path.endsWith(it) } != true }
+            .filter { it.text !in externalImports && it.text !in kotlinAndAndroidNames && it.text !in fileExceptions }
             .mapNotNull { token ->
                 val segments = splitWords(token.text)
                 val matchingPhrases = avoided.filter { segments.windowed(it.size).contains(it) }
@@ -114,64 +116,11 @@ object SourceStandards {
         if (directive != null) yield(directive.copy(restOfLine = directiveTokens.toList()))
     }
 
-    private val scopedExceptions = mapOf(
-        // CloudStream's registered MainAPI and Jellyfin's IDs as named on their wire formats.
-        "provider" to "/extension/ExtensionSource.kt",
-        "providerIds" to "/jellyfin/MediaServer.kt",
-        // Coil's AsyncImagePainter state is an externally defined nested type.
-        "Error" to "/app/TitleLogo.kt",
-        // The catalogue uses RowList for one paging cursor behind a Home Row.
-        "RowList" to "/catalogue/HomeRows.kt",
-    )
-
-    private val implementationNames = setOf(
-        // Platform, Kotlin and library names that are implicitly imported, nested, or passed as named arguments.
+    private val kotlinAndAndroidNames = setOf(
+        // Standard collection types and operations available without explicit imports.
         "ArrayList", "List", "asList", "buildList", "emptyList", "listOf", "listOfNotNull", "mutableListOf",
-        "toList", "toMutableList", "indexOf", "indexOfFirst", "lastIndex", "lastIndexOf", "find", "error",
-        "NoClassDefFoundError", "NoSuchMethodError", "onError", "PlaybackException", "isFile", "listFiles", "resolve",
-        "content", "contentAlignment", "contentColor", "contentDescription", "contentPadding", "contentScale",
-        "ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES", "ERROR_CODE_DECODING_FORMAT_UNSUPPORTED",
-        "ERROR_CODE_IO_BAD_HTTP_STATUS", "errorCode", "errorStream", "getType", "keyboardType", "focusTarget",
-        "requestFocus", "setDefaultRequestProperties", "setRequestProperty", "setShowBuffering", "setMediaItem",
-        "setMediaSourceFactory", "setMimeType", "SHOW_BUFFERING_WHEN_PLAYING", "BasePlugin", "Plugin", "getLoadUrl",
-
-        // Names for transport, filesystem and persistence, outside the glossary's domain senses.
-        "BadUrl", "EnterUrl", "HttpClient", "JdkHttpClient", "FileStorage", "ConfigurationStore", "StoreAccess",
-        "database", "file", "fileFor", "fileHash", "fileIdx", "filePath", "INDEX_KEY", "index", "saveIndex",
-        "list", "pageUrl", "url", "apiBaseUrl", "addressCheckClient", "badUrl", "downloadBaseUrl", "externalUrl",
-        "newUrl", "repositoryUrl", "takesUrl", "contentType", "format", "type", "port", "os",
-        "apiKey", "TMDB_API_KEY", "query", "queryString", "rawQuery", "request", "requestMethod",
-        "token", "accessToken", "usesBearerToken", "user", "User", "userId", "USER_AGENT", "userAgent", "store",
-
-        // External services' protocols, schemas and adapter implementation details.
-        "AddonSource", "AddonStream", "AddonSubtitle", "StremioAddon", "StremioAddonKind", "StremioAddonSource",
-        "addon", "testAddon", "ArchiveFile", "ArchiveItem", "toArchiveFile", "ANIMATION_QUERY", "WikidataFilm",
-        "ImageRequest", "IMAGE_BASE_URL", "imageUrl", "backdropUrl", "logoUrl", "posterUrl", "listUrl",
-        "stillUrl", "nzbUrl", "dataUrl", "manifestUrl", "manifestUrlOf", "metadataBaseUrl", "wikidataSparqlUrl",
-        "TmdbAlternativeTitle", "TmdbAlternativeTitles", "TmdbSeriesAlternativeTitles", "alternativeTitles",
-        "TmdbListItem", "TmdbListPage", "MediaSource", "MediaStream", "mediaSources", "mediaType",
-        "subtitleMimeType", "videoMimeType", "mimeType", "TvType", "PluginJson", "plugin", "pluginClassName",
-        "pluginLists", "sourcePlugin", "RepoJson", "link", "linkData", "ListSource", "ListPage", "listPage",
-        "RequestFailed", "wrongType", "UnsupportedFormat",
-
-        // Presentation, indexing and internal sequencing.
-        "item", "firstItem", "loadedIndex", "seasonIndex", "listAskedAt", "adapter", "show", "showNotice", "showHero",
-        "metadata", "metadataLine", "target",
-    )
-
-    private val appImplementationNames = setOf(
-        // Android app infrastructure, Compose widgets and focus state.
-        "ConfigurationProvider", "Media3FailoverEvents", "MediaCodecDecoders", "toMediaItem", "onPlayerError",
-        "ListItem", "ExtensionList", "SourceList", "focusedContentColor", "headlineContent",
-        "supportingContent", "listState", "targetFocused", "targetRequester", "requestFocusOnceShown",
-        "requestFocusUntil", "selectedTabIndex", "PER_USER_RANGE",
-    )
-
-    private val domainExceptions = setOf(
-        // Typed failures for HTTP, lookup and address checks have separate meanings from Failover.
-        "AddressCheckHttpError", "AddressCheckUnavailable", "ServiceError", "SourceError", "sourceError",
-        // These identify or select Source Kinds and the player’s request and candidate list.
-        "Kind", "ConfiguredKind", "EXTENSION_KIND", "KindChoice", "UnknownKind", "kind", "kindHint", "kindName",
-        "kindOf", "PlayRequest", "STREAM_LIST_FRESH_FOR", "Item", "StreamItem",
+        "toList", "toMutableList", "indexOf", "indexOfFirst", "lastIndex", "lastIndexOf", "find",
+        // Kotlin's error function, JVM linkage errors, and Android's error callback.
+        "error", "NoClassDefFoundError", "NoSuchMethodError", "onError",
     )
 }
