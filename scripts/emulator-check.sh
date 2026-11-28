@@ -83,6 +83,18 @@ verify_package "$work/debug-test.apk" dev.celastrina.debug.devicecheck.test
 verify_package "$work/release.apk" dev.celastrina.devicecheck
 verify_package "$work/release-test.apk" dev.celastrina.devicecheck.test
 
+verify_test_target() {
+  local apk="$1" expected="$2" actual
+  actual="$("$aapt2" dump xmltree "$apk" --file AndroidManifest.xml \
+    | sed -n 's/.*android:targetPackage([^)]*)="\([^"]*\)".*/\1/p')"
+  if [ "$actual" != "$expected" ]; then
+    echo "Expected instrumentation to target $expected in $apk, found ${actual:-no target}." >&2
+    return 1
+  fi
+}
+verify_test_target "$work/debug-test.apk" dev.celastrina.debug.devicecheck
+verify_test_target "$work/release-test.apk" dev.celastrina.devicecheck
+
 # Use the same per-device lock as tv.sh.
 lock_key="${serial//%/%25}"
 lock_key="${lock_key//:/%3A}"
