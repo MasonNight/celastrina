@@ -56,7 +56,8 @@ def ports_available(port):
 
 
 @contextlib.contextmanager
-def reserve_slot(pool, slots, available=ports_available):
+def reserve_slot(pool, slots, available=None):
+    available = available or ports_available
     pool.mkdir(parents=True, exist_ok=True)
     for port in PORTS[:slots]:
         with slot_lock(pool / f"{port}.lock") as reserved:
@@ -112,15 +113,16 @@ class WindowsJob:
             raise error
         return self
 
-    def start(self, command, **options):
+    def start(self, command, input_data=b"", **options):
         # The child waits for one byte before starting the command. This lets us
         # attach it before it can create a QEMU or test-runner subprocess.
         gate = (
             "import subprocess, sys; "
-            "sys.exit(subprocess.call(sys.argv[1:]) if sys.stdin.buffer.read(1) == b'1' else 1)"
+            "sys.exit(subprocess.run(sys.argv[2:], input=bytes.fromhex(sys.argv[1])).returncode "
+            "if sys.stdin.buffer.read(1) == b'1' else 1)"
         )
         process = subprocess.Popen(
-            [sys.executable, "-c", gate, *map(str, command)], stdin=subprocess.PIPE, **options
+            [sys.executable, "-c", gate, input_data.hex(), *map(str, command)], stdin=subprocess.PIPE, **options
         )
         try:
             child = self.kernel.OpenProcess(0x0101, False, process.pid)  # SET_QUOTA | TERMINATE
@@ -180,22 +182,25 @@ def run_device(pool, slots, sdk, image, boot_timeout, test_timeout, check, bundl
         if work.exists():
             shutil.rmtree(work)  # An abandoned AVD in this reserved, offline slot.
         work.mkdir()
+        (work / "tmp").mkdir()
         env = dict(
             os.environ, ANDROID_AVD_HOME=str(work), ANDROID_HOME=str(sdk), ANDROID_SDK_ROOT=str(sdk),
             CELASTRINA_ADB_SERIAL=serial, CELASTRINA_TV_LOCK_DIR=(work / "device.lock").as_posix(),
+            TMPDIR=(work / "tmp").as_posix(),
         )
         env["PATH"] = str(adb.parent) + os.pathsep + env["PATH"]
         processes = []
         try:
             # Keep the host ADB server outside the per-run Windows job.
             subprocess.run([adb, "start-server"], check=True, timeout=20)
-            with (logs / "avdmanager.log").open("wb") as output:
-                subprocess.run(
-                    [avdmanager, "create", "avd", "-n", avd, "-k", image, "-p", work / f"{avd}.avd"],
-                    input=b"no\n", stdout=output, stderr=subprocess.STDOUT, env=env, check=True, timeout=60,
-                )
-            print(f"Booting {avd} on {serial}; logs: {logs}", flush=True)
-            with (logs / "emulator.log").open("wb") as emulator_log, WindowsJob() as job:
+            with WindowsJob() as job, (logs / "emulator.log").open("wb") as emulator_log:
+                with (logs / "avdmanager.log").open("wb") as output:
+                    create = [avdmanager, "create", "avd", "-n", avd, "-k", image, "-p", work / f"{avd}.avd"]
+                    creation = job.start(create, input_data=b"no\n", stdout=output, stderr=subprocess.STDOUT, env=env)
+                    processes.append(creation)
+                    if code := creation.wait(timeout=60):
+                        raise subprocess.CalledProcessError(code, create)
+                print(f"Booting {avd} on {serial}; logs: {logs}", flush=True)
                 process = job.start(
                     [emulator, "-avd", avd, "-port", str(port), "-accel", "on",
                      "-no-window", "-no-audio", "-no-snapshot", "-no-boot-anim", "-gpu", "swiftshader"],

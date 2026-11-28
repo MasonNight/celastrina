@@ -57,6 +57,9 @@ class DisposableEmulatorTest(unittest.TestCase):
         with patch.object(runner.subprocess, "run", side_effect=answers):
             runner.wait_for_boot(process, "adb", "emulator-5560", "expected", 1)
 
+    def test_failed_avd_creation_never_starts_the_emulator(self):
+        self.check_cleanup(creation_code=2)
+
     def test_failed_boot_keeps_logs_and_releases_slot(self):
         self.check_cleanup(boot_error=RuntimeError("boot failure"))
 
@@ -66,17 +69,23 @@ class DisposableEmulatorTest(unittest.TestCase):
     def test_test_timeout_releases_slot(self):
         self.check_cleanup(test_error=subprocess.TimeoutExpired("tests", 1))
 
-    def check_cleanup(self, boot_error=None, exit_code=0, test_error=None):
+    def check_cleanup(self, creation_code=0, boot_error=None, exit_code=0, test_error=None):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             pool = root / "pool"
+            abandoned = pool / str(runner.PORTS[0])
+            abandoned.mkdir(parents=True)
+            (abandoned / "old-avd").touch()
             logs = root / "logs"
             logs.mkdir()
             child = unittest.mock.MagicMock()
             job = unittest.mock.MagicMock()
-            job.__enter__.return_value.start.return_value = child
+            creation = unittest.mock.Mock()
+            creation.wait.return_value = creation_code
+            emulator = unittest.mock.Mock()
+            job.__enter__.return_value.start.side_effect = [creation, emulator, child]
             if test_error:
-                child.wait.side_effect = [test_error, 0, 0]
+                child.wait.side_effect = [test_error, 0]
             else:
                 child.wait.return_value = exit_code
             with patch.object(runner, "WindowsJob", return_value=job):
@@ -84,14 +93,19 @@ class DisposableEmulatorTest(unittest.TestCase):
                     with patch.object(runner, "ports_available", return_value=True):
                         with patch.object(runner.subprocess, "run"):
                             args = (pool, 1, root, runner.IMAGE, 1, 1, ["bash", "check"], "bundle", logs)
-                            if boot_error or test_error:
+                            if creation_code:
+                                with self.assertRaises(subprocess.CalledProcessError):
+                                    runner.run_device(*args)
+                            elif boot_error or test_error:
                                 with self.assertRaises(type(boot_error or test_error)):
                                     runner.run_device(*args)
                             else:
                                 self.assertEqual(exit_code, runner.run_device(*args))
             job.__exit__.assert_called_once()
             self.assertTrue((logs / "emulator.log").is_file())
-            self.assertEqual(not boot_error, (logs / "tests.log").is_file())
+            self.assertEqual(not (creation_code or boot_error), (logs / "tests.log").is_file())
+            if creation_code:
+                job.__enter__.return_value.start.assert_called_once()
             self.assertFalse((pool / str(runner.PORTS[0])).exists())
             with runner.reserve_slot(pool, 1, lambda _: True):
                 pass
