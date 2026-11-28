@@ -54,3 +54,31 @@ val checkGlossaryNames by tasks.registering {
 }
 
 tasks.named("check") { dependsOn(checkCloudStreamImports, checkGlossaryNames) }
+
+val smokeExceptions = layout.projectDirectory.file("gradle/screen-smoke-exceptions.txt")
+val smokeSources = fileTree("app/src/androidTest") { include("**/*.kt") }
+val checkScreenSmokeVisits by tasks.registering {
+    group = "verification"
+    description = "Checks every top-level composable Screen has a ScreenSmokeTest visit."
+    inputs.files(applicationSources, smokeSources, smokeExceptions).withPathSensitivity(PathSensitivity.RELATIVE)
+    doLast {
+        val exceptions = smokeExceptions.asFile.readLines().filter { it.isNotBlank() && !it.startsWith("#") }.map { line ->
+            val fields = line.split(" # ", limit = 2)
+            require(fields.size == 2 && fields[1].isNotBlank()) { "Screen exception needs a reason: $line" }
+            fields[0].trim()
+        }.toSet()
+        // Follow shared helper files from the smoke test; unrelated tests cannot satisfy a visit.
+        val testFiles = smokeSources.files.associateWith { it.readText() }
+        val reachable = testFiles.keys.filter { it.name == "ScreenSmokeTest.kt" }.toMutableSet()
+        do {
+            val before = reachable.size
+            val references = reachable.joinToString("\n") { testFiles.getValue(it) }
+            reachable += testFiles.keys.filter { Regex("\\b${Regex.escape(it.nameWithoutExtension)}\\b").containsMatchIn(references) }
+        } while (reachable.size != before)
+        val missing = SourceStandards.unvisitedScreens(
+            applicationSources.map { it.readText() }, reachable.map { testFiles.getValue(it) }, exceptions,
+        )
+        if (missing.isNotEmpty()) throw GradleException("Missing ScreenSmokeTest visits: ${missing.joinToString()}")
+    }
+}
+tasks.named("check") { dependsOn(checkScreenSmokeVisits) }

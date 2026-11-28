@@ -60,3 +60,11 @@ The script still builds debug and checks package IDs and instrumentation targets
 - For other serials, replace the basename with the serial plus `.lock`, escaping `%`, `:` and `/` as `%25`, `%3A` and `%2F`. Set `CELASTRINA_TV_LOCK_DIR` to use a different directory and share that path with other callers.
 
 Ask the maintainer before using the household TV for Fire OS behavior, hardware decoders, frame times, or the physical remote.
+
+## Fire OS launcher tiles
+
+For an approved household TV icon check, use `scripts/tv.sh apps` to open **Your Apps & Channels**
+without D-pad navigation. `scripts/tv.sh tile-shot <out.png>` opens that grid, waits for it to draw,
+saves the tiles, and returns to Home through the launcher's activity. Both commands take the device lock
+and refuse while the TV appears busy. They fail if the verified Fire OS activity cannot start;
+they do not navigate with remote keys. Android TV emulators do not have this Fire OS grid.

@@ -6,3 +6,5 @@ gradlew text eol=lf
 *.jar binary
 *.cs3 binary
 *.apk binary
+*.kt text eol=lf
+*.kts text eol=lf

@@ -2,33 +2,32 @@
 # Each exception applies only to the named file. Remove entries when the name is retired.
 # The Kotlin/JVM standard library and Android callbacks are handled by SourceStandards.
 app/src/main/java/com/lagradost/cloudstream3/plugins/Plugin.kt BasePlugin Plugin
-app/src/main/java/dev/celastrina/app/AddSourceScreen.kt KindChoice headlineContent index keyboardType kind kindHint kindName requestFocusOnceShown supportingContent url
+app/src/main/java/dev/celastrina/app/AddSourceScreen.kt KindChoice index keyboardType kind kindHint kindName url
 app/src/main/java/dev/celastrina/app/AddressCheck.kt AddressCheckHttpError AddressCheckUnavailable addressCheckClient contentType request url
-app/src/main/java/dev/celastrina/app/CelastrinaApp.kt Kind PlayRequest ServiceError contentColor focusTarget kind request
+app/src/main/java/dev/celastrina/app/CelastrinaApp.kt Kind PlayRequest ServiceError focusTarget kind request
 app/src/main/java/dev/celastrina/app/CelastrinaApplication.kt FileStorage JdkHttpClient TMDB_API_KEY
-app/src/main/java/dev/celastrina/app/ChooseStreamScreen.kt SourceError StreamItem contentPadding format headlineContent item requestFocusOnceShown supportingContent
+app/src/main/java/dev/celastrina/app/ChooseStreamScreen.kt SourceError StreamItem format item
 app/src/main/java/dev/celastrina/app/ConfigurationProvider.kt ConfigurationProvider PER_USER_RANGE content getType kind list query url wrongType
-app/src/main/java/dev/celastrina/app/DetailScreen.kt MediaCodecDecoders PlayRequest backdropUrl contentDescription contentScale imageUrl kind logoUrl metadataLine requestFocusOnceShown
+app/src/main/java/dev/celastrina/app/DetailScreen.kt MediaCodecDecoders PlayRequest backdropUrl kind logoUrl metadataLine
 app/src/main/java/dev/celastrina/app/DexExtensionLoader.kt file isFile plugin
-app/src/main/java/dev/celastrina/app/ExtensionsScreen.kt EnterUrl ExtensionList contentPadding headlineContent item keyboardType repositoryUrl requestFocusOnceShown supportingContent url
-app/src/main/java/dev/celastrina/app/FocusOnEntry.kt requestFocus requestFocusOnceShown requestFocusUntil
-app/src/main/java/dev/celastrina/app/GiveUpScreen.kt UnsupportedFormat requestFocusOnceShown
+app/src/main/java/dev/celastrina/app/ExtensionsScreen.kt EnterUrl ExtensionList item keyboardType repositoryUrl url
+app/src/main/java/dev/celastrina/app/FocusOnEntry.kt requestFocus
+app/src/main/java/dev/celastrina/app/GiveUpScreen.kt UnsupportedFormat
 app/src/main/java/dev/celastrina/app/HomeModel.kt focusTarget showHero
-app/src/main/java/dev/celastrina/app/HomeScreen.kt Kind backdropUrl contentAlignment contentColor contentDescription contentPadding contentScale focusTarget focusedContentColor index kind listState logoUrl metadataLine posterUrl requestFocusUntil showHero target targetFocused targetRequester
-app/src/main/java/dev/celastrina/app/HouseholdRows.kt contentDescription contentPadding contentScale focusTarget imageUrl item kind requestFocusUntil target targetFocused targetRequester
+app/src/main/java/dev/celastrina/app/HomeScreen.kt Kind backdropUrl focusTarget index kind listState logoUrl metadataLine posterUrl showHero target targetFocused targetRequester
+app/src/main/java/dev/celastrina/app/HouseholdRows.kt focusTarget item kind target targetFocused targetRequester
 app/src/main/java/dev/celastrina/app/Media3FailoverEvents.kt ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES ERROR_CODE_DECODING_FORMAT_UNSUPPORTED ERROR_CODE_IO_BAD_HTTP_STATUS Media3FailoverEvents UnsupportedFormat errorCode onPlayerError
 app/src/main/java/dev/celastrina/app/MediaCodecDecoders.kt MediaCodecDecoders videoMimeType
 app/src/main/java/dev/celastrina/app/NotPlayableBadge.kt kind
-app/src/main/java/dev/celastrina/app/Notice.kt contentAlignment
 app/src/main/java/dev/celastrina/app/PlaybackHttp.kt userAgent
 app/src/main/java/dev/celastrina/app/PlayerScreen.kt Media3FailoverEvents MediaCodecDecoders PlayRequest SHOW_BUFFERING_WHEN_PLAYING content request requestFocus setDefaultRequestProperties setMediaItem setMediaSourceFactory setMimeType setShowBuffering subtitleMimeType toMediaItem url
-app/src/main/java/dev/celastrina/app/ResumeScreen.kt MediaCodecDecoders PlayRequest contentDescription contentScale imageUrl
-app/src/main/java/dev/celastrina/app/SearchScreen.kt Kind contentAlignment contentColor contentDescription contentPadding contentScale focusedContentColor kind posterUrl query requestFocus type
-app/src/main/java/dev/celastrina/app/SeriesDetailScreen.kt PlayRequest backdropUrl contentAlignment contentDescription contentPadding contentScale imageUrl index logoUrl metadataLine request requestFocusOnceShown seasonIndex selectedTabIndex stillUrl
-app/src/main/java/dev/celastrina/app/SettingsScreen.kt contentDescription firstItem headlineContent requestFocusOnceShown supportingContent
-app/src/main/java/dev/celastrina/app/SourcesScreen.kt SourceList contentPadding format headlineContent item kind kindName list requestFocusOnceShown supportingContent
-app/src/main/java/dev/celastrina/app/TitleLogo.kt Error contentDescription contentScale logoUrl
-app/src/main/java/dev/celastrina/app/TvTextField.kt keyboardType requestFocus requestFocusOnceShown show
+app/src/main/java/dev/celastrina/app/ResumeScreen.kt MediaCodecDecoders PlayRequest
+app/src/main/java/dev/celastrina/app/SearchScreen.kt Kind kind posterUrl query requestFocus type
+app/src/main/java/dev/celastrina/app/SeriesDetailScreen.kt PlayRequest backdropUrl index logoUrl metadataLine request seasonIndex selectedTabIndex stillUrl
+app/src/main/java/dev/celastrina/app/SettingsScreen.kt firstItem
+app/src/main/java/dev/celastrina/app/SourcesScreen.kt SourceList format item kind kindName list
+app/src/main/java/dev/celastrina/app/TitleLogo.kt Error logoUrl
+app/src/main/java/dev/celastrina/app/TvTextField.kt keyboardType requestFocus show
 core/src/main/kotlin/dev/celastrina/core/adapter/FileStorage.kt FileStorage fileFor isFile target
 core/src/main/kotlin/dev/celastrina/core/adapter/JdkHttpClient.kt HttpClient JdkHttpClient errorStream request requestMethod setRequestProperty url
 core/src/main/kotlin/dev/celastrina/core/catalogue/ArtworkCache.kt isFile listFiles

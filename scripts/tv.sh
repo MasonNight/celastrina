@@ -6,6 +6,8 @@
 #   scripts/tv.sh launch                wake the display and start Celastrina Dev
 #   scripts/tv.sh open-movie <tmdb-id>  start Celastrina Dev on that Movie's detail screen
 #   scripts/tv.sh open-series <tmdb-id> start Celastrina Dev on that Series' detail screen
+#   scripts/tv.sh apps                 open Fire OS Your Apps & Channels without remote keys
+#   scripts/tv.sh tile-shot <out.png>   capture Your Apps & Channels, then return Home
 #   scripts/tv.sh press <key>...        press remote keys, e.g. press DPAD_CENTER BACK
 #   scripts/tv.sh screenshot [out.png]  wake the display and save a screenshot (default: tv.png)
 #   scripts/tv.sh smoke <folder>       reset the emulator app, play three Titles and save their screenshots
@@ -172,6 +174,31 @@ sys.stdout.buffer.write(data[start:])
 ' >"$out"
 }
 
+# Verified from the household AFTTI43's package resolver, not a guessed launcher component.
+open_apps() {
+  local serial="$1" response
+  if ! response="$(adb -s "$serial" shell am start -W -a android.intent.action.ALL_APPS \
+      -n com.amazon.tv.launcher/.util.QuickSettingsProxyActivity 2>&1)" ||
+      [[ "$response" == *"Error:"* || "$response" == *"Exception"* ]]; then
+    printf 'Could not open Your Apps & Channels on %s: %s\n' "$serial" "$response" >&2
+    return 1
+  fi
+}
+
+launcher_home() {
+  adb -s "$1" shell am start -W -a android.intent.action.MAIN -c android.intent.category.HOME \
+    -n com.amazon.tv.launcher/.ui.HomeActivity_vNext
+}
+
+tile_shot() (
+  local serial="$1" out="$2"
+  trap 'launcher_home "$serial" >&2' EXIT
+  open_apps "$serial" || return 1
+  sleep 2
+  save_screenshot "$serial" "$out" || return 1
+  echo "$out"
+)
+
 smoke_configuration_call() {
   local serial="$1" method="$2" arg="$3" response
   response="$(adb -s "$serial" shell content call --uri "content://$PACKAGE.configuration" --method "$method" --arg "$arg")" &&
@@ -252,6 +279,17 @@ smoke() {
 
 case "${1:-}" in
   connect) connect ;;
+  apps|tile-shot)
+    command="$1"
+    if [ "$command" = tile-shot ]; then
+      [ "$#" -eq 2 ] && [ -n "$2" ] || { echo "Usage: scripts/tv.sh tile-shot <out.png>" >&2; exit 2; }
+      require_python
+    fi
+    serial="$(connect)"
+    lock_device "$serial"
+    require_idle "$serial"
+    if [ "$command" = apps ]; then open_apps "$serial"; else tile_shot "$serial" "$2"; fi
+    ;;
   install)
     serial="$(connect)"
     lock_device "$serial"

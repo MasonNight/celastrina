@@ -50,7 +50,8 @@ object SourceStandards {
             .toSet()
 
         return tokens.asSequence().filter { it.identifier }
-            .filter { it.text !in externalImports && it.text !in kotlinAndAndroidNames && it.text !in fileExceptions }
+            .filter { it.text !in fileExceptions && it.text !in focusHelpers && it.text !in kotlinAndAndroidNames }
+            .filter { it.declared || (it.text !in externalImports && it.text !in composeAndCoilNames) }
             .mapNotNull { token ->
                 val segments = splitWords(token.text)
                 val matchingPhrases = avoided.filter { segments.windowed(it.size).contains(it) }
@@ -70,6 +71,41 @@ object SourceStandards {
             .toList()
     }
 
+    fun unvisitedScreens(
+        applicationSources: Collection<String>,
+        smokeSources: Collection<String>,
+        exceptions: Set<String>,
+    ): List<String> {
+        val screens = applicationSources.flatMap { source ->
+            val lexer = KotlinLexer().apply { start(source.replace("\r\n", "\n")) }
+            var depth = 0
+            var composable = false
+            var function = false
+            val names = mutableListOf<String>()
+            while (lexer.tokenType != null) {
+                val kind = lexer.tokenType
+                val text = lexer.tokenText
+                if (depth == 0) {
+                    if (text == "Composable") composable = true
+                    if (kind == KtTokens.FUN_KEYWORD) function = composable
+                    if (function && kind == KtTokens.IDENTIFIER) {
+                        if (text.endsWith("Screen")) names += text
+                        function = false
+                        composable = false
+                    }
+                }
+                if (kind == KtTokens.LBRACE) { depth++; composable = false }
+                if (kind == KtTokens.RBRACE) depth--
+                lexer.advance()
+            }
+            names
+        }
+        val visits = smokeSources.flatMap { source ->
+            tokens(source).filter { it.identifier }.flatMap { it.text.split('_') }.toList()
+        }.toSet()
+        return (screens.toSet() - visits - exceptions).sorted()
+    }
+
     private val externalPackages = setOf("android", "androidx", "coil", "java", "javax", "kotlin", "kotlinx", "okhttp3")
 
     private data class Token(
@@ -77,12 +113,16 @@ object SourceStandards {
         val line: Int,
         val identifier: Boolean,
         val restOfLine: List<String> = emptyList(),
+        val declared: Boolean = false,
     )
 
-    private fun tokens(source: String, java: Boolean = false): Sequence<Token> = sequence {
+    private fun tokens(rawSource: String, java: Boolean = false): Sequence<Token> = sequence {
+        val source = rawSource.replace("\r\n", "\n")
         val lexer = KotlinLexer().apply { start(source) }
         var line = 1
         var atStatementStart = true
+        var previous = ""
+        var functionHeader = false
         var directive: Token? = null
         val directiveTokens = mutableListOf<String>()
         while (lexer.tokenType != null) {
@@ -105,7 +145,17 @@ object SourceStandards {
                     }
                     directiveTokens += text
                 }
-                kind == KtTokens.IDENTIFIER -> yield(Token(text.removeSurrounding("`"), line, identifier = true))
+                kind == KtTokens.IDENTIFIER -> {
+                    val tail = source.substring(lexer.tokenEnd).trimStart()
+                    val declared = previous in setOf("val", "var", "class", "interface", "object", "typealias") ||
+                        (functionHeader && !tail.startsWith(".")) || (tail.startsWith(":") && !tail.startsWith("::"))
+                    yield(Token(text.removeSurrounding("`"), line, identifier = true, declared = declared))
+                }
+            }
+            if (kind !in KtTokens.WHITE_SPACE_OR_COMMENT_BIT_SET) {
+                if (kind == KtTokens.FUN_KEYWORD) functionHeader = true
+                if (kind == KtTokens.LPAR) functionHeader = false
+                previous = text
             }
             val newlines = text.count { it == '\n' }
             line += newlines
@@ -115,6 +165,15 @@ object SourceStandards {
         }
         if (directive != null) yield(directive.copy(restOfLine = directiveTokens.toList()))
     }
+
+    // These focus operations deliberately describe UI behavior rather than a domain Title.
+    private val focusHelpers = setOf("requestFocusOnceShown", "requestFocusUntil")
+
+    // API names chosen by Compose and Coil, permitted at uses, never at declarations.
+    private val composeAndCoilNames = setOf(
+        "AsyncImage", "contentDescription", "contentScale", "contentPadding", "contentAlignment", "contentColor",
+        "focusedContentColor", "headlineContent", "supportingContent", "imageUrl", "wrapContentSize",
+    )
 
     private val kotlinAndAndroidNames = setOf(
         // Standard collection types and operations available without explicit imports.
