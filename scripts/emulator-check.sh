@@ -2,18 +2,26 @@
 # Run all instrumented tests in disposable app installations on the selected Android TV device.
 set -euo pipefail
 
-serial="${CELASTRINA_ADB_SERIAL:?Set CELASTRINA_ADB_SERIAL to the device serial.}"
-release_apks=
+usage() {
+  echo "Usage: scripts/emulator-check.sh [--release-apks DIRECTORY | --prepare-apks DIRECTORY | --apks DIRECTORY]" >&2
+  exit 2
+}
+
+mode=${1:-}
+apk_directory=
 if [ "$#" -ne 0 ]; then
-  if [ "$#" -ne 2 ] || [ "$1" != "--release-apks" ] || [ ! -d "$2" ]; then
-    echo "Usage: scripts/emulator-check.sh [--release-apks DIRECTORY]" >&2
-    exit 2
-  fi
-  release_apks="$(cd "$2" && pwd)"
+  [ "$#" -eq 2 ] && [ -d "$2" ] || usage
+  case "$mode" in
+    --release-apks|--prepare-apks|--apks) apk_directory="$(cd "$2" && pwd)" ;;
+    *) usage ;;
+  esac
 fi
 cd "$(dirname "$0")/.."
-device=(adb -s "$serial")
-[ "$("${device[@]}" get-state)" = device ]
+if [ "$mode" != --prepare-apks ]; then
+  serial="${CELASTRINA_ADB_SERIAL:?Set CELASTRINA_ADB_SERIAL to the device serial.}"
+  device=(adb -s "$serial")
+  [ "$("${device[@]}" get-state)" = device ]
+fi
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/celastrina-check.XXXXXX")"
 installed=()
@@ -47,21 +55,26 @@ build_apks() {
   cp "app/build/outputs/apk/$build_type/app-$build_type.apk" "$work/$build_type.apk"
   cp "app/build/outputs/apk/androidTest/$build_type/app-$build_type-androidTest.apk" "$work/$build_type-test.apk"
 }
-build_apks debug Debug
-if [ -n "$release_apks" ]; then
-  cp "$release_apks/app-release.apk" "$work/release.apk"
-  cp "$release_apks/app-release-androidTest.apk" "$work/release-test.apk"
+apks=(debug.apk debug-test.apk release.apk release-test.apk)
+if [ "$mode" = --apks ]; then
+  for apk in "${apks[@]}"; do cp "$apk_directory/$apk" "$work/$apk"; done
 else
-  # Use a disposable signing key for the minified build, as the release gates do.
-  export CELASTRINA_KEYSTORE="$work/device-check.p12"
-  case "$OSTYPE" in
-    msys*|cygwin*) CELASTRINA_KEYSTORE="$(cygpath -m "$CELASTRINA_KEYSTORE")" ;;
-  esac
-  export CELASTRINA_KEYSTORE_PASSWORD=device-check CELASTRINA_KEY_ALIAS=device-check CELASTRINA_KEY_PASSWORD=device-check
-  keytool -genkeypair -keystore "$CELASTRINA_KEYSTORE" -storetype PKCS12 -alias "$CELASTRINA_KEY_ALIAS" \
-    -storepass "$CELASTRINA_KEYSTORE_PASSWORD" -keypass "$CELASTRINA_KEY_PASSWORD" \
-    -keyalg RSA -keysize 2048 -validity 1 -dname CN=CelastrinaDeviceCheck
-  build_apks release Release
+  build_apks debug Debug
+  if [ "$mode" = --release-apks ]; then
+    cp "$apk_directory/app-release.apk" "$work/release.apk"
+    cp "$apk_directory/app-release-androidTest.apk" "$work/release-test.apk"
+  else
+    # Use a disposable signing key for the minified build, as the release gates do.
+    export CELASTRINA_KEYSTORE="$work/device-check.p12"
+    case "$OSTYPE" in
+      msys*|cygwin*) CELASTRINA_KEYSTORE="$(cygpath -m "$CELASTRINA_KEYSTORE")" ;;
+    esac
+    export CELASTRINA_KEYSTORE_PASSWORD=device-check CELASTRINA_KEY_ALIAS=device-check CELASTRINA_KEY_PASSWORD=device-check
+    keytool -genkeypair -keystore "$CELASTRINA_KEYSTORE" -storetype PKCS12 -alias "$CELASTRINA_KEY_ALIAS" \
+      -storepass "$CELASTRINA_KEYSTORE_PASSWORD" -keypass "$CELASTRINA_KEY_PASSWORD" \
+      -keyalg RSA -keysize 2048 -validity 1 -dname CN=CelastrinaDeviceCheck
+    build_apks release Release
+  fi
 fi
 
 sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
@@ -94,6 +107,12 @@ verify_test_target() {
 }
 verify_test_target "$work/debug-test.apk" dev.celastrina.debug.devicecheck
 verify_test_target "$work/release-test.apk" dev.celastrina.devicecheck
+
+if [ "$mode" = --prepare-apks ]; then
+  # Publish only the fully checked bundle. The signing key stays in $work.
+  for apk in "${apks[@]}"; do cp "$work/$apk" "$apk_directory/$apk"; done
+  exit 0
+fi
 
 # Use the same per-device lock as tv.sh.
 lock_key="${serial//%/%25}"

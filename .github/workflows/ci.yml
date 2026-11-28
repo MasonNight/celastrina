@@ -48,6 +48,8 @@ jobs:
           git ls-files --eol -- '*.bat' | ForEach-Object {
             if ($_ -notmatch '^i/lf\s+w/crlf\s') { throw "Expected CRLF in the checkout: $_" }
           }
+      - name: Test disposable emulator lifecycle without Android
+        run: python -B -m unittest discover -s scripts -p test_disposable_emulator.py
       - name: Core tests and debug APK verification
         run: ./gradlew.bat :core:test :app:verifyDebugApk --console=plain
 

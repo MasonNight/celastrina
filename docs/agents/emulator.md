@@ -1,6 +1,44 @@
 # On-device checks
 
-Use the `celastrina-tv2` Android TV emulator (API 28), serial `emulator-5554`. Drive it with `scripts/tv.sh` or `adb -s emulator-5554`. Use the T3 Device panel to view it.
+Before reporting an implementation ticket done, pass the disposable runner below or
+`scripts/emulator-check.sh` against an existing device with `CELASTRINA_ADB_SERIAL` set.
+
+## Disposable emulator on Mason-FractalNorth
+
+For automated ticket verification, use the Windows runner from Git Bash after loading the build environment.
+It needs Python, Git for Windows, hardware acceleration, and the installed SDK package
+`system-images;android-28;android-tv;x86`. Use a separate checkout per concurrent run so Gradle outputs stay isolated.
+
+```bash
+python -B -m unittest discover -s scripts -p test_disposable_emulator.py
+python -B scripts/disposable-emulator.py
+```
+
+The runner builds and validates the four APKs before starting a fresh Android TV emulator. It reserves one
+port pair on the host, runs both instrumented suites, and releases the slot when it finishes or fails. The
+host defaults to one disposable emulator at a time. Set `CELASTRINA_EMULATOR_SLOTS` consistently on the host
+to allow more concurrent runs. Keep performance runs alone on the host.
+
+Find the emulator and test output under `app/build/reports/disposable-emulator/`. A Windows job stops the
+emulator process tree if the runner exits abruptly. The next run reclaims the abandoned AVD files after
+it reserves that slot and confirms its ports are free. The shared emulator on port 5554 is outside this pool.
+
+Per-run APKs can be prepared with `scripts/emulator-check.sh --prepare-apks DIRECTORY` and reused with
+`python -B scripts/disposable-emulator.py --apks DIRECTORY`. Use an existing empty directory when preparing
+the bundle and record the source commit if you move it to another machine. Pass `--bash` if Git Bash is
+not the default `bash` on your Windows PATH.
+
+For a quick check of real emulator descendant cleanup (normal exit, abrupt termination, and slot reuse),
+run `CELASTRINA_TEST_REAL_EMULATOR=1 python -B -m unittest discover -s scripts -p test_disposable_emulator.py`
+from Git Bash. This needs the same installed SDK image but does not build or install APKs. Run it while
+the disposable pool is idle. The SDK-free lifecycle test also checks ownership of a native Windows child;
+a Python-only child can hide Microsoft Store Python's different native-child job inheritance.
+
+## Shared emulator and household TV
+
+For interactive work, open the `celastrina-tv2` Android TV emulator (API 28), serial `emulator-5554`, in the
+T3 Device panel. If another T3 session owns it, use a disposable emulator for automated checks or wait
+for the owner to release the shared one. This T3 session reservation is separate from the shell lock below.
 
 In Git Bash, put Android SDK platform-tools (`adb`) and `python3` on `PATH`.
 
@@ -10,7 +48,7 @@ In Git Bash, put Android SDK platform-tools (`adb`) and `python3` on `PATH`.
 - For configuration calls, use the [Install Runbook](../../INSTALL.md#calling-celastrina) with `content://dev.celastrina.debug.configuration`.
 - Run instrumented tests on just this emulator with `adb -s emulator-5554 shell am instrument -w -r <test package>/androidx.test.runner.AndroidJUnitRunner`.
 
-Before reporting an implementation ticket done, run `CELASTRINA_ADB_SERIAL=emulator-5554 scripts/emulator-check.sh`.
+For an existing device, run `CELASTRINA_ADB_SERIAL=emulator-5554 scripts/emulator-check.sh`.
 The script builds both debug and minified release, runs all instrumented tests for each, and removes both
 disposable app installations and their test packages. The disposable installations use their own application IDs.
 If the maintainer asks for a household TV check instead, pass that TV's serial from `scripts/tv.sh connect`.
