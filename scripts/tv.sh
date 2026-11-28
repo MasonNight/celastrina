@@ -177,7 +177,8 @@ sys.stdout.buffer.write(data[start:])
 # Verified from the household AFTTI43's package resolver, not a guessed launcher component.
 open_apps() {
   local serial="$1" response
-  if ! response="$(adb -s "$serial" shell am start -W -a android.intent.action.ALL_APPS \
+  # This is a trampoline, not a drawable activity; -W can wait indefinitely for its window.
+  if ! response="$(adb -s "$serial" shell am start -a android.intent.action.ALL_APPS \
       -n com.amazon.tv.launcher/.util.QuickSettingsProxyActivity 2>&1)" ||
       [[ "$response" == *"Error:"* || "$response" == *"Exception"* ]]; then
     printf 'Could not open Your Apps & Channels on %s: %s\n' "$serial" "$response" >&2

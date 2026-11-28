@@ -23,6 +23,8 @@ if 'media_session' in args and os.environ.get('BUSY') == '1':
     print('package=other.app\\nstate=PlaybackState {state=3,')
 if 'date +%s' in args: print('1000')
 if 'ALL_APPS' in args:
+    # Fire OS's trampoline never draws a window for am start -W to observe.
+    if ' -W ' in ' ' + args + ' ': sys.exit('Proxy activity does not draw a window')
     if os.environ.get('FAIL_APPS') == '1':
         print('Error: Activity class does not exist.')
         sys.exit(1)
@@ -38,7 +40,7 @@ if 'screencap' in args: sys.stdout.buffer.write(b'\\x89PNG\\r\\n\\x1a\\nfixture'
             args = ['bash', str(SCRIPT), command]
             if command == 'tile-shot':
                 args.append(str(out))
-            result = subprocess.run(args, env=env, capture_output=True, text=True)
+            result = subprocess.run(args, env=env, capture_output=True, text=True, timeout=5)
             log = (root / 'commands').read_text() if (root / 'commands').exists() else ''
             return result, log, out.read_bytes() if out.exists() else b'', (root / 'lock').exists()
 
