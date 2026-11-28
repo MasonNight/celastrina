@@ -9,7 +9,7 @@ SCRIPT = Path(__file__).with_name('tv.sh').resolve()
 
 
 class AppsCommandsTest(unittest.TestCase):
-    def run_command(self, command, *, fail=False, busy=False):
+    def run_command(self, command, *, fail=False, busy=False, fail_home=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             adb = root / 'adb'
@@ -26,12 +26,14 @@ if 'ALL_APPS' in args:
     if os.environ.get('FAIL_APPS') == '1':
         print('Error: Activity class does not exist.')
         sys.exit(1)
+if 'android.intent.category.HOME' in args and os.environ.get('FAIL_HOME') == '1':
+    print('Error: Activity class does not exist.')
 if 'screencap' in args: sys.stdout.buffer.write(b'\\x89PNG\\r\\n\\x1a\\nfixture')
 ''')
             adb.chmod(0o755)
             env = dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
                        CELASTRINA_ADB_SERIAL='test-tv', CELASTRINA_TV_LOCK_DIR=str(root / 'lock'),
-                       COMMAND_LOG=str(root / 'commands'), FAIL_APPS=str(int(fail)), BUSY=str(int(busy)))
+                       COMMAND_LOG=str(root / 'commands'), FAIL_APPS=str(int(fail)), BUSY=str(int(busy)), FAIL_HOME=str(int(fail_home)))
             out = root / 'tile.png'
             args = ['bash', str(SCRIPT), command]
             if command == 'tile-shot':
@@ -64,6 +66,13 @@ if 'screencap' in args: sys.stdout.buffer.write(b'\\x89PNG\\r\\n\\x1a\\nfixture'
                 self.assertIn('Could not open Your Apps & Channels', result.stderr)
                 self.assertNotIn('keyevent', log)
                 self.assertFalse(locked)
+
+    def test_failed_home_start_reports_failure_even_when_adb_exits_zero(self):
+        result, _, data, locked = self.run_command('tile-shot', fail_home=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Could not return to Home', result.stderr)
+        self.assertTrue(data)
+        self.assertFalse(locked)
 
     def test_busy_tv_is_left_alone(self):
         for command in ('apps', 'tile-shot'):

@@ -1,5 +1,14 @@
 package dev.celastrina.build
 
+import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
+import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
+import org.jetbrains.kotlin.com.intellij.openapi.util.Disposer
+import org.jetbrains.kotlin.config.CompilerConfiguration
+import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.psi.KtNamedDeclaration
+import org.jetbrains.kotlin.psi.KtNamedFunction
+import org.jetbrains.kotlin.psi.KtPsiFactory
+import org.jetbrains.kotlin.psi.psiUtil.collectDescendantsOfType
 import org.jetbrains.kotlin.lexer.KotlinLexer
 import org.jetbrains.kotlin.lexer.KtTokens
 
@@ -42,7 +51,11 @@ object SourceStandards {
             .map { splitWords(it.removePrefix("**").removeSuffix("**:")) }
             .filter { it.isNotEmpty() }
             .toList()
-        val tokens = tokens(source).toList()
+        val normalized = source.replace("\r\n", "\n")
+        val declarations = withKotlinFiles(listOf(normalized)) { files ->
+            files.single().collectDescendantsOfType<KtNamedDeclaration>().mapNotNull { it.nameIdentifier?.textOffset }.toSet()
+        }
+        val tokens = tokens(normalized, declarations = declarations).toList()
         val externalImports = tokens.asSequence().filter { it.text == "import" }
             .map { it.restOfLine.takeWhile { token -> token != "as" } }
             .filter { it.firstOrNull() in externalPackages || it.take(3) == listOf("com", ".", "lagradost") }
@@ -76,34 +89,43 @@ object SourceStandards {
         smokeSources: Collection<String>,
         exceptions: Set<String>,
     ): List<String> {
-        val screens = applicationSources.flatMap { source ->
-            val lexer = KotlinLexer().apply { start(source.replace("\r\n", "\n")) }
-            var depth = 0
-            var composable = false
-            var function = false
-            val names = mutableListOf<String>()
-            while (lexer.tokenType != null) {
-                val kind = lexer.tokenType
-                val text = lexer.tokenText
-                if (depth == 0) {
-                    if (text == "Composable") composable = true
-                    if (kind == KtTokens.FUN_KEYWORD) function = composable
-                    if (function && kind == KtTokens.IDENTIFIER) {
-                        if (text.endsWith("Screen")) names += text
-                        function = false
-                        composable = false
-                    }
-                }
-                if (kind == KtTokens.LBRACE) { depth++; composable = false }
-                if (kind == KtTokens.RBRACE) depth--
-                lexer.advance()
+        val screens = withKotlinFiles(applicationSources) { files ->
+            files.flatMap { file ->
+                file.declarations.filterIsInstance<KtNamedFunction>().filter { function ->
+                    function.name?.endsWith("Screen") == true &&
+                        function.annotationEntries.any { it.shortName?.asString() == "Composable" }
+                }.mapNotNull { it.name }
             }
-            names
         }
         val visits = smokeSources.flatMap { source ->
             tokens(source).filter { it.identifier }.flatMap { it.text.split('_') }.toList()
         }.toSet()
         return (screens.toSet() - visits - exceptions).sorted()
+    }
+
+    fun reachableSmokeSources(sources: Map<String, String>): Collection<String> = withKotlinFiles(sources.values) { files ->
+        val paths = sources.keys.toList()
+        val declarations = files.map { file -> file.declarations.filterIsInstance<KtNamedDeclaration>().mapNotNull { it.name }.toSet() }
+        val reachable = paths.indices.filter { paths[it].substringAfterLast('/') == "ScreenSmokeTest.kt" }.toMutableSet()
+        do {
+            val before = reachable.size
+            val references = reachable.flatMap { index -> tokens(sources.getValue(paths[index])).filter { it.identifier }.map { it.text }.toList() }.toSet()
+            reachable += paths.indices.filter { declarations[it].any(references::contains) }
+        } while (reachable.size != before)
+        reachable.map { sources.getValue(paths[it]) }
+    }
+
+    private fun <T> withKotlinFiles(sources: Collection<String>, action: (List<KtFile>) -> T): T {
+        val disposable = Disposer.newDisposable()
+        try {
+            val environment = KotlinCoreEnvironment.createForProduction(
+                disposable, CompilerConfiguration(), EnvironmentConfigFiles.JVM_CONFIG_FILES,
+            )
+            val factory = KtPsiFactory(environment.project, markGenerated = false)
+            return action(sources.map { factory.createFile(it) })
+        } finally {
+            Disposer.dispose(disposable)
+        }
     }
 
     private val externalPackages = setOf("android", "androidx", "coil", "java", "javax", "kotlin", "kotlinx", "okhttp3")
@@ -116,13 +138,11 @@ object SourceStandards {
         val declared: Boolean = false,
     )
 
-    private fun tokens(rawSource: String, java: Boolean = false): Sequence<Token> = sequence {
+    private fun tokens(rawSource: String, java: Boolean = false, declarations: Set<Int> = emptySet()): Sequence<Token> = sequence {
         val source = rawSource.replace("\r\n", "\n")
         val lexer = KotlinLexer().apply { start(source) }
         var line = 1
         var atStatementStart = true
-        var previous = ""
-        var functionHeader = false
         var directive: Token? = null
         val directiveTokens = mutableListOf<String>()
         while (lexer.tokenType != null) {
@@ -146,16 +166,8 @@ object SourceStandards {
                     directiveTokens += text
                 }
                 kind == KtTokens.IDENTIFIER -> {
-                    val tail = source.substring(lexer.tokenEnd).trimStart()
-                    val declared = previous in setOf("val", "var", "class", "interface", "object", "typealias") ||
-                        (functionHeader && !tail.startsWith(".")) || (tail.startsWith(":") && !tail.startsWith("::"))
-                    yield(Token(text.removeSurrounding("`"), line, identifier = true, declared = declared))
+                    yield(Token(text.removeSurrounding("`"), line, identifier = true, declared = lexer.tokenStart in declarations))
                 }
-            }
-            if (kind !in KtTokens.WHITE_SPACE_OR_COMMENT_BIT_SET) {
-                if (kind == KtTokens.FUN_KEYWORD) functionHeader = true
-                if (kind == KtTokens.LPAR) functionHeader = false
-                previous = text
             }
             val newlines = text.count { it == '\n' }
             line += newlines

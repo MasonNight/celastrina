@@ -6,6 +6,33 @@ import kotlin.test.assertTrue
 
 class SourceStandardsTest {
     @Test
+    fun `smoke visits can live in top level shared helpers but not unrelated tests`() {
+        val sources = SourceStandards.reachableSmokeSources(linkedMapOf(
+            "ScreenSmokeTest.kt" to "class ScreenSmokeTest { fun opens() { visitHome() } }",
+            "SmokeVisits.kt" to "fun visitHome() { HomeScreen() }",
+            "UnrelatedTest.kt" to "class UnrelatedTest { fun opens() { NewScreen() } }",
+        ))
+        assertEquals(listOf("NewScreen"), SourceStandards.unvisitedScreens(
+            listOf("@Composable fun HomeScreen() {}\n@Composable fun NewScreen() {}"), sources, emptySet(),
+        ))
+    }
+
+    @Test
+    fun `importing Composable does not turn ordinary functions into screens and generic screens count`() {
+        assertEquals(listOf("GenericScreen"), SourceStandards.unvisitedScreens(
+            listOf("import androidx.compose.runtime.Composable\nfun PlainScreen() {}\n@Composable fun <T> GenericScreen(value: T) {}"),
+            emptyList(), emptySet(),
+        ))
+    }
+
+    @Test
+    fun `library names declared by destructuring and lambda parameters are checked`() {
+        assertEquals(listOf("contentDescription", "contentScale"), SourceStandards.glossaryNames(
+            "_Avoid_: Content", "fun demo() { val (contentDescription, other) = pair; rows.forEach { contentScale -> print(contentScale) } }",
+        ).map { it.identifier })
+    }
+
+    @Test
     fun `every top level composable screen needs a smoke visit or a reasoned exception`() {
         val source = "@Composable fun HomeScreen() {}\n@Composable fun NewScreen() {}"
         assertEquals(listOf("NewScreen"), SourceStandards.unvisitedScreens(

@@ -67,16 +67,11 @@ val checkScreenSmokeVisits by tasks.registering {
             require(fields.size == 2 && fields[1].isNotBlank()) { "Screen exception needs a reason: $line" }
             fields[0].trim()
         }.toSet()
-        // Follow shared helper files from the smoke test; unrelated tests cannot satisfy a visit.
-        val testFiles = smokeSources.files.associateWith { it.readText() }
-        val reachable = testFiles.keys.filter { it.name == "ScreenSmokeTest.kt" }.toMutableSet()
-        do {
-            val before = reachable.size
-            val references = reachable.joinToString("\n") { testFiles.getValue(it) }
-            reachable += testFiles.keys.filter { Regex("\\b${Regex.escape(it.nameWithoutExtension)}\\b").containsMatchIn(references) }
-        } while (reachable.size != before)
+        val reachable = SourceStandards.reachableSmokeSources(smokeSources.associate {
+            it.relativeTo(projectDir).invariantSeparatorsPath to it.readText()
+        })
         val missing = SourceStandards.unvisitedScreens(
-            applicationSources.map { it.readText() }, reachable.map { testFiles.getValue(it) }, exceptions,
+            applicationSources.map { it.readText() }, reachable, exceptions,
         )
         if (missing.isNotEmpty()) throw GradleException("Missing ScreenSmokeTest visits: ${missing.joinToString()}")
     }

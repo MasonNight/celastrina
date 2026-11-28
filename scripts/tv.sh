@@ -186,8 +186,13 @@ open_apps() {
 }
 
 launcher_home() {
-  adb -s "$1" shell am start -W -a android.intent.action.MAIN -c android.intent.category.HOME \
-    -n com.amazon.tv.launcher/.ui.HomeActivity_vNext
+  local response
+  if ! response="$(adb -s "$1" shell am start -W -a android.intent.action.MAIN -c android.intent.category.HOME \
+      -n com.amazon.tv.launcher/.ui.HomeActivity_vNext 2>&1)" ||
+      [[ "$response" == *"Error:"* || "$response" == *"Exception"* ]]; then
+    printf 'Could not return to Home on %s: %s\n' "$1" "$response" >&2
+    return 1
+  fi
 }
 
 tile_shot() (
@@ -196,6 +201,8 @@ tile_shot() (
   open_apps "$serial" || return 1
   sleep 2
   save_screenshot "$serial" "$out" || return 1
+  launcher_home "$serial" || return 1
+  trap - EXIT
   echo "$out"
 )
 
