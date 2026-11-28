@@ -9,7 +9,7 @@ SCRIPT = Path(__file__).with_name('tv.sh').resolve()
 
 
 class AppsCommandsTest(unittest.TestCase):
-    def run_command(self, command, *, fail=False, busy=False, fail_home=False):
+    def run_command(self, command, *, fail=False, busy=False, fail_home=False, already_open=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             adb = root / 'adb'
@@ -22,7 +22,7 @@ with open(os.environ['COMMAND_LOG'], 'a') as log:
 if 'media_session' in args and os.environ.get('BUSY') == '1':
     print('package=other.app\\nstate=PlaybackState {state=3,')
 if 'date +%s' in args: print('1000')
-if 'ALL_APPS' in args:
+if 'amzn://apps/android?a_lib' in args:
     # Fire OS's trampoline never draws a window for am start -W to observe.
     if ' -W ' in ' ' + args + ' ': sys.exit('Proxy activity does not draw a window')
     if os.environ.get('FAIL_APPS') == '1':
@@ -30,12 +30,14 @@ if 'ALL_APPS' in args:
         sys.exit(1)
 if 'android.intent.category.HOME' in args and os.environ.get('FAIL_HOME') == '1':
     print('Error: Activity class does not exist.')
+if 'dumpsys activity activities' in args and os.environ.get('ALREADY_OPEN') == '1':
+    print('mResumedActivity: ActivityRecord{com.amazon.venezia/.grid.AppsGridLauncherActivity}')
 if 'screencap' in args: sys.stdout.buffer.write(b'\\x89PNG\\r\\n\\x1a\\nfixture')
 ''')
             adb.chmod(0o755)
             env = dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
                        CELASTRINA_ADB_SERIAL='test-tv', CELASTRINA_TV_LOCK_DIR=str(root / 'lock'),
-                       COMMAND_LOG=str(root / 'commands'), FAIL_APPS=str(int(fail)), BUSY=str(int(busy)), FAIL_HOME=str(int(fail_home)))
+                       COMMAND_LOG=str(root / 'commands'), FAIL_APPS=str(int(fail)), BUSY=str(int(busy)), FAIL_HOME=str(int(fail_home)), ALREADY_OPEN=str(int(already_open)))
             out = root / 'tile.png'
             args = ['bash', str(SCRIPT), command]
             if command == 'tile-shot':
@@ -47,8 +49,8 @@ if 'screencap' in args: sys.stdout.buffer.write(b'\\x89PNG\\r\\n\\x1a\\nfixture'
     def test_apps_uses_the_discovered_activity_without_keys(self):
         result, log, _, locked = self.run_command('apps')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('com.amazon.tv.launcher/.util.QuickSettingsProxyActivity', log)
-        self.assertIn('android.intent.action.ALL_APPS', log)
+        self.assertIn('com.amazon.venezia/.deeplink.UriMatchActivity', log)
+        self.assertIn('amzn://apps/android?a_lib', log)
         self.assertNotIn('keyevent', log)
         self.assertFalse(locked)
 
@@ -74,6 +76,14 @@ if 'screencap' in args: sys.stdout.buffer.write(b'\\x89PNG\\r\\n\\x1a\\nfixture'
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Could not return to Home', result.stderr)
         self.assertTrue(data)
+        self.assertFalse(locked)
+
+    def test_tile_shot_preserves_an_already_open_grid_viewport(self):
+        result, log, data, locked = self.run_command('tile-shot', already_open=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('amzn://apps/android?a_lib', log)
+        self.assertTrue(data.startswith(b'\x89PNG\r\n\x1a\n'))
+        self.assertIn('android.intent.category.HOME', log)
         self.assertFalse(locked)
 
     def test_busy_tv_is_left_alone(self):

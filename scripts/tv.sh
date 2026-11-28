@@ -174,12 +174,16 @@ sys.stdout.buffer.write(data[start:])
 ' >"$out"
 }
 
-# Verified from the household AFTTI43's package resolver, not a guessed launcher component.
+# The launcher's overflow click opens this Apps-library URI; the TV resolver identifies its component.
 open_apps() {
   local serial="$1" response
-  # This is a trampoline, not a drawable activity; -W can wait indefinitely for its window.
-  if ! response="$(adb -s "$serial" shell am start -a android.intent.action.ALL_APPS \
-      -n com.amazon.tv.launcher/.util.QuickSettingsProxyActivity 2>&1)" ||
+  # Reopening the URI resets the grid to its first row; preserve an existing tile viewport.
+  if adb -s "$serial" shell dumpsys activity activities | tr -d '\r' |
+      grep -Eq '^[[:space:]]*(mResumedActivity|ResumedActivity):.*com\.amazon\.venezia/\.grid\.AppsGridLauncherActivity'; then
+    return 0
+  fi
+  if ! response="$(adb -s "$serial" shell am start -a android.intent.action.VIEW -d "amzn://apps/android?a_lib" \
+      -n com.amazon.venezia/.deeplink.UriMatchActivity 2>&1)" ||
       [[ "$response" == *"Error:"* || "$response" == *"Exception"* ]]; then
     printf 'Could not open Your Apps & Channels on %s: %s\n' "$serial" "$response" >&2
     return 1

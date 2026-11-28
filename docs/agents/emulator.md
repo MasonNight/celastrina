@@ -70,7 +70,10 @@ Ask the maintainer before using the household TV for Fire OS behavior, hardware 
 ## Fire OS launcher tiles
 
 For an approved household TV icon check, use `scripts/tv.sh apps` to open **Your Apps & Channels**
-without D-pad navigation. `scripts/tv.sh tile-shot <out.png>` opens that grid, waits for it to draw,
+without D-pad navigation. The TV display must already be awake. The launcher’s Apps button opens
+`amzn://apps/android?a_lib`, resolved on the household TV to Amazon’s built-in Apps library
+(`com.amazon.venezia/.deeplink.UriMatchActivity`); the similarly advertised `ALL_APPS` proxy does nothing
+on Fire OS 7. An already open grid keeps its current viewport. `scripts/tv.sh tile-shot <out.png>` opens that grid, waits for it to draw,
 saves the tiles, and returns to Home through the launcher's activity. Both commands take the device lock
 and refuse while the TV appears busy. They fail if the verified Fire OS activity cannot start;
 they do not navigate with remote keys. Android TV emulators do not have this Fire OS grid.
