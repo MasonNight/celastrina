@@ -1,0 +1,2 @@
+# ScreenName # reason it cannot have an interactive smoke visit
+ResumeScreen # Transient Continue watching handoff has no focusable controls and automatically opens playback or details.

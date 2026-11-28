@@ -6,6 +6,76 @@ import kotlin.test.assertTrue
 
 class SourceStandardsTest {
     @Test
+    fun `smoke visits can live in top level shared helpers but not unrelated tests`() {
+        val sources = SourceStandards.reachableSmokeSources(linkedMapOf(
+            "ScreenSmokeTest.kt" to "class ScreenSmokeTest { fun opens() { visitHome() } }",
+            "SmokeVisits.kt" to "fun visitHome() { HomeScreen() }",
+            "UnrelatedTest.kt" to "class UnrelatedTest { fun opens() { NewScreen() } }",
+        ))
+        assertEquals(listOf("NewScreen"), SourceStandards.unvisitedScreens(
+            listOf("@Composable fun HomeScreen() {}\n@Composable fun NewScreen() {}"), sources, emptySet(),
+        ))
+    }
+
+    @Test
+    fun `importing Composable does not turn ordinary functions into screens and generic screens count`() {
+        assertEquals(listOf("GenericScreen"), SourceStandards.unvisitedScreens(
+            listOf("import androidx.compose.runtime.Composable\nfun PlainScreen() {}\n@Composable fun <T> GenericScreen(value: T) {}"),
+            emptyList(), emptySet(),
+        ))
+    }
+
+    @Test
+    fun `library names declared by destructuring and lambda parameters are checked`() {
+        assertEquals(listOf("contentDescription", "contentScale"), SourceStandards.glossaryNames(
+            "_Avoid_: Content", "fun demo() { val (contentDescription, other) = pair; rows.forEach { contentScale -> print(contentScale) } }",
+        ).map { it.identifier })
+    }
+
+    @Test
+    fun `every top level composable screen needs a smoke visit or a reasoned exception`() {
+        val source = "@Composable fun HomeScreen() {}\n@Composable fun NewScreen() {}"
+        assertEquals(listOf("NewScreen"), SourceStandards.unvisitedScreens(
+            listOf(source), listOf("fun HomeScreen_opens() {}"), emptySet(),
+        ))
+        assertTrue(SourceStandards.unvisitedScreens(
+            listOf(source), listOf("fun HomeScreen_opens() {}"), setOf("NewScreen"),
+        ).isEmpty())
+        assertTrue(SourceStandards.unvisitedScreens(
+            listOf("// @Composable fun FakeScreen() {}\nclass Nested { @Composable fun NestedScreen() {} }"),
+            emptyList(), emptySet(),
+        ).isEmpty())
+    }
+
+    @Test
+    fun `library arguments and modifiers are allowed but declarations remain domain names`() {
+        val glossary = "_Avoid_: Content, Image, Show"
+        assertTrue(SourceStandards.glossaryNames(glossary,
+            "import androidx.compose.ui.layout.ContentScale\nAsyncImage(contentDescription = null, contentScale = ContentScale.Fit); Modifier.wrapContentSize()",
+        ).isEmpty())
+        assertEquals(listOf("contentUrl", "contentDescription", "contentScale", "wrapContentSize"),
+            SourceStandards.glossaryNames(glossary,
+                "val contentUrl = 0; val contentDescription = 0; fun screen(contentScale: Int) {}; fun wrapContentSize() {}",
+            ).map { it.identifier })
+        assertTrue(SourceStandards.glossaryNames(glossary,
+            "focus.requestFocusOnceShown(); focus.requestFocusUntil { true }",
+        ).isEmpty())
+    }
+
+    @Test
+    fun `Windows line endings preserve import boundaries`() {
+        val source = "package dev.celastrina.core.extension\r\nimport com.lagradost.cloudstream3.plugins.BasePlugin\r\n"
+        assertTrue(SourceStandards.cloudStreamImports("extension/ExtensionHost.kt", source).isEmpty())
+    }
+
+    @Test
+    fun `Windows line endings preserve external glossary names`() {
+        assertTrue(SourceStandards.glossaryNames(
+            "_Avoid_: Content", "import androidx.compose.ui.layout.ContentScale\r\nval scale = ContentScale.Fit\r\n",
+        ).isEmpty())
+    }
+
+    @Test
     fun `only the Extension adapter and the ExtensionLoader contract may import CloudStream`() {
         val import = "import com.lagradost.cloudstream3.plugins.BasePlugin"
         assertEquals(listOf(1), SourceStandards.cloudStreamImports("source/ConfigurationService.kt", import))

@@ -1,5 +1,14 @@
 package dev.celastrina.build
 
+import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
+import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
+import org.jetbrains.kotlin.com.intellij.openapi.util.Disposer
+import org.jetbrains.kotlin.config.CompilerConfiguration
+import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.psi.KtNamedDeclaration
+import org.jetbrains.kotlin.psi.KtNamedFunction
+import org.jetbrains.kotlin.psi.KtPsiFactory
+import org.jetbrains.kotlin.psi.psiUtil.collectDescendantsOfType
 import org.jetbrains.kotlin.lexer.KotlinLexer
 import org.jetbrains.kotlin.lexer.KtTokens
 
@@ -42,7 +51,11 @@ object SourceStandards {
             .map { splitWords(it.removePrefix("**").removeSuffix("**:")) }
             .filter { it.isNotEmpty() }
             .toList()
-        val tokens = tokens(source).toList()
+        val normalized = source.replace("\r\n", "\n")
+        val declarations = withKotlinFiles(listOf(normalized)) { files ->
+            files.single().collectDescendantsOfType<KtNamedDeclaration>().mapNotNull { it.nameIdentifier?.textOffset }.toSet()
+        }
+        val tokens = tokens(normalized, declarations = declarations).toList()
         val externalImports = tokens.asSequence().filter { it.text == "import" }
             .map { it.restOfLine.takeWhile { token -> token != "as" } }
             .filter { it.firstOrNull() in externalPackages || it.take(3) == listOf("com", ".", "lagradost") }
@@ -50,7 +63,8 @@ object SourceStandards {
             .toSet()
 
         return tokens.asSequence().filter { it.identifier }
-            .filter { it.text !in externalImports && it.text !in kotlinAndAndroidNames && it.text !in fileExceptions }
+            .filter { it.text !in fileExceptions && it.text !in focusHelpers && it.text !in kotlinAndAndroidNames }
+            .filter { it.declared || (it.text !in externalImports && it.text !in composeAndCoilNames) }
             .mapNotNull { token ->
                 val segments = splitWords(token.text)
                 val matchingPhrases = avoided.filter { segments.windowed(it.size).contains(it) }
@@ -70,6 +84,50 @@ object SourceStandards {
             .toList()
     }
 
+    fun unvisitedScreens(
+        applicationSources: Collection<String>,
+        smokeSources: Collection<String>,
+        exceptions: Set<String>,
+    ): List<String> {
+        val screens = withKotlinFiles(applicationSources) { files ->
+            files.flatMap { file ->
+                file.declarations.filterIsInstance<KtNamedFunction>().filter { function ->
+                    function.name?.endsWith("Screen") == true &&
+                        function.annotationEntries.any { it.shortName?.asString() == "Composable" }
+                }.mapNotNull { it.name }
+            }
+        }
+        val visits = smokeSources.flatMap { source ->
+            tokens(source).filter { it.identifier }.flatMap { it.text.split('_') }.toList()
+        }.toSet()
+        return (screens.toSet() - visits - exceptions).sorted()
+    }
+
+    fun reachableSmokeSources(sources: Map<String, String>): Collection<String> = withKotlinFiles(sources.values) { files ->
+        val paths = sources.keys.toList()
+        val declarations = files.map { file -> file.declarations.filterIsInstance<KtNamedDeclaration>().mapNotNull { it.name }.toSet() }
+        val reachable = paths.indices.filter { paths[it].substringAfterLast('/') == "ScreenSmokeTest.kt" }.toMutableSet()
+        do {
+            val before = reachable.size
+            val references = reachable.flatMap { index -> tokens(sources.getValue(paths[index])).filter { it.identifier }.map { it.text }.toList() }.toSet()
+            reachable += paths.indices.filter { declarations[it].any(references::contains) }
+        } while (reachable.size != before)
+        reachable.map { sources.getValue(paths[it]) }
+    }
+
+    private fun <T> withKotlinFiles(sources: Collection<String>, action: (List<KtFile>) -> T): T {
+        val disposable = Disposer.newDisposable()
+        try {
+            val environment = KotlinCoreEnvironment.createForProduction(
+                disposable, CompilerConfiguration(), EnvironmentConfigFiles.JVM_CONFIG_FILES,
+            )
+            val factory = KtPsiFactory(environment.project, markGenerated = false)
+            return action(sources.map { factory.createFile(it) })
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
     private val externalPackages = setOf("android", "androidx", "coil", "java", "javax", "kotlin", "kotlinx", "okhttp3")
 
     private data class Token(
@@ -77,9 +135,11 @@ object SourceStandards {
         val line: Int,
         val identifier: Boolean,
         val restOfLine: List<String> = emptyList(),
+        val declared: Boolean = false,
     )
 
-    private fun tokens(source: String, java: Boolean = false): Sequence<Token> = sequence {
+    private fun tokens(rawSource: String, java: Boolean = false, declarations: Set<Int> = emptySet()): Sequence<Token> = sequence {
+        val source = rawSource.replace("\r\n", "\n")
         val lexer = KotlinLexer().apply { start(source) }
         var line = 1
         var atStatementStart = true
@@ -105,7 +165,9 @@ object SourceStandards {
                     }
                     directiveTokens += text
                 }
-                kind == KtTokens.IDENTIFIER -> yield(Token(text.removeSurrounding("`"), line, identifier = true))
+                kind == KtTokens.IDENTIFIER -> {
+                    yield(Token(text.removeSurrounding("`"), line, identifier = true, declared = lexer.tokenStart in declarations))
+                }
             }
             val newlines = text.count { it == '\n' }
             line += newlines
@@ -115,6 +177,15 @@ object SourceStandards {
         }
         if (directive != null) yield(directive.copy(restOfLine = directiveTokens.toList()))
     }
+
+    // These focus operations deliberately describe UI behavior rather than a domain Title.
+    private val focusHelpers = setOf("requestFocusOnceShown", "requestFocusUntil")
+
+    // API names chosen by Compose and Coil, permitted at uses, never at declarations.
+    private val composeAndCoilNames = setOf(
+        "AsyncImage", "contentDescription", "contentScale", "contentPadding", "contentAlignment", "contentColor",
+        "focusedContentColor", "headlineContent", "supportingContent", "imageUrl", "wrapContentSize",
+    )
 
     private val kotlinAndAndroidNames = setOf(
         // Standard collection types and operations available without explicit imports.

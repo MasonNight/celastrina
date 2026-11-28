@@ -26,7 +26,7 @@ class ScreenSmokeTest {
     }
 
     @Test
-    fun household_settings_screens_open_with_focus() {
+    fun HomeScreen_SettingsScreen_SourcesScreen_AddSourceScreen_ExtensionsScreen_TmdbKeyScreen_AboutScreen_open_with_focus() {
         openActivity()
         await("Home ready for remote input") { it.hasLabel("Search") || it.hasLabel("No TMDB key") }
         press(KeyEvent.KEYCODE_MENU)
@@ -56,7 +56,7 @@ class ScreenSmokeTest {
     }
 
     @Test
-    fun catalogue_and_playback_screens_open_with_focus() {
+    fun HomeScreen_SearchScreen_SeriesDetailScreen_DetailScreen_ChooseStreamScreen_PlayerScreen_GiveUpScreen_NothingToPlayScreen_open_with_focus() {
         SmokeCatalogue(context.applicationContext as CelastrinaApplication, instrumentation.context.assets).use { catalogue ->
             catalogue.seed()
             try {
