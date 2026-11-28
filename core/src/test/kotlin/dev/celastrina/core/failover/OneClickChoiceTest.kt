@@ -34,7 +34,7 @@ import kotlin.time.Duration.Companion.seconds
  * is the coroutine test's virtual time, so the Lookup's asked-at time and the player's "now" move together.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class OneClickChoiceTest {
+class StreamChoiceTest {
 
     @TempDir
     lateinit var dir: File
@@ -58,10 +58,10 @@ class OneClickChoiceTest {
         val click = oneClick(listOf(movieNight, archive))
 
         click.at(2.seconds)
-        assertEquals(OneClickChoice.Waiting, click.choice())
+        assertEquals(StreamChoice.Waiting, click.choice())
 
         click.at(4.seconds)
-        assertEquals(OneClickChoice.Play(movieNight.stream), click.choice())
+        assertEquals(StreamChoice.Play(movieNight.stream), click.choice())
     }
 
     @Test
@@ -71,10 +71,10 @@ class OneClickChoiceTest {
         val click = oneClick(listOf(movieNight, archive))
 
         click.at(5.seconds - 1.milliseconds)
-        assertEquals(OneClickChoice.Waiting, click.choice())
+        assertEquals(StreamChoice.Waiting, click.choice())
 
         click.at(5.seconds)
-        assertEquals(OneClickChoice.Play(archive.stream), click.choice())
+        assertEquals(StreamChoice.Play(archive.stream), click.choice())
     }
 
     /** Clicks the episode now: the Sources are asked, and the player watches the Lookup as it arrives. */
@@ -97,9 +97,9 @@ class OneClickChoiceTest {
             test.runCurrent()
         }
 
-        fun choice(): OneClickChoice =
+        fun choice(): StreamChoice =
             lookup?.oneClickChoice(Decoders { true }, memory, lastWorked = null, nowMillis = test.testScheduler.currentTime)
-                ?: OneClickChoice.Waiting
+                ?: StreamChoice.Waiting
     }
 
     private class DelayedSource(id: String, private val answersAfter: Duration) : Source {

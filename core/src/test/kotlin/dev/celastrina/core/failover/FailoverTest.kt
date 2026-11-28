@@ -443,9 +443,9 @@ class FailoverTest {
     fun `resuming waits for the Source of the Stream that last worked, then plays that Stream`() {
         val lastWorked = WorkedStream(SourceId("internet-archive"), "mp4")
 
-        assertEquals(ResumeChoice.Waiting, lookup(movieNight to listOf(nightly1080), archive to null).resumeChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis()))
+        assertEquals(StreamChoice.Waiting, lookup(movieNight to listOf(nightly1080), archive to null).resumeChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis()))
         assertEquals(
-            ResumeChoice.Play(archiveMp4),
+            StreamChoice.Play(archiveMp4),
             lookup(movieNight to listOf(nightly1080), archive to listOf(archiveOgv, archiveMp4)).resumeChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis()),
         )
     }
@@ -456,8 +456,8 @@ class FailoverTest {
         // The Sources were asked just now; the Internet Archive is still being asked.
         val stillAsking = lookup(movieNight to listOf(nightly1080), archive to null)
 
-        assertEquals(ResumeChoice.Waiting, stillAsking.resumeChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis() + 2_999))
-        assertEquals(ResumeChoice.Play(nightly1080), stillAsking.resumeChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis() + 3_000))
+        assertEquals(StreamChoice.Waiting, stillAsking.resumeChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis() + 2_999))
+        assertEquals(StreamChoice.Play(nightly1080), stillAsking.resumeChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis() + 3_000))
     }
 
     @Test
@@ -465,18 +465,23 @@ class FailoverTest {
         val lastWorked = WorkedStream(SourceId("internet-archive"), "mp4")
 
         assertEquals(
-            ResumeChoice.Play(nightly1080),
+            StreamChoice.Play(nightly1080),
             lookup(movieNight to listOf(nightly1080), archive to LookupOutcome.NotAvailable, friends to null).resumeChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis()),
         )
         // Its Source was removed.
-        assertEquals(ResumeChoice.Play(nightly1080), lookup(movieNight to listOf(nightly1080)).resumeChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis()))
+        assertEquals(StreamChoice.Play(nightly1080), lookup(movieNight to listOf(nightly1080)).resumeChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis()))
     }
 
     @Test
     fun `resuming with nothing to play waits for the Sources still being asked, then says so`() {
-        assertEquals(ResumeChoice.Waiting, lookup(movieNight to LookupOutcome.NotAvailable, archive to null).resumeChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis()))
+        assertEquals(StreamChoice.Waiting, lookup(movieNight to LookupOutcome.NotAvailable, archive to null).resumeChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis()))
         assertEquals(
-            ResumeChoice.NothingToPlay,
+            StreamChoice.NothingToPlay(
+                listOf(
+                    SourceSummary("Movie Night Jellyfin", SourceSummary.State.NotAvailable),
+                    SourceSummary("Internet Archive", SourceSummary.State.NotAvailable),
+                ),
+            ),
             lookup(movieNight to LookupOutcome.NotAvailable, archive to LookupOutcome.NotAvailable).resumeChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis()),
         )
     }
@@ -486,26 +491,26 @@ class FailoverTest {
     @Test
     fun `one click waits for a Source earlier in the order that answers within 5 s, even when a later one answered sooner`() {
         val laterAnsweredFirst = lookup(movieNight to null, archive to listOf(archiveMp4))
-        assertEquals(OneClickChoice.Waiting, laterAnsweredFirst.oneClickChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis() + 4_000))
+        assertEquals(StreamChoice.Waiting, laterAnsweredFirst.oneClickChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis() + 4_000))
 
         val bothAnswered = lookup(movieNight to listOf(nightly1080), archive to listOf(archiveMp4))
-        assertEquals(OneClickChoice.Play(nightly1080), bothAnswered.oneClickChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis() + 4_500))
+        assertEquals(StreamChoice.Play(nightly1080), bothAnswered.oneClickChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis() + 4_500))
     }
 
     @Test
     fun `one click waits at most 5 s for a Source earlier in the order, then plays the best Stream so far`() {
         val firstStillAsking = lookup(movieNight to null, archive to listOf(archiveMp4))
 
-        assertEquals(OneClickChoice.Waiting, firstStillAsking.oneClickChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis() + 4_999))
-        assertEquals(OneClickChoice.Play(archiveMp4), firstStillAsking.oneClickChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis() + 5_000))
+        assertEquals(StreamChoice.Waiting, firstStillAsking.oneClickChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis() + 4_999))
+        assertEquals(StreamChoice.Play(archiveMp4), firstStillAsking.oneClickChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis() + 5_000))
     }
 
     @Test
     fun `when nothing has arrived after 5 s, one click plays the first Stream that does`() {
         val later = clock.nowMillis() + 12_000
 
-        assertEquals(OneClickChoice.Waiting, lookup(movieNight to null, archive to null).oneClickChoice(everythingDecodes, memory, null, nowMillis = later))
-        assertEquals(OneClickChoice.Play(archiveMp4), lookup(movieNight to null, archive to listOf(archiveMp4)).oneClickChoice(everythingDecodes, memory, null, nowMillis = later))
+        assertEquals(StreamChoice.Waiting, lookup(movieNight to null, archive to null).oneClickChoice(everythingDecodes, memory, null, nowMillis = later))
+        assertEquals(StreamChoice.Play(archiveMp4), lookup(movieNight to null, archive to listOf(archiveMp4)).oneClickChoice(everythingDecodes, memory, null, nowMillis = later))
     }
 
     @Test
@@ -513,7 +518,7 @@ class FailoverTest {
         val lastWorked = WorkedStream(SourceId("internet-archive"), "mp4")
 
         assertEquals(
-            OneClickChoice.Play(archiveMp4),
+            StreamChoice.Play(archiveMp4),
             lookup(movieNight to null, archive to listOf(archiveMp4)).oneClickChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis()),
         )
     }
@@ -523,17 +528,17 @@ class FailoverTest {
         val lastWorked = WorkedStream(SourceId("internet-archive"), "mp4")
         val archiveStillAsking = lookup(movieNight to listOf(nightly1080), archive to null)
 
-        assertEquals(OneClickChoice.Waiting, archiveStillAsking.oneClickChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis() + 4_999))
-        assertEquals(OneClickChoice.Play(nightly1080), archiveStillAsking.oneClickChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis() + 5_000))
+        assertEquals(StreamChoice.Waiting, archiveStillAsking.oneClickChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis() + 4_999))
+        assertEquals(StreamChoice.Play(nightly1080), archiveStillAsking.oneClickChoice(everythingDecodes, memory, lastWorked, nowMillis = clock.nowMillis() + 5_000))
     }
 
     @Test
     fun `when no Source has a Stream this TV can play, one click says what happened at each Source`() {
         val unreachable = LookupOutcome.Failure(LookupOutcome.Failure.Reason.Unreachable)
 
-        assertEquals(OneClickChoice.Waiting, lookup(movieNight to LookupOutcome.NotAvailable, archive to null).oneClickChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis()))
+        assertEquals(StreamChoice.Waiting, lookup(movieNight to LookupOutcome.NotAvailable, archive to null).oneClickChoice(everythingDecodes, memory, null, nowMillis = clock.nowMillis()))
         assertEquals(
-            OneClickChoice.NothingToPlay(
+            StreamChoice.NothingToPlay(
                 listOf(
                     SourceSummary("Movie Night Jellyfin", SourceSummary.State.NotAvailable),
                     SourceSummary("Internet Archive", SourceSummary.State.LookupFailed(LookupOutcome.Failure.Reason.Unreachable)),

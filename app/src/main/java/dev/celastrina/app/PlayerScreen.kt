@@ -43,9 +43,9 @@ import dev.celastrina.core.failover.Failover
 import dev.celastrina.core.failover.FailoverMemory
 import dev.celastrina.core.failover.FailoverNotice
 import dev.celastrina.core.failover.FailoverStep
-import dev.celastrina.core.failover.OneClickChoice
-import dev.celastrina.core.failover.oneClickChoice
 import dev.celastrina.core.failover.PlayerEvent
+import dev.celastrina.core.failover.StreamChoice
+import dev.celastrina.core.failover.oneClickChoice
 import dev.celastrina.core.household.ContinueWatching
 import dev.celastrina.core.household.Watching
 import dev.celastrina.core.household.WorkedStream
@@ -126,9 +126,9 @@ private fun FindingStream(request: PlayRequest, failoverMemory: FailoverMemory, 
             now = Clock.System.nowMillis()
         }
     }
-    val choice = lookup?.oneClickChoice(MediaCodecDecoders, failoverMemory, request.lastWorked, now) ?: OneClickChoice.Waiting
-    LaunchedEffect(choice) { if (choice is OneClickChoice.Play) choose(choice.stream, handPicked = false) }
-    if (choice is OneClickChoice.NothingToPlay) {
+    val choice = lookup?.oneClickChoice(MediaCodecDecoders, failoverMemory, request.lastWorked, now) ?: StreamChoice.Waiting
+    LaunchedEffect(choice) { if (choice is StreamChoice.Play) choose(choice.stream, handPicked = false) }
+    if (choice is StreamChoice.NothingToPlay) {
         NothingToPlayScreen(request.title, choice.sources, request.lookup, onBack) { choose(it, handPicked = true) }
         return
     }
