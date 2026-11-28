@@ -21,10 +21,10 @@ app/src/main/java/dev/celastrina/app/MediaCodecDecoders.kt MediaCodecDecoders vi
 app/src/main/java/dev/celastrina/app/NotPlayableBadge.kt kind
 app/src/main/java/dev/celastrina/app/Notice.kt contentAlignment
 app/src/main/java/dev/celastrina/app/PlaybackHttp.kt userAgent
-app/src/main/java/dev/celastrina/app/PlayerScreen.kt Media3FailoverEvents MediaCodecDecoders PlayRequest SHOW_BUFFERING_WHEN_PLAYING content request requestFocus setDefaultRequestProperties setMediaItem setMediaSourceFactory setMimeType setShowBuffering subtitleMimeType toMediaItem url
+app/src/main/java/dev/celastrina/app/PlayerScreen.kt Media3FailoverEvents MediaCodecDecoders PlayRequest SHOW_BUFFERING_WHEN_PLAYING content contentDescription contentScale imageUrl request requestFocus setDefaultRequestProperties setMediaItem setMediaSourceFactory setMimeType setShowBuffering subtitleMimeType toMediaItem url
 app/src/main/java/dev/celastrina/app/ResumeScreen.kt MediaCodecDecoders PlayRequest contentDescription contentScale imageUrl
 app/src/main/java/dev/celastrina/app/SearchScreen.kt Kind contentAlignment contentColor contentDescription contentPadding contentScale focusedContentColor kind posterUrl query requestFocus type
-app/src/main/java/dev/celastrina/app/SeriesDetailScreen.kt PlayRequest backdropUrl contentAlignment contentDescription contentPadding contentScale imageUrl index logoUrl metadataLine request requestFocusOnceShown seasonIndex selectedTabIndex stillUrl
+app/src/main/java/dev/celastrina/app/SeriesDetailScreen.kt PlayRequest backdropUrl contentAlignment contentDescription contentPadding contentScale imageUrl index logoUrl metadataLine request requestFocusOnceShown requestFocusUntil seasonIndex selectedTabIndex stillUrl
 app/src/main/java/dev/celastrina/app/SettingsScreen.kt contentDescription firstItem headlineContent requestFocusOnceShown supportingContent
 app/src/main/java/dev/celastrina/app/SourcesScreen.kt SourceList contentPadding format headlineContent item kind kindName list requestFocusOnceShown supportingContent
 app/src/main/java/dev/celastrina/app/TitleLogo.kt Error contentDescription contentScale logoUrl
