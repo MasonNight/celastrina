@@ -2,7 +2,6 @@ package dev.celastrina.app
 
 import android.app.Activity
 import android.content.Intent
-import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -18,7 +17,7 @@ import kotlin.test.assertTrue
 class ScreenSmokeTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context = instrumentation.targetContext
-    private val automation get() = instrumentation.uiAutomation
+    private val remote = Remote(instrumentation)
     private var activity: Activity? = null
 
     @After
@@ -81,6 +80,8 @@ class ScreenSmokeTest {
                 }
                 screen(SMOKE_SERIES, SMOKE_SEASON)
                 playEpisodeInOneClick()
+                findNothingToPlay()
+                leaveWhileFindingAStream(catalogue)
 
                 if (BuildConfig.DEBUG) {
                     openActivity("dev.celastrina.OPEN_MOVIE" to SMOKE_MOVIE_ID)
@@ -127,6 +128,38 @@ class ScreenSmokeTest {
         await("Series screen with the played episode card focused") { it.hasLabel(SMOKE_SEASON) && it.focusedLabelContains(SMOKE_EPISODE) }
     }
 
+    /** From the first episode card: an episode no Source has opens the nothing-playable screen, and its Back returns. */
+    private fun findNothingToPlay() {
+        press(KeyEvent.KEYCODE_DPAD_RIGHT)
+        await("the episode no Source has focused") { it.focusedLabelContains(SMOKE_UNPLAYABLE_EPISODE) }
+        press(KeyEvent.KEYCODE_DPAD_CENTER)
+        await("the nothing-playable screen with Back focused and Choose Stream offered") {
+            it.hasLabel("Couldn't play") && it.hasLabel("Choose Stream") && it.focusedLabelContains("Back")
+        }
+        press(KeyEvent.KEYCODE_DPAD_CENTER)
+        await("Series screen with that episode card focused") { it.hasLabel(SMOKE_SEASON) && it.focusedLabelContains(SMOKE_UNPLAYABLE_EPISODE) }
+    }
+
+    /**
+     * From the second episode card: Back while "Finding a Stream…" returns to the Series screen on the episode's card,
+     * and cancels the Lookup, so the Source's late answer goes unread: a Lookup still running would log the torrent it drops.
+     */
+    private fun leaveWhileFindingAStream(catalogue: SmokeCatalogue) {
+        press(KeyEvent.KEYCODE_DPAD_RIGHT)
+        await("the episode whose Source holds its answer focused") { it.focusedLabelContains(SMOKE_SLOW_EPISODE) }
+        remote.shell("logcat -c")
+        press(KeyEvent.KEYCODE_DPAD_CENTER)
+        await("Finding a Stream") { it.hasLabel("Finding a Stream") }
+        press(KeyEvent.KEYCODE_BACK)
+        await("Series screen with that episode card focused") { it.hasLabel(SMOKE_SEASON) && it.focusedLabelContains(SMOKE_SLOW_EPISODE) }
+
+        catalogue.answerSlowEpisode()
+        SystemClock.sleep(3_000)
+        val log = remote.shell("logcat -d -s Celastrina:I")
+        assertTrue("Dropped Stream" !in log, "Back didn't cancel the Lookup, which went on to read the Source's answer:\n$log")
+        await("Series screen, still") { it.hasLabel(SMOKE_SEASON) && it.focusedLabelContains(SMOKE_SLOW_EPISODE) }
+    }
+
     private fun openChooseStream() {
         await("the Play button focused after a Stream is found") {
             it.focusedLabelContains("Play") || it.focusedLabelContains("Resume")
@@ -154,11 +187,7 @@ class ScreenSmokeTest {
         activity = instrumentation.startActivitySync(intent)
     }
 
-    private fun press(key: Int, longPress: Boolean = false) {
-        // UI Automation's shell UID can wake a sleeping TV and send D-pad inputs even while focus is transitioning.
-        val command = if (longPress) "input keyevent --longpress $key" else "input keyevent $key"
-        ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command)).use { it.readBytes() }
-    }
+    private fun press(key: Int, longPress: Boolean = false) = remote.press(key, longPress)
 
     private fun screen(vararg labels: String) {
         await("${labels.joinToString(" / ")} visible with D-pad focus") { screen ->
@@ -169,16 +198,7 @@ class ScreenSmokeTest {
     private var lastScreen = VisibleScreen()
 
     private fun await(description: String, matches: (VisibleScreen) -> Boolean) {
-        val deadline = SystemClock.uptimeMillis() + 12_000
-        while (SystemClock.uptimeMillis() < deadline) {
-            val root = automation.rootInActiveWindow
-            if (root != null && root.packageName?.toString() == context.packageName) {
-                lastScreen = VisibleScreen().apply { read(root) }
-                if (matches(lastScreen)) return
-            }
-            SystemClock.sleep(100)
-        }
-        assertTrue(false, "Expected $description. Last active screen: $lastScreen")
+        remote.await(description) { root -> VisibleScreen().apply { read(root) }.also { lastScreen = it }.takeIf(matches) }
     }
 
     private class VisibleScreen {

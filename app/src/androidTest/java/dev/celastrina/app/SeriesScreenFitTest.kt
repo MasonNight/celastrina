@@ -6,7 +6,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Rect
-import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -31,7 +30,7 @@ import kotlin.test.fail
 class SeriesScreenFitTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context = instrumentation.targetContext
-    private val automation get() = instrumentation.uiAutomation
+    private val remote = Remote(instrumentation)
     private var activity: Activity? = null
     private var restoreDisplay: List<String> = emptyList()
 
@@ -40,17 +39,17 @@ class SeriesScreenFitTest {
         // The debug build opens a Series directly; the minified release build has no way in without TMDB's home rows.
         assumeTrue(BuildConfig.DEBUG)
         restoreDisplay = listOf(
-            restoreCommand(shell("wm size"), "wm size"),
-            restoreCommand(shell("wm density"), "wm density"),
+            restoreCommand(remote.shell("wm size"), "wm size"),
+            restoreCommand(remote.shell("wm density"), "wm density"),
         )
-        shell("wm size 1920x1080")
-        shell("wm density 320")
+        remote.shell("wm size 1920x1080")
+        remote.shell("wm density 320")
     }
 
     @After
     fun restore() {
         activity?.let { opened -> instrumentation.runOnMainSync { opened.finish() } }
-        restoreDisplay.forEach(::shell)
+        restoreDisplay.forEach { remote.shell(it) }
     }
 
     @Test
@@ -61,11 +60,11 @@ class SeriesScreenFitTest {
             DebugArtwork.put(context, HEAVY_SERIES_LOGO_URL, logoPng())
             try {
                 openSeries(HEAVY_SERIES_ID)
-                await("the title logo drawn as an image") { root ->
+                remote.await("the title logo drawn as an image") { root ->
                     root.find { it.contentDescription?.toString() == HEAVY_SERIES && it.text == null }
                 }
-                press(KeyEvent.KEYCODE_DPAD_DOWN)
-                await("an episode card focused, below the season tabs") { root ->
+                remote.press(KeyEvent.KEYCODE_DPAD_DOWN)
+                remote.await("an episode card focused, below the season tabs") { root ->
                     root.find { it.text?.toString() == "Season 1" }?.let { tab ->
                         val tabs = Rect().also(tab::getBoundsInScreen)
                         root.find { it.isFocused && Rect().also(it::getBoundsInScreen).top > tabs.bottom }
@@ -73,7 +72,7 @@ class SeriesScreenFitTest {
                 }
                 SystemClock.sleep(500) // Let the focus scale finish.
                 val screen = Rect(0, 0, 1920, 1080)
-                val root = assertNotNull(automation.rootInActiveWindow)
+                val root = assertNotNull(remote.root)
                 assertFullyOnScreen("the focused card", assertNotNull(root.find { it.isFocused }), screen)
                 val title = textNode(root, "1. $HEAVY_EPISODE")
                 assertFullyOnScreen("the card's title", title, screen)
@@ -104,7 +103,7 @@ class SeriesScreenFitTest {
     }
 
     private fun openSeries(tmdbId: Int) {
-        press(KeyEvent.KEYCODE_WAKEUP)
+        remote.press(KeyEvent.KEYCODE_WAKEUP)
         val intent = Intent(Intent.ACTION_MAIN)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
             .setClassName(context.packageName, "dev.celastrina.app.MainActivity")
@@ -114,44 +113,9 @@ class SeriesScreenFitTest {
         assertEquals(2f, activity!!.resources.displayMetrics.density, "density 320 (${metrics.widthPixels}×${metrics.heightPixels})")
     }
 
-    private fun press(key: Int) {
-        shell("input keyevent $key")
-    }
-
-    private fun shell(command: String): String =
-        ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command)).use { it.readBytes().decodeToString() }
-
     /** Puts back an override `wm` reported, such as `Override size: 1920x1080`, or resets to the physical value. */
     private fun restoreCommand(reported: String, command: String): String =
         Regex("Override \\w+: (\\S+)").find(reported)?.let { "$command ${it.groupValues[1]}" } ?: "$command reset"
-
-    private fun <T : Any> await(description: String, find: (AccessibilityNodeInfo) -> T?): T {
-        val deadline = SystemClock.uptimeMillis() + 12_000
-        while (SystemClock.uptimeMillis() < deadline) {
-            val root = automation.rootInActiveWindow
-            if (root != null && root.packageName?.toString() == context.packageName) find(root)?.let { return it }
-            SystemClock.sleep(100)
-        }
-        fail("Expected $description on the Series screen. Last screen: ${automation.rootInActiveWindow?.describe()}")
-    }
-
-    private fun AccessibilityNodeInfo.describe(): String = buildList {
-        fun visit(node: AccessibilityNodeInfo) {
-            if (!node.isVisibleToUser) return
-            val bounds = Rect().also(node::getBoundsInScreen)
-            if (node.text != null || node.contentDescription != null || node.isFocused) {
-                add("${if (node.isFocused) "*" else ""}${node.text ?: ""}|${node.contentDescription ?: ""}@$bounds")
-            }
-            for (i in 0 until node.childCount) node.getChild(i)?.let(::visit)
-        }
-        visit(this@describe)
-    }.joinToString("; ")
-
-    private fun AccessibilityNodeInfo.find(matches: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
-        if (matches(this)) return this
-        for (i in 0 until childCount) getChild(i)?.find(matches)?.let { return it }
-        return null
-    }
 
     /** A 3:1 logo, 360×120dp at density 320, so it takes the full 120dp height the header allows a logo. */
     private fun logoPng(): ByteArray {

@@ -17,6 +17,7 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.URI
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
 import kotlin.concurrent.thread
 import kotlin.test.assertIs
 
@@ -26,6 +27,10 @@ internal const val SMOKE_MOVIE = "Smoke Test Movie"
 internal const val SMOKE_SERIES = "Smoke Test Series"
 internal const val SMOKE_SEASON = "Smoke Season One"
 internal const val SMOKE_EPISODE = "Smoke Episode"
+/** The Series' second episode, which no Source has. */
+internal const val SMOKE_UNPLAYABLE_EPISODE = "Lost Episode"
+/** The Series' third episode, which the Source answers only when told to, and then with only a torrent. */
+internal const val SMOKE_SLOW_EPISODE = "Slow Episode"
 
 /** A Series whose header is as tall as the Series screen's allows: a 120dp logo, a 3-line synopsis and runtimes. */
 internal const val HEAVY_SERIES_ID = 90000003
@@ -37,7 +42,8 @@ internal const val HEAVY_SERIES_LOGO_URL = "https://image.tmdb.org/t/p/w500/smok
 
 /**
  * Synthetic Titles keep the smoke test independent of live Catalogue changes, credentials and artwork.
- * The local Source serves the existing synthetic clip, then goes offline on demand to open Give up.
+ * The local Source serves the existing synthetic clip, then goes offline on demand to open Give up. It has nothing for
+ * the Series' second episode, and holds its answer for the third until [answerSlowEpisode].
  */
 internal class SmokeCatalogue(private val app: CelastrinaApplication, assets: AssetManager) : AutoCloseable {
     private val server = ServerSocket(0, 10, InetAddress.getByName("127.0.0.1"))
@@ -48,6 +54,7 @@ internal class SmokeCatalogue(private val app: CelastrinaApplication, assets: As
     private var configuredTmdbKey = false
     private var disabledInternetArchive = false
     @Volatile private var serveVideo = true
+    private val slowEpisodeAnswer = CountDownLatch(1)
 
     init {
         thread(name = "smoke-source", isDaemon = true) { serve() }
@@ -79,11 +86,17 @@ internal class SmokeCatalogue(private val app: CelastrinaApplication, assets: As
         Unit
     }
 
+    /** Lets the Source answer for [SMOKE_SLOW_EPISODE]: a torrent, which a Lookup still running drops and logs. */
+    fun answerSlowEpisode() {
+        slowEpisodeAnswer.countDown()
+    }
+
     fun stopServingVideo() {
         serveVideo = false
     }
 
     override fun close() {
+        slowEpisodeAnswer.countDown()
         server.close()
         val configuration = app.configuration
         sourceId?.let { configuration.remove(it, ChangedFrom.Tv) }
@@ -99,16 +112,26 @@ internal class SmokeCatalogue(private val app: CelastrinaApplication, assets: As
                 if (server.isClosed) return
                 throw IllegalStateException("Smoke Source stopped accepting connections")
             }
+            // Each request gets its own thread, so the one held back holds up no other.
+            thread(name = "smoke-source-request", isDaemon = true) { answer(socket) }
+        }
+    }
+
+    private fun answer(socket: java.net.Socket) {
+        try {
             socket.use {
                 it.soTimeout = 5_000
                 val request = it.getInputStream().bufferedReader()
                 val path = request.readLine()?.split(" ")?.getOrNull(1)
                 while (!request.readLine().isNullOrEmpty()) Unit
+                if (path in SERIES_EPISODE_THREE) slowEpisodeAnswer.await()
                 val (mime, body) = when {
                     path == "/manifest.json" -> "application/json" to
                         """{"id":"test.screen-smoke","version":"1.0.0","name":"Smoke Test Source","resources":["stream"],"types":["movie","series"],"idPrefixes":["tt99000001","tt99000002"]}""".encodeToByteArray()
                     path == "/stream/movie/tt99000001.json" || path in SERIES_EPISODE_ONE -> "application/json" to
                         """{"streams":[{"url":"$sourceAddress/smoke.mp4","description":"Smoke video"}]}""".encodeToByteArray()
+                    path in SERIES_EPISODE_THREE -> "application/json" to
+                        """{"streams":[{"infoHash":"0123456789abcdef0123456789abcdef01234567","description":"Torrent only"}]}""".encodeToByteArray()
                     path == "/smoke.mp4" && serveVideo -> "video/mp4" to clip
                     else -> "text/plain" to null
                 }
@@ -117,17 +140,22 @@ internal class SmokeCatalogue(private val app: CelastrinaApplication, assets: As
                 output.write("HTTP/1.1 $status\r\nContent-Type: $mime\r\nContent-Length: ${body?.size ?: 0}\r\nConnection: close\r\n\r\n".encodeToByteArray())
                 if (body != null) output.write(body)
             }
+        } catch (_: java.io.IOException) {
+            // The app stopped waiting for the answer it held back, and closed its end.
         }
     }
 
     private companion object {
-        /** S1E1 of the Series, however the add-on client escapes the video ID's colons. */
-        val SERIES_EPISODE_ONE = setOf("/stream/series/tt99000002:1:1.json", "/stream/series/tt99000002%3A1%3A1.json")
+        val SERIES_EPISODE_ONE = episodePaths(1)
+        val SERIES_EPISODE_THREE = episodePaths(3)
+
+        /** An episode of the Series' first season, however the add-on client escapes the video ID's colons. */
+        fun episodePaths(episode: Int) = setOf("/stream/series/tt99000002:1:$episode.json", "/stream/series/tt99000002%3A1%3A$episode.json")
     }
 
     private class CatalogueAnswers : HttpClient {
         private val movie = """{"id":$SMOKE_MOVIE_ID,"title":"$SMOKE_MOVIE","media_type":"movie","external_ids":{"imdb_id":"tt99000001"}}"""
-        private val series = """{"id":$SMOKE_SERIES_ID,"name":"$SMOKE_SERIES","media_type":"tv","external_ids":{"imdb_id":"tt99000002"},"seasons":[{"season_number":1,"name":"$SMOKE_SEASON","episode_count":1}]}"""
+        private val series = """{"id":$SMOKE_SERIES_ID,"name":"$SMOKE_SERIES","media_type":"tv","external_ids":{"imdb_id":"tt99000002"},"seasons":[{"season_number":1,"name":"$SMOKE_SEASON","episode_count":3}]}"""
 
         private val heavySeries = """{"id":$HEAVY_SERIES_ID,"name":"$HEAVY_SERIES","first_air_date":"2019-12-20",""" +
             """"overview":"${"A synopsis long enough to fill all three of the lines the Series screen gives it. ".repeat(8)}",""" +
@@ -144,7 +172,8 @@ internal class SmokeCatalogue(private val app: CelastrinaApplication, assets: As
                 "/discover/movie", "/discover/tv" -> """{"results":[]}"""
                 "/movie/$SMOKE_MOVIE_ID" -> movie
                 "/tv/$SMOKE_SERIES_ID" -> series
-                "/tv/$SMOKE_SERIES_ID/season/1" -> """{"episodes":[{"episode_number":1,"name":"$SMOKE_EPISODE"}]}"""
+                "/tv/$SMOKE_SERIES_ID/season/1" -> """{"episodes":[{"episode_number":1,"name":"$SMOKE_EPISODE"},""" +
+                    """{"episode_number":2,"name":"$SMOKE_UNPLAYABLE_EPISODE"},{"episode_number":3,"name":"$SMOKE_SLOW_EPISODE"}]}"""
                 "/tv/$HEAVY_SERIES_ID" -> heavySeries
                 "/tv/$HEAVY_SERIES_ID/season/1" -> """{"episodes":[${(1..8).joinToString(",") { """{"episode_number":$it,"name":"$HEAVY_EPISODE","runtime":62}""" }}]}"""
                 else -> error("No smoke-test Catalogue answer for $url")
