@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -159,8 +160,15 @@ private fun SeriesDetail(
             modifier = Modifier.fillMaxSize().padding(top = 40.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.Bottom),
         ) {
-            Column(Modifier.fillMaxWidth(0.6f).padding(start = 48.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                TitleLogo(details.title.name, details.logoUrl, MaterialTheme.typography.displaySmall, maxHeight = 120.dp, maxWidth = 420.dp)
+            // The season tabs and episode cards are measured first, as that's where the remote is; the header gets the
+            // height left over, and its logo gives up height before anything else in it.
+            Column(
+                Modifier.weight(1f, fill = false).fillMaxWidth(0.6f).padding(start = 48.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(Modifier.weight(1f, fill = false).clipToBounds(), contentAlignment = Alignment.BottomStart) {
+                    TitleLogo(details.title.name, details.logoUrl, MaterialTheme.typography.displaySmall, maxHeight = 120.dp, maxWidth = 420.dp)
+                }
                 Text(details.metadataLine(), style = MaterialTheme.typography.titleSmall, color = Color.White.copy(alpha = 0.8f))
                 Text(details.synopsis, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 WatchlistButton(details.title, watchlist)

@@ -27,6 +27,14 @@ internal const val SMOKE_SERIES = "Smoke Test Series"
 internal const val SMOKE_SEASON = "Smoke Season One"
 internal const val SMOKE_EPISODE = "Smoke Episode"
 
+/** A Series whose header is as tall as the Series screen's allows: a 120dp logo, a 3-line synopsis and runtimes. */
+internal const val HEAVY_SERIES_ID = 90000003
+internal const val HEAVY_SERIES = "Smoke Heavy Series"
+internal const val HEAVY_EPISODE = "The Longest Episode Name A Card Can Hold"
+internal const val HEAVY_EPISODE_RUNTIME = "1h 2m"
+/** TMDB's address of [HEAVY_SERIES]' title logo, which the test puts in the artwork cache. */
+internal const val HEAVY_SERIES_LOGO_URL = "https://image.tmdb.org/t/p/w500/smoke-heavy-logo.png"
+
 /**
  * Synthetic Titles keep the smoke test independent of live Catalogue changes, credentials and artwork.
  * The local Source serves the existing synthetic clip, then goes offline on demand to open Give up.
@@ -66,6 +74,8 @@ internal class SmokeCatalogue(private val app: CelastrinaApplication, assets: As
         catalogue.movieDetails(SMOKE_MOVIE_ID)
         val series = catalogue.seriesDetails(SMOKE_SERIES_ID)
         catalogue.episodes(series, series.seasons.single())
+        val heavy = catalogue.seriesDetails(HEAVY_SERIES_ID)
+        catalogue.episodes(heavy, heavy.seasons.first())
         Unit
     }
 
@@ -119,6 +129,13 @@ internal class SmokeCatalogue(private val app: CelastrinaApplication, assets: As
         private val movie = """{"id":$SMOKE_MOVIE_ID,"title":"$SMOKE_MOVIE","media_type":"movie","external_ids":{"imdb_id":"tt99000001"}}"""
         private val series = """{"id":$SMOKE_SERIES_ID,"name":"$SMOKE_SERIES","media_type":"tv","external_ids":{"imdb_id":"tt99000002"},"seasons":[{"season_number":1,"name":"$SMOKE_SEASON","episode_count":1}]}"""
 
+        private val heavySeries = """{"id":$HEAVY_SERIES_ID,"name":"$HEAVY_SERIES","first_air_date":"2019-12-20",""" +
+            """"overview":"${"A synopsis long enough to fill all three of the lines the Series screen gives it. ".repeat(8)}",""" +
+            """"genres":[{"id":10765,"name":"Sci-Fi & Fantasy"},{"id":18,"name":"Drama"},{"id":10759,"name":"Action & Adventure"}],""" +
+            """"external_ids":{"imdb_id":"tt99000003"},"images":{"logos":[{"file_path":"/smoke-heavy-logo.png","iso_639_1":"en"}]},""" +
+            """"seasons":[{"season_number":1,"name":"Season 1","episode_count":8},{"season_number":2,"name":"Season 2","episode_count":8},""" +
+            """{"season_number":0,"name":"Specials","episode_count":1}]}"""
+
         override suspend fun get(url: String, headers: Map<String, String>): HttpResponse {
             val body = when (URI(url).path.removePrefix("/3")) {
                 "/trending/movie/week" -> """{"results":[$movie]}"""
@@ -128,6 +145,8 @@ internal class SmokeCatalogue(private val app: CelastrinaApplication, assets: As
                 "/movie/$SMOKE_MOVIE_ID" -> movie
                 "/tv/$SMOKE_SERIES_ID" -> series
                 "/tv/$SMOKE_SERIES_ID/season/1" -> """{"episodes":[{"episode_number":1,"name":"$SMOKE_EPISODE"}]}"""
+                "/tv/$HEAVY_SERIES_ID" -> heavySeries
+                "/tv/$HEAVY_SERIES_ID/season/1" -> """{"episodes":[${(1..8).joinToString(",") { """{"episode_number":$it,"name":"$HEAVY_EPISODE","runtime":62}""" }}]}"""
                 else -> error("No smoke-test Catalogue answer for $url")
             }
             return HttpResponse(200, body.encodeToByteArray())
