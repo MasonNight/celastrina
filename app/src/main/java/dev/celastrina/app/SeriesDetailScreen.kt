@@ -245,19 +245,19 @@ private fun EpisodeRow(
             EpisodesState.Loading -> Text("Loading episodes…", modifier = Modifier.padding(start = 48.dp))
             is EpisodesState.Failed -> Text(s.reason.message(), modifier = Modifier.padding(start = 48.dp))
             is EpisodesState.Loaded -> {
-                val focusIndex = s.episodes.indexOfFirst { it.reference.episode?.isSameAs(focusEpisode) == true }
-                val row = rememberLazyListState(focusIndex.coerceAtLeast(0))
+                val focusCardAt = s.episodes.indexOfFirst { it.reference.episode?.isSameAs(focusEpisode) == true }
+                val row = rememberLazyListState(focusCardAt.coerceAtLeast(0))
                 val focus = remember { FocusRequester() }
                 var focused by remember { mutableStateOf(false) }
                 // Coming back from the player, its View hands focus back a frame or two late, so this asks again.
-                LaunchedEffect(focusIndex) { if (focusIndex >= 0) focus.requestFocusUntil { focused } }
+                LaunchedEffect(focusCardAt) { if (focusCardAt >= 0) focus.requestFocusUntil { focused } }
                 LazyRow(
                     state = row,
                     contentPadding = PaddingValues(horizontal = 48.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     itemsIndexed(s.episodes, key = { _, episode -> episode.number }) { index, episode ->
-                        val modifier = if (index == focusIndex) Modifier.focusRequester(focus).onFocusChanged { focused = it.isFocused } else Modifier
+                        val modifier = if (index == focusCardAt) Modifier.focusRequester(focus).onFocusChanged { focused = it.isFocused } else Modifier
                         EpisodeCard(episode, modifier, onClick = { onPlay(episode) }, onChoose = { onChoose(episode) })
                     }
                 }
