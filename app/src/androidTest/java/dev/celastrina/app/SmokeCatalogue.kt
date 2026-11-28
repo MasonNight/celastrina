@@ -96,8 +96,8 @@ internal class SmokeCatalogue(private val app: CelastrinaApplication, assets: As
                 while (!request.readLine().isNullOrEmpty()) Unit
                 val (mime, body) = when {
                     path == "/manifest.json" -> "application/json" to
-                        """{"id":"test.screen-smoke","version":"1.0.0","name":"Smoke Test Source","resources":["stream"],"types":["movie"],"idPrefixes":["tt99000001"]}""".encodeToByteArray()
-                    path == "/stream/movie/tt99000001.json" -> "application/json" to
+                        """{"id":"test.screen-smoke","version":"1.0.0","name":"Smoke Test Source","resources":["stream"],"types":["movie","series"],"idPrefixes":["tt99000001","tt99000002"]}""".encodeToByteArray()
+                    path == "/stream/movie/tt99000001.json" || path in SERIES_EPISODE_ONE -> "application/json" to
                         """{"streams":[{"url":"$sourceAddress/smoke.mp4","description":"Smoke video"}]}""".encodeToByteArray()
                     path == "/smoke.mp4" && serveVideo -> "video/mp4" to clip
                     else -> "text/plain" to null
@@ -110,9 +110,14 @@ internal class SmokeCatalogue(private val app: CelastrinaApplication, assets: As
         }
     }
 
+    private companion object {
+        /** S1E1 of the Series, however the add-on client escapes the video ID's colons. */
+        val SERIES_EPISODE_ONE = setOf("/stream/series/tt99000002:1:1.json", "/stream/series/tt99000002%3A1%3A1.json")
+    }
+
     private class CatalogueAnswers : HttpClient {
         private val movie = """{"id":$SMOKE_MOVIE_ID,"title":"$SMOKE_MOVIE","media_type":"movie","external_ids":{"imdb_id":"tt99000001"}}"""
-        private val series = """{"id":$SMOKE_SERIES_ID,"name":"$SMOKE_SERIES","media_type":"tv","seasons":[{"season_number":1,"name":"$SMOKE_SEASON","episode_count":1}]}"""
+        private val series = """{"id":$SMOKE_SERIES_ID,"name":"$SMOKE_SERIES","media_type":"tv","external_ids":{"imdb_id":"tt99000002"},"seasons":[{"season_number":1,"name":"$SMOKE_SEASON","episode_count":1}]}"""
 
         override suspend fun get(url: String, headers: Map<String, String>): HttpResponse {
             val body = when (URI(url).path.removePrefix("/3")) {
