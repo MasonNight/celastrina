@@ -28,6 +28,12 @@ Per-run APKs can be prepared with `scripts/emulator-check.sh --prepare-apks DIRE
 the bundle and record the source commit if you move it to another machine. Pass `--bash` if Git Bash is
 not the default `bash` on your Windows PATH.
 
+For a quick check of real emulator descendant cleanup (normal exit, abrupt termination, and slot reuse),
+run `CELASTRINA_TEST_REAL_EMULATOR=1 python -B -m unittest discover -s scripts -p test_disposable_emulator.py`
+from Git Bash. This needs the same installed SDK image but does not build or install APKs. Run it while
+the disposable pool is idle. The SDK-free lifecycle test also checks ownership of a native Windows child;
+a Python-only child can hide Microsoft Store Python's different native-child job inheritance.
+
 ## Shared emulator and household TV
 
 For interactive work, open the `celastrina-tv2` Android TV emulator (API 28), serial `emulator-5554`, in the

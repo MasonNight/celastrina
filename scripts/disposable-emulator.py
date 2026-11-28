@@ -85,6 +85,13 @@ class JobLimits(ctypes.Structure):
     ]
 
 
+class ThreadEntry(ctypes.Structure):
+    _fields_ = [("size", wintypes.DWORD), ("usage", wintypes.DWORD),
+                ("thread_id", wintypes.DWORD), ("process_id", wintypes.DWORD),
+                ("base_priority", wintypes.LONG), ("delta_priority", wintypes.LONG),
+                ("flags", wintypes.DWORD)]
+
+
 class WindowsJob:
     """Own the emulator and its subprocesses, even if this runner is killed."""
 
@@ -96,6 +103,11 @@ class WindowsJob:
             ("SetInformationJobObject", (wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD), wintypes.BOOL),
             ("OpenProcess", (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD), wintypes.HANDLE),
             ("AssignProcessToJobObject", (wintypes.HANDLE, wintypes.HANDLE), wintypes.BOOL),
+            ("CreateToolhelp32Snapshot", (wintypes.DWORD, wintypes.DWORD), wintypes.HANDLE),
+            ("Thread32First", (wintypes.HANDLE, ctypes.POINTER(ThreadEntry)), wintypes.BOOL),
+            ("Thread32Next", (wintypes.HANDLE, ctypes.POINTER(ThreadEntry)), wintypes.BOOL),
+            ("OpenThread", (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD), wintypes.HANDLE),
+            ("ResumeThread", (wintypes.HANDLE,), wintypes.DWORD),
             ("CloseHandle", (wintypes.HANDLE,), wintypes.BOOL),
         )
         for name, arguments, result in signatures:
@@ -114,15 +126,12 @@ class WindowsJob:
         return self
 
     def start(self, command, input_data=b"", **options):
-        # The child waits for one byte before starting the command. This lets us
-        # attach it before it can create a QEMU or test-runner subprocess.
-        gate = (
-            "import subprocess, sys; "
-            "sys.exit(subprocess.run(sys.argv[2:], input=bytes.fromhex(sys.argv[1])).returncode "
-            "if sys.stdin.buffer.read(1) == b'1' else 1)"
-        )
+        # Assign the actual command before it can spawn descendants. A Python
+        # gate is insufficient: Store Python can launch native children outside
+        # its job, leaving emulator.exe and QEMU unowned.
         process = subprocess.Popen(
-            [sys.executable, "-c", gate, input_data.hex(), *map(str, command)], stdin=subprocess.PIPE, **options
+            list(map(str, command)), stdin=subprocess.PIPE,
+            creationflags=0x00000004, **options,  # CREATE_SUSPENDED
         )
         try:
             child = self.kernel.OpenProcess(0x0101, False, process.pid)  # SET_QUOTA | TERMINATE
@@ -133,13 +142,43 @@ class WindowsJob:
                     raise ctypes.WinError(ctypes.get_last_error())
             finally:
                 self.kernel.CloseHandle(child)
+            self.resume(process.pid)
             with process.stdin:
-                process.stdin.write(b"1")
+                process.stdin.write(input_data)
         except BaseException:
+            process.kill()  # Also handles assignment/resume failure while suspended.
             process.stdin.close()
             process.wait()
             raise
         return process
+
+    def resume(self, pid):
+        # Popen closes CreateProcess's initial thread handle. While the process
+        # is suspended it has exactly one thread; reopen it with the documented
+        # Toolhelp API rather than relying on undocumented NtResumeProcess.
+        api = self.kernel
+        snapshot = api.CreateToolhelp32Snapshot(0x00000004, 0)  # TH32CS_SNAPTHREAD
+        if snapshot == ctypes.c_void_p(-1).value:
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            entry = ThreadEntry()
+            entry.size = ctypes.sizeof(entry)
+            found = api.Thread32First(snapshot, ctypes.byref(entry))
+            while found:
+                if entry.process_id == pid:
+                    thread = api.OpenThread(0x0002, False, entry.thread_id)  # SUSPEND_RESUME
+                    if not thread:
+                        raise ctypes.WinError(ctypes.get_last_error())
+                    try:
+                        if api.ResumeThread(thread) == 0xFFFFFFFF:
+                            raise ctypes.WinError(ctypes.get_last_error())
+                    finally:
+                        api.CloseHandle(thread)
+                    return
+                found = api.Thread32Next(snapshot, ctypes.byref(entry))
+            raise RuntimeError(f"No initial thread found for suspended process {pid}.")
+        finally:
+            api.CloseHandle(snapshot)
 
     def __exit__(self, *_):
         self.kernel.CloseHandle(self.handle)
