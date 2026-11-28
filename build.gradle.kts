@@ -20,3 +20,5 @@ subprojects {
 
 // The build logic's own tests.
 tasks.check { dependsOn(gradle.includedBuild("build-logic").task(":check")) }
+
+apply(from = "gradle/source-standards.gradle.kts")

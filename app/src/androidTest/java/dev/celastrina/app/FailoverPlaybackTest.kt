@@ -17,7 +17,7 @@ import dev.celastrina.core.failover.FailoverStep
 import dev.celastrina.core.failover.PlayerEvent
 import dev.celastrina.core.failover.PlayerFault
 import dev.celastrina.core.failover.SourceSummary
-import dev.celastrina.core.failover.StreamFailure
+import dev.celastrina.core.failover.FailoverReason
 import dev.celastrina.core.port.Clock
 import dev.celastrina.core.port.Decoders
 import dev.celastrina.core.port.Logger
@@ -117,7 +117,7 @@ class FailoverPlaybackTest {
         val failover = failover(unknownStream("busy.mp4"))
         val gaveUp = assertIs<FailoverStep.GaveUp>(failover.on(checkNotNull(failover.addressCheck).checkAddress()))
         val source = assertIs<SourceSummary.State.StreamsFailed>(gaveUp.sources.single().state)
-        assertEquals(listOf(StreamFailure.Fault(PlayerFault.Http(429))), source.failures)
+        assertEquals(listOf(FailoverReason.Fault(PlayerFault.Http(429))), source.failures)
     }
 
     @Test

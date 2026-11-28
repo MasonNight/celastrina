@@ -17,6 +17,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ListItem
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Text
 import dev.celastrina.core.configuration.TmdbKeyInUse
 
@@ -70,12 +71,15 @@ fun SettingsScreen(
 
 /** About: Celastrina's version and TMDB's attribution, as TMDB's terms ask. */
 @Composable
-fun AboutScreen(appVersion: String) {
+fun AboutScreen(appVersion: String, onBack: () -> Unit) {
+    val back = remember { FocusRequester() }
+    LaunchedEffect(Unit) { back.requestFocusOnceShown() }
     Column(Modifier.fillMaxSize().padding(horizontal = 96.dp, vertical = 48.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
         Text("About", style = MaterialTheme.typography.headlineMedium)
         Text("Celastrina $appVersion", style = MaterialTheme.typography.titleMedium)
         Image(painterResource(R.drawable.tmdb_logo), contentDescription = "TMDB", modifier = Modifier.width(240.dp))
         Text(TMDB_DISCLAIMER, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.widthIn(max = 640.dp))
+        OutlinedButton(onClick = onBack, modifier = Modifier.focusRequester(back)) { Text("Back to Settings") }
     }
 }
 

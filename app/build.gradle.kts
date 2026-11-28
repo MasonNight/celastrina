@@ -5,7 +5,10 @@ import java.io.ByteArrayOutputStream
 import java.util.zip.ZipFile
 import javax.inject.Inject
 
-buildscript { dependencies { classpath(libs.celastrina.build.logic) } }
+buildscript {
+    repositories { mavenCentral() }
+    dependencies { classpath(libs.celastrina.build.logic) }
+}
 
 plugins {
     alias(libs.plugins.android.application)
@@ -35,6 +38,7 @@ val releaseVersion: ReleaseVersion? = providers.gradleProperty("releaseTag").orN
 val releaseKeystore: String? = providers.environmentVariable("CELASTRINA_KEYSTORE").orNull
 val releaseKeystoreSecrets = listOf("CELASTRINA_KEYSTORE_PASSWORD", "CELASTRINA_KEY_ALIAS", "CELASTRINA_KEY_PASSWORD")
     .associateWith { providers.environmentVariable(it).orNull }
+val isolatedDeviceCheck = providers.gradleProperty("isolatedDeviceCheck").map(String::toBoolean).getOrElse(false)
 
 android {
     namespace = "dev.celastrina.app"
@@ -75,10 +79,14 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.findByName("release")
+            if (isolatedDeviceCheck) {
+                applicationIdSuffix = ".devicecheck"
+                manifestPlaceholders["appName"] = "Celastrina Release Test"
+            }
         }
         debug {
-            applicationIdSuffix = ".debug"
-            manifestPlaceholders["appName"] = "Celastrina Dev"
+            applicationIdSuffix = if (isolatedDeviceCheck) ".debug.devicecheck" else ".debug"
+            manifestPlaceholders["appName"] = if (isolatedDeviceCheck) "Celastrina Debug Test" else "Celastrina Dev"
         }
     }
 

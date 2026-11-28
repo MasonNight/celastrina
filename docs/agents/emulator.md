@@ -10,6 +10,15 @@ In Git Bash, put Android SDK platform-tools (`adb`) and `python3` on `PATH`.
 - For configuration calls, use the [Install Runbook](../../INSTALL.md#calling-celastrina) with `content://dev.celastrina.debug.configuration`.
 - Run instrumented tests on just this emulator with `adb -s emulator-5554 shell am instrument -w -r <test package>/androidx.test.runner.AndroidJUnitRunner`.
 
+Before reporting an implementation ticket done, run `CELASTRINA_ADB_SERIAL=emulator-5554 scripts/emulator-check.sh`.
+The script builds both debug and minified release, runs all instrumented tests for each, and removes both
+disposable app installations and their test packages. The disposable installations use their own application IDs.
+If the maintainer asks for a household TV check instead, pass that TV's serial from `scripts/tv.sh connect`.
+To reuse a minified release built on another machine, pass `--release-apks DIRECTORY`. Put
+`app-release.apk` and `app-release-androidTest.apk` there from the same build of the source under test,
+using `-PisolatedDeviceCheck=true -PtestBuildType=release`. Record the source commit with the test result.
+The script still builds debug and checks package IDs and instrumentation targets before installing anything.
+
 ## Device lock
 
 `scripts/tv.sh` locks device commands with an exclusive directory per serial. Before driving the device directly, create the same directory atomically, wait if held, and remove it in a trap or `finally`.
