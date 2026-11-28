@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -23,10 +24,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -44,12 +52,9 @@ import dev.celastrina.core.catalogue.Episode
 import dev.celastrina.core.catalogue.Season
 import dev.celastrina.core.catalogue.SeriesDetails
 import dev.celastrina.core.catalogue.TitleReference
-import dev.celastrina.core.failover.FailoverMemory
 import dev.celastrina.core.household.ContinueWatching
-import dev.celastrina.core.household.Watched
 import dev.celastrina.core.household.Watching
 import dev.celastrina.core.household.Watchlist
-import dev.celastrina.core.source.Lookup
 import dev.celastrina.core.source.Stream
 
 private sealed interface SeriesState {
@@ -65,22 +70,26 @@ private sealed interface EpisodesState {
 }
 
 /**
- * A Series' detail screen: season tabs (Specials last) over a row of episode cards. Picking an episode asks
- * the Sources for it. It opens on [seasonNumber] when that season exists, otherwise on the first tab.
- * [onPlay] gets the season the episode is in, so Back from the player can return to it. Play resumes an episode where
- * [continueWatching] says playback got to, and + Watchlist adds the Series to [watchlist] or takes it off.
+ * A Series' detail screen: season tabs (Specials last) over a row of episode cards. Given [focusEpisode], it opens on
+ * that episode's season with focus on its card. Otherwise it opens on [seasonNumber] when that season exists, else on
+ * the first tab, with focus on the tabs.
+ *
+ * Clicking an episode card asks the Sources for it and goes straight to the player, which chooses the Stream; [onPlay]
+ * gets the episode, so Back from the player can return to its card. Holding OK on a card, or pressing the
+ * remote's Menu button on it, opens Choose Stream for that episode instead. Playback resumes where [continueWatching]
+ * says it got to, and + Watchlist adds the Series to [watchlist] or takes it off.
  */
 @Composable
 fun SeriesDetailScreen(
     tmdbId: Int,
     seasonNumber: Int?,
+    focusEpisode: TitleReference.Episode?,
     catalogue: Catalogue,
     lookUp: (TitleReference) -> TitleLookup,
-    failoverMemory: FailoverMemory,
     continueWatching: ContinueWatching,
     watchlist: Watchlist,
     autoPlay: Boolean,
-    onPlay: (season: Int, request: PlayRequest) -> Unit,
+    onPlay: (episode: TitleReference.Episode, request: PlayRequest) -> Unit,
 ) {
     var state by remember(tmdbId) { mutableStateOf<SeriesState>(SeriesState.Loading) }
     LaunchedEffect(tmdbId) {
@@ -93,7 +102,7 @@ fun SeriesDetailScreen(
     when (val s = state) {
         SeriesState.Loading -> Message("Loading…")
         is SeriesState.Failed -> Message(s.reason.message())
-        is SeriesState.Loaded -> SeriesDetail(s.details, seasonNumber, catalogue, lookUp, failoverMemory, continueWatching, watchlist, autoPlay, onPlay)
+        is SeriesState.Loaded -> SeriesDetail(s.details, focusEpisode?.season ?: seasonNumber, focusEpisode, catalogue, lookUp, continueWatching, watchlist, autoPlay, onPlay)
     }
 }
 
@@ -101,34 +110,40 @@ fun SeriesDetailScreen(
 private fun SeriesDetail(
     details: SeriesDetails,
     seasonNumber: Int?,
+    focusEpisode: TitleReference.Episode?,
     catalogue: Catalogue,
     lookUp: (TitleReference) -> TitleLookup,
-    failoverMemory: FailoverMemory,
     continueWatching: ContinueWatching,
     watchlist: Watchlist,
     autoPlay: Boolean,
-    onPlay: (season: Int, request: PlayRequest) -> Unit,
+    onPlay: (episode: TitleReference.Episode, request: PlayRequest) -> Unit,
 ) {
     var seasonIndex by remember(details) { mutableStateOf(details.seasons.indexOfFirst { it.number == seasonNumber }.coerceAtLeast(0)) }
-    var picked by remember(details) { mutableStateOf<Episode?>(null) }
-    val titleLookup = remember(picked) { picked?.let { lookUp(it.reference) } }
-    val lookup = titleLookup?.lookups?.collectAsState()?.value
-    var choosing by remember(picked) { mutableStateOf(false) }
-    val watched = remember(picked) { picked?.let { continueWatching.of(it.reference) } }
+    // The card that takes focus when the episode row shows: the one played, or the one Choose Stream was opened on.
+    var focusCard by remember(details) { mutableStateOf(focusEpisode) }
+    var choosing by remember(details) { mutableStateOf<Pair<Episode, TitleLookup>?>(null) }
     val season = details.seasons.getOrNull(seasonIndex)
-    fun play(stream: Stream, handPicked: Boolean) {
-        val episode = picked ?: return
+    /** Plays [episode] on the Stream picked in Choose Stream, or, when none was ([handPicked] null), on the player's choice. */
+    fun play(episode: Episode, titleLookup: TitleLookup, handPicked: Stream?) {
+        val watched = continueWatching.of(episode.reference)
         val request = PlayRequest(
-            stream, handPicked, titleLookup ?: return, "${details.title.name} · ${episode.label()}",
+            handPicked?.let { StreamToPlay.Chosen(it, handPicked = true) } ?: StreamToPlay.ToBeChosen(watched?.lastWorked),
+            titleLookup,
+            "${details.title.name} · ${episode.label()}",
             startAtMillis = watched?.resumeAtMillis ?: 0,
             watching = Watching(details.title, episode.reference, episode.label(), imageUrl = episode.stillUrl ?: details.backdropUrl),
         )
-        onPlay(episode.reference.episode!!.season, request)
+        onPlay(episode.reference.episode!!, request)
     }
 
-    if (choosing) {
-        BackHandler { choosing = false }
-        ChooseStreamScreen("${details.title.name} · ${picked?.label()}", lookup) { play(it, handPicked = true) }
+    choosing?.let { (episode, titleLookup) ->
+        val lookup by titleLookup.lookups.collectAsState()
+        BackHandler {
+            titleLookup.cancel()
+            focusCard = episode.reference.episode
+            choosing = null
+        }
+        ChooseStreamScreen("${details.title.name} · ${episode.label()}", lookup) { play(episode, titleLookup, it) }
         return
     }
 
@@ -148,8 +163,15 @@ private fun SeriesDetail(
             modifier = Modifier.fillMaxSize().padding(top = 40.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.Bottom),
         ) {
-            Column(Modifier.fillMaxWidth(0.6f).padding(start = 48.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                TitleLogo(details.title.name, details.logoUrl, MaterialTheme.typography.displaySmall, maxHeight = 120.dp, maxWidth = 420.dp)
+            // The season tabs and episode cards are measured first, as that's where the remote is; the header gets the
+            // height left over, and its logo gives up height before anything else in it.
+            Column(
+                Modifier.weight(1f, fill = false).fillMaxWidth(0.6f).padding(start = 48.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(Modifier.weight(1f, fill = false).clipToBounds(), contentAlignment = Alignment.BottomStart) {
+                    TitleLogo(details.title.name, details.logoUrl, MaterialTheme.typography.displaySmall, maxHeight = 120.dp, maxWidth = 420.dp)
+                }
                 Text(details.metadataLine(), style = MaterialTheme.typography.titleSmall, color = Color.White.copy(alpha = 0.8f))
                 Text(details.synopsis, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 WatchlistButton(details.title, watchlist)
@@ -157,22 +179,29 @@ private fun SeriesDetail(
             if (details.seasons.isEmpty()) {
                 Text("TMDB lists no episodes for this Series.", modifier = Modifier.padding(start = 48.dp))
             } else {
-                SeasonTabs(details.seasons, seasonIndex) { seasonIndex = it }
+                SeasonTabs(details.seasons, seasonIndex, takeFocus = focusCard == null) { seasonIndex = it }
             }
             if (season != null) {
-                EpisodeRow(details, season, catalogue, pickFirstEpisode = autoPlay && season.number == 1) { picked = it }
+                EpisodeRow(
+                    details,
+                    season,
+                    catalogue,
+                    focusEpisode = focusCard,
+                    playFirstEpisode = autoPlay && season.number == 1,
+                    onPlay = { play(it, lookUp(it.reference), handPicked = null) },
+                    onChoose = { choosing = it to lookUp(it.reference) },
+                )
             }
-            PickedEpisode(picked, lookup, failoverMemory, watched, autoPlay, onPlay = { play(it, handPicked = false) }, onChoose = { choosing = true })
         }
     }
 }
 
 @Composable
-private fun SeasonTabs(seasons: List<Season>, selected: Int, onSelect: (Int) -> Unit) {
-    // Focus starts on the season the screen opened on.
+private fun SeasonTabs(seasons: List<Season>, selected: Int, takeFocus: Boolean, onSelect: (Int) -> Unit) {
+    // Focus starts on the season the screen opened on, unless an episode card takes it.
     val openedOn = remember { selected }
     val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focus.requestFocusOnceShown() }
+    LaunchedEffect(Unit) { if (takeFocus) focus.requestFocusOnceShown() }
     // As on other TV apps, moving focus onto a tab shows that season.
     TabRow(selectedTabIndex = selected, modifier = Modifier.padding(start = 40.dp)) {
         seasons.forEachIndexed { index, season ->
@@ -187,13 +216,25 @@ private fun SeasonTabs(seasons: List<Season>, selected: Int, onSelect: (Int) -> 
     }
 }
 
+/**
+ * The season's episode cards. Clicking one plays it ([onPlay]); holding OK or pressing Menu on it opens Choose Stream
+ * ([onChoose]). The card of [focusEpisode], when given, is scrolled to and takes focus as the row shows.
+ */
 @Composable
-private fun EpisodeRow(details: SeriesDetails, season: Season, catalogue: Catalogue, pickFirstEpisode: Boolean, onPick: (Episode) -> Unit) {
+private fun EpisodeRow(
+    details: SeriesDetails,
+    season: Season,
+    catalogue: Catalogue,
+    focusEpisode: TitleReference.Episode?,
+    playFirstEpisode: Boolean,
+    onPlay: (Episode) -> Unit,
+    onChoose: (Episode) -> Unit,
+) {
     var state by remember(details, season) { mutableStateOf<EpisodesState>(EpisodesState.Loading) }
     LaunchedEffect(details, season) {
         state = try {
             val episodes = catalogue.episodes(details, season)
-            if (pickFirstEpisode) episodes.firstOrNull { it.number == 1 }?.let(onPick)
+            if (playFirstEpisode) episodes.firstOrNull { it.number == 1 }?.let(onPlay)
             EpisodesState.Loaded(episodes)
         } catch (e: CatalogueUnreadable) {
             EpisodesState.Failed(e.reason)
@@ -203,12 +244,22 @@ private fun EpisodeRow(details: SeriesDetails, season: Season, catalogue: Catalo
         when (val s = state) {
             EpisodesState.Loading -> Text("Loading episodes…", modifier = Modifier.padding(start = 48.dp))
             is EpisodesState.Failed -> Text(s.reason.message(), modifier = Modifier.padding(start = 48.dp))
-            is EpisodesState.Loaded -> LazyRow(
-                contentPadding = PaddingValues(horizontal = 48.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                itemsIndexed(s.episodes, key = { _, episode -> episode.number }) { _, episode ->
-                    EpisodeCard(episode) { onPick(episode) }
+            is EpisodesState.Loaded -> {
+                val focusCardAt = s.episodes.indexOfFirst { it.reference.episode?.isSameAs(focusEpisode) == true }
+                val row = rememberLazyListState(focusCardAt.coerceAtLeast(0))
+                val focus = remember { FocusRequester() }
+                var focused by remember { mutableStateOf(false) }
+                // Coming back from the player, its View hands focus back a frame or two late, so this asks again.
+                LaunchedEffect(focusCardAt) { if (focusCardAt >= 0) focus.requestFocusUntil { focused } }
+                LazyRow(
+                    state = row,
+                    contentPadding = PaddingValues(horizontal = 48.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    itemsIndexed(s.episodes, key = { _, episode -> episode.number }) { index, episode ->
+                        val modifier = if (index == focusCardAt) Modifier.focusRequester(focus).onFocusChanged { focused = it.isFocused } else Modifier
+                        EpisodeCard(episode, modifier, onClick = { onPlay(episode) }, onChoose = { onChoose(episode) })
+                    }
                 }
             }
         }
@@ -216,9 +267,18 @@ private fun EpisodeRow(details: SeriesDetails, season: Season, catalogue: Catalo
 }
 
 @Composable
-private fun EpisodeCard(episode: Episode, onClick: () -> Unit) {
+private fun EpisodeCard(episode: Episode, modifier: Modifier, onClick: () -> Unit, onChoose: () -> Unit) {
     Column(Modifier.width(EPISODE_CARD_WIDTH), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Card(onClick = onClick, modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+        Card(
+            onClick = onClick,
+            onLongClick = onChoose,
+            modifier = modifier.fillMaxWidth().aspectRatio(16f / 9f).onPreviewKeyEvent {
+                // The Menu button on a card opens Choose Stream rather than Settings.
+                if (it.key != Key.Menu) return@onPreviewKeyEvent false
+                if (it.type == KeyEventType.KeyDown && it.nativeKeyEvent.repeatCount == 0) onChoose()
+                true
+            },
+        ) {
             Box(Modifier.fillMaxSize()) {
                 Text(
                     episode.name,
@@ -242,17 +302,8 @@ private fun EpisodeCard(episode: Episode, onClick: () -> Unit) {
     }
 }
 
-/** The picked episode, with Play, Choose Stream and its Lookup's status line. Picking an episode is what asks the Sources for it. */
-@Composable
-private fun PickedEpisode(episode: Episode?, lookup: Lookup?, failoverMemory: FailoverMemory, watched: Watched?, autoPlay: Boolean, onPlay: (Stream) -> Unit, onChoose: () -> Unit) {
-    Box(Modifier.fillMaxWidth().height(48.dp).padding(start = 48.dp), contentAlignment = Alignment.CenterStart) {
-        if (episode == null) {
-            Text("Pick an episode to find Streams for it.", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.7f))
-        } else {
-            PlayRow(lookup, failoverMemory, onPlay, onChoose, label = episode.label(), watched = watched, autoPlay = autoPlay)
-        }
-    }
-}
+/** The same episode: the same season and number, whatever else the Catalogue has learnt about it since. */
+private fun TitleReference.Episode.isSameAs(other: TitleReference.Episode?) = other != null && season == other.season && episode == other.episode
 
 private fun Episode.label(): String {
     val numbering = reference.episode!!

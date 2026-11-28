@@ -49,8 +49,17 @@ private sealed interface Screen {
     /** A Continue watching card, resuming. */
     data class Resume(val watched: Watched) : Screen
 
-    /** [season] is the season tab it opens on; null opens on the first. */
-    data class SeriesDetail(val tmdbId: Int, val season: Int? = null, val back: Screen = Home, val autoPlay: Boolean = false) : Screen
+    /**
+     * [season] is the season tab it opens on; null opens on the first. Given [episode], the one just played, it opens on
+     * that episode's season with focus on its card; null puts focus on the season tabs.
+     */
+    data class SeriesDetail(
+        val tmdbId: Int,
+        val season: Int? = null,
+        val back: Screen = Home,
+        val autoPlay: Boolean = false,
+        val episode: TitleReference.Episode? = null,
+    ) : Screen
     data class Player(val request: PlayRequest, val back: Screen) : Screen
     data class Settings(val back: Screen) : Screen
     data class About(val back: Settings) : Screen
@@ -62,8 +71,8 @@ private sealed interface Screen {
 
 /**
  * The whole app: home, search, a Movie's or a Series' detail screen, and the player, with Back going one step up.
- * [openMovie] or [openSeries] starts on that Title's detail screen instead of home. Each detail screen asks the
- * Sources [newStreamLookup] has when it opens; the Lookup outlives the detail screen, so Failover in the player still gets
+ * [openMovie] or [openSeries] starts on that Title's detail screen instead of home. A Movie's detail screen asks the
+ * Sources [newStreamLookup] has when it opens, and a Series' when an episode is clicked; the Lookup outlives the detail screen, so Failover in the player still gets
  * Streams that arrive late, and can ask the Sources again when its Stream list may have expired. [failoverMemory] orders
  * Play's choice and Failover's candidates. [continueWatching] and [watchlist] are home's first two rows; a Continue
  * watching card resumes playback in one press. [configurationChanges] made from a computer show as notices over any screen.
@@ -171,14 +180,14 @@ fun CelastrinaApp(
                 is Screen.SeriesDetail -> {
                     BackHandler { screen = s.back }
                     val lookUp = remember(s) { lookUpIn(lookupScope, newStreamLookup()) }
-                    SeriesDetailScreen(s.tmdbId, s.season, catalogue, lookUp, failoverMemory, continueWatching, watchlist, autoPlay = s.autoPlay) { season, request ->
-                        screen = Screen.Player(request, back = s.copy(season = season, autoPlay = false))
+                    SeriesDetailScreen(s.tmdbId, s.season, s.episode, catalogue, lookUp, continueWatching, watchlist, autoPlay = s.autoPlay) { episode, request ->
+                        screen = Screen.Player(request, back = s.copy(episode = episode, autoPlay = false))
                     }
                 }
                 is Screen.Player -> {
-                    // Back leaves the player, which also cancels a Failover in progress.
+                    // Back leaves the player, which also cancels finding a Stream or a Failover in progress.
                     BackHandler { screen = s.back }
-                    PlayerScreen(s.request, failoverMemory, continueWatching, logger)
+                    PlayerScreen(s.request, failoverMemory, continueWatching, logger) { screen = s.back }
                 }
                 is Screen.Settings -> {
                     BackHandler { screen = s.back }
@@ -221,8 +230,11 @@ private fun detailOf(title: Title, back: Screen): Screen = when (title.kind) {
     Title.Kind.Series -> Screen.SeriesDetail(title.tmdbId, back = back)
 }
 
-/** One Title's Lookup as it goes ([lookups]), which the player can [askAgain] when its Stream list may have expired. */
-class TitleLookup(val lookups: StateFlow<Lookup?>, val askAgain: () -> Unit)
+/**
+ * One Title's Lookup as it goes ([lookups]), which the player can [askAgain] when its Stream list may have expired, or
+ * [cancel] when the Household leaves before a Stream was chosen.
+ */
+class TitleLookup(val lookups: StateFlow<Lookup?>, val askAgain: () -> Unit, val cancel: () -> Unit)
 
 /**
  * Starts each Lookup in [scope], which outlives the detail screen that asked, so the player keeps getting Streams that
@@ -236,10 +248,14 @@ private fun lookUpIn(scope: CoroutineScope, streamLookup: StreamLookup): (TitleR
         return scope.launch { streamLookup.watch(title, previous).collect { lookups.value = it } }
     }
     var asking = ask()
-    TitleLookup(lookups) {
-        asking.cancel()
-        asking = ask()
-    }
+    TitleLookup(
+        lookups,
+        askAgain = {
+            asking.cancel()
+            asking = ask()
+        },
+        cancel = { asking.cancel() },
+    )
 }
 
 fun CatalogueUnreadable.Reason.message() = when (this) {

@@ -6,6 +6,7 @@ import dev.celastrina.core.port.Logger
 import dev.celastrina.core.source.Lookup
 import dev.celastrina.core.source.LookupOutcome
 import dev.celastrina.core.source.SourceId
+import dev.celastrina.core.source.SourceLookup
 import dev.celastrina.core.source.Stream
 import java.net.URI
 import java.net.URISyntaxException
@@ -278,14 +279,10 @@ class Failover(
             val sourceId = sourceLookup.source.id
             val failedHere = failures.filter { it.stream.sourceId == sourceId }.map { it.reason }
             val notTried = candidates.count { it.sourceId == sourceId && it.key !in tried }
-            val outcome = sourceLookup.outcome
             val state = when {
                 failedHere.isNotEmpty() -> SourceSummary.State.StreamsFailed(failedHere, notTried)
                 notTried > 0 -> SourceSummary.State.NotTried(notTried)
-                sourceLookup.isLooking -> SourceSummary.State.StillLooking
-                outcome is LookupOutcome.Failure -> SourceSummary.State.LookupFailed(outcome.reason)
-                outcome is LookupOutcome.Streams -> SourceSummary.State.NothingThisTvCanDecode
-                else -> SourceSummary.State.NotAvailable
+                else -> sourceLookup.answerSummary()
             }
             SourceSummary(sourceLookup.source.name, state)
         }
@@ -504,6 +501,17 @@ data class SourceSummary(val sourceName: String, val state: State) {
 
         /** It hasn't answered yet. */
         data object StillLooking : State
+    }
+}
+
+/** What a Source with no Stream left to try said: still looking, a Failure, only Streams this TV can't decode, or Not available. */
+internal fun SourceLookup.answerSummary(): SourceSummary.State {
+    val outcome = outcome
+    return when {
+        isLooking -> SourceSummary.State.StillLooking
+        outcome is LookupOutcome.Failure -> SourceSummary.State.LookupFailed(outcome.reason)
+        outcome is LookupOutcome.Streams -> SourceSummary.State.NothingThisTvCanDecode
+        else -> SourceSummary.State.NotAvailable
     }
 }
 

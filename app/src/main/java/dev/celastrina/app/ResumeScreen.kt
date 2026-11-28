@@ -25,7 +25,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import dev.celastrina.core.catalogue.TitleReference
 import dev.celastrina.core.failover.FailoverMemory
-import dev.celastrina.core.failover.ResumeChoice
+import dev.celastrina.core.failover.StreamChoice
 import dev.celastrina.core.failover.resumeChoice
 import dev.celastrina.core.household.Watched
 import dev.celastrina.core.household.Watching
@@ -55,14 +55,14 @@ fun ResumeScreen(
             now = System.currentTimeMillis()
         }
     }
-    val choice = lookup?.resumeChoice(MediaCodecDecoders, failoverMemory, watched.lastWorked, now) ?: ResumeChoice.Waiting
+    val choice = lookup?.resumeChoice(MediaCodecDecoders, failoverMemory, watched.lastWorked, now) ?: StreamChoice.Waiting
     LaunchedEffect(choice) {
         when (choice) {
-            is ResumeChoice.Play -> onPlay(
-                PlayRequest(choice.stream, handPicked = false, titleLookup, watching.playerTitle(), watched.resumeAtMillis, watching),
+            is StreamChoice.Play -> onPlay(
+                PlayRequest(StreamToPlay.Chosen(choice.stream, handPicked = false), titleLookup, watching.playerTitle(), watched.resumeAtMillis, watching),
             )
-            ResumeChoice.NothingToPlay -> onNothingToPlay()
-            ResumeChoice.Waiting -> Unit
+            is StreamChoice.NothingToPlay -> onNothingToPlay()
+            StreamChoice.Waiting -> Unit
         }
     }
     Box(Modifier.fillMaxSize()) {

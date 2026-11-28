@@ -1,12 +1,15 @@
-"""Lifecycle checks that do not require an SDK image, GPU, or emulator."""
+"""Lifecycle checks; set CELASTRINA_TEST_REAL_EMULATOR=1 for Windows SDK checks."""
 
 import importlib.util
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+import uuid
 from unittest.mock import patch
 
 
@@ -110,14 +113,82 @@ class DisposableEmulatorTest(unittest.TestCase):
             with runner.reserve_slot(pool, 1, lambda _: True):
                 pass
 
+    @unittest.skipUnless(os.name == "nt" and os.environ.get("CELASTRINA_TEST_REAL_EMULATOR"),
+                         "opt-in Windows SDK lifecycle check")
+    def test_windows_job_releases_real_emulator_ports(self):
+        self.check_real_emulator_cleanup(abrupt=False)
+
+    @unittest.skipUnless(os.name == "nt" and os.environ.get("CELASTRINA_TEST_REAL_EMULATOR"),
+                         "opt-in Windows SDK lifecycle check")
+    def test_windows_job_releases_real_emulator_after_owner_is_killed(self):
+        self.check_real_emulator_cleanup(abrupt=True)
+
+    def check_real_emulator_cleanup(self, abrupt):
+        sdk = Path(os.environ["ANDROID_HOME"])
+        adb = sdk / "platform-tools/adb.exe"
+        subprocess.run([adb, "start-server"], check=True, capture_output=True)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            root = Path(folder)
+            env = dict(os.environ, ANDROID_AVD_HOME=str(root))
+            avd = "celastrina-lifecycle-" + uuid.uuid4().hex[:12]
+            subprocess.run([sdk / "cmdline-tools/latest/bin/avdmanager.bat", "create", "avd",
+                            "-n", avd, "-k", runner.IMAGE], input=b"no\n", env=env,
+                           check=True, capture_output=True, timeout=60)
+            owner = None
+            with runner.reserve_slot(root / "pool", 1) as port:
+                try:
+                    # The owner holds the job and waits for normal EOF or is
+                    # terminated without executing Python/context cleanup.
+                    code = (
+                        "import runpy, sys; "
+                        "Job = runpy.run_path(sys.argv[1])['WindowsJob']; "
+                        "job = Job().__enter__(); "
+                        "child = job.start(sys.argv[2:], stdout=sys.stdout, stderr=-2); "
+                        "sys.stdin.read(); job.__exit__(); child.wait(timeout=5)"
+                    )
+                    with (root / "emulator.log").open("wb") as log:
+                        owner = subprocess.Popen(
+                            [sys.executable, "-c", code, str(SCRIPT),
+                             str(sdk / "emulator/emulator.exe"), "-avd", avd,
+                             "-port", str(port), "-no-window", "-no-audio",
+                             "-no-snapshot", "-gpu", "swiftshader"],
+                            stdin=subprocess.PIPE, env=env, stdout=log, stderr=subprocess.STDOUT)
+                        deadline = time.monotonic() + 30
+                        while runner.ports_available(port) and time.monotonic() < deadline:
+                            self.assertIsNone(owner.poll(), (root / "emulator.log").read_text())
+                            time.sleep(0.1)
+                        self.assertFalse(runner.ports_available(port), "emulator never acquired ports")
+                        if abrupt:
+                            owner.kill()
+                        owner.communicate(timeout=5)
+                        if not abrupt:
+                            self.assertEqual(0, owner.returncode, (root / "emulator.log").read_text())
+                    deadline = time.monotonic() + 5
+                    while not runner.ports_available(port) and time.monotonic() < deadline:
+                        time.sleep(0.1)
+                    self.assertTrue(runner.ports_available(port), "real emulator descendant outlived job")
+                finally:
+                    if owner is not None and owner.poll() is None:
+                        owner.kill()
+                        owner.communicate(timeout=5)
+                    # Only this reserved serial; never touch the shared emulator.
+                    if not runner.ports_available(port):
+                        subprocess.run([adb, "-s", f"emulator-{port}", "emu", "kill"],
+                                       capture_output=True, timeout=10)
+                        time.sleep(5)
+            with runner.reserve_slot(root / "pool", 1) as reclaimed:
+                self.assertEqual(port, reclaimed)
+            # Deleting the AVD/logs also verifies all descendant file handles closed.
+            shutil.rmtree(root)
+
     @unittest.skipUnless(os.name == "nt", "Windows job objects")
     def test_windows_job_kills_child_when_owner_exits_abruptly(self):
         code = (
             "import runpy, os, sys; "
             "Job = runpy.run_path(sys.argv[1])['WindowsJob']; "
             "job = Job().__enter__(); "
-            "child = job.start([sys.executable, '-c', "
-            "'import os, time; print(os.getpid(), flush=True); time.sleep(60)'], stdout=-1); "
+            "child = job.start(['powershell.exe', '-NoProfile', '-Command', "
+            "'[Console]::WriteLine($PID); Start-Sleep -Seconds 60'], stdout=-1); "
             "print(int(child.stdout.readline()), flush=True); "
             "sys.stdin.read(1); os._exit(3)"
         )
@@ -130,13 +201,17 @@ class DisposableEmulatorTest(unittest.TestCase):
             with runner.WindowsJob() as job:
                 job.kernel.WaitForSingleObject.argtypes = (runner.wintypes.HANDLE, runner.wintypes.DWORD)
                 job.kernel.WaitForSingleObject.restype = runner.wintypes.DWORD
-                child = job.kernel.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+                child = job.kernel.OpenProcess(0x00100001, False, pid)  # SYNCHRONIZE | TERMINATE
                 self.assertTrue(child)
                 try:
                     owner.kill()
                     owner.wait(timeout=5)
                     self.assertEqual(0, job.kernel.WaitForSingleObject(child, 5000))
                 finally:
+                    # Bound cleanup even when testing a version that leaks.
+                    job.kernel.TerminateProcess.argtypes = (runner.wintypes.HANDLE, runner.wintypes.UINT)
+                    job.kernel.TerminateProcess(child, 1)
+                    job.kernel.WaitForSingleObject(child, 5000)
                     job.kernel.CloseHandle(child)
         finally:
             if owner.poll() is None:
