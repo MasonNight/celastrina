@@ -59,7 +59,7 @@ fun ResumeScreen(
     LaunchedEffect(choice) {
         when (choice) {
             is StreamChoice.Play -> onPlay(
-                PlayRequest(choice.stream, handPicked = false, titleLookup, watching.playerTitle(), watched.resumeAtMillis, watching),
+                PlayRequest(StreamToPlay.Chosen(choice.stream, handPicked = false), titleLookup, watching.playerTitle(), watched.resumeAtMillis, watching),
             )
             is StreamChoice.NothingToPlay -> onNothingToPlay()
             StreamChoice.Waiting -> Unit

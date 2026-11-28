@@ -100,7 +100,7 @@ private fun MovieDetail(
     val watched = remember(details) { continueWatching.of(details.reference) }
     fun play(stream: Stream, handPicked: Boolean) = onPlay(
         PlayRequest(
-            stream, handPicked, titleLookup, details.title.name,
+            StreamToPlay.Chosen(stream, handPicked), titleLookup, details.title.name,
             startAtMillis = watched?.resumeAtMillis ?: 0,
             watching = Watching(details.title, details.reference, episodeLabel = null, imageUrl = details.backdropUrl),
         ),

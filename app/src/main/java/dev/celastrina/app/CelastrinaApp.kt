@@ -50,10 +50,16 @@ private sealed interface Screen {
     data class Resume(val watched: Watched) : Screen
 
     /**
-     * [season] is the season tab it opens on; null opens on the first. [episode] is the episode card in it that takes
-     * focus, the one just played; null puts focus on the season tabs.
+     * [season] is the season tab it opens on; null opens on the first. Given [episode], the one just played, it opens on
+     * that episode's season with focus on its card; null puts focus on the season tabs.
      */
-    data class SeriesDetail(val tmdbId: Int, val season: Int? = null, val back: Screen = Home, val autoPlay: Boolean = false, val episode: Int? = null) : Screen
+    data class SeriesDetail(
+        val tmdbId: Int,
+        val season: Int? = null,
+        val back: Screen = Home,
+        val autoPlay: Boolean = false,
+        val episode: TitleReference.Episode? = null,
+    ) : Screen
     data class Player(val request: PlayRequest, val back: Screen) : Screen
     data class Settings(val back: Screen) : Screen
     data class About(val back: Settings) : Screen
@@ -174,8 +180,8 @@ fun CelastrinaApp(
                 is Screen.SeriesDetail -> {
                     BackHandler { screen = s.back }
                     val lookUp = remember(s) { lookUpIn(lookupScope, newStreamLookup()) }
-                    SeriesDetailScreen(s.tmdbId, s.season, s.episode, catalogue, lookUp, continueWatching, watchlist, autoPlay = s.autoPlay) { season, episode, request ->
-                        screen = Screen.Player(request, back = s.copy(season = season, episode = episode, autoPlay = false))
+                    SeriesDetailScreen(s.tmdbId, s.season, s.episode, catalogue, lookUp, continueWatching, watchlist, autoPlay = s.autoPlay) { episode, request ->
+                        screen = Screen.Player(request, back = s.copy(episode = episode, autoPlay = false))
                     }
                 }
                 is Screen.Player -> {
@@ -228,7 +234,7 @@ private fun detailOf(title: Title, back: Screen): Screen = when (title.kind) {
  * One Title's Lookup as it goes ([lookups]), which the player can [askAgain] when its Stream list may have expired, or
  * [cancel] when the Household leaves before a Stream was chosen.
  */
-class TitleLookup(val lookups: StateFlow<Lookup?>, val askAgain: () -> Unit, val cancel: () -> Unit = {})
+class TitleLookup(val lookups: StateFlow<Lookup?>, val askAgain: () -> Unit, val cancel: () -> Unit)
 
 /**
  * Starts each Lookup in [scope], which outlives the detail screen that asked, so the player keeps getting Streams that

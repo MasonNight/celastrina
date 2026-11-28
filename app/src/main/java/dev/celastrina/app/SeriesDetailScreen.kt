@@ -70,11 +70,12 @@ private sealed interface EpisodesState {
 }
 
 /**
- * A Series' detail screen: season tabs (Specials last) over a row of episode cards. It opens on [seasonNumber] when that
- * season exists, otherwise on the first tab, with focus on the card of [episodeNumber] when given, else on the tabs.
+ * A Series' detail screen: season tabs (Specials last) over a row of episode cards. Given [focusEpisode], it opens on
+ * that episode's season with focus on its card. Otherwise it opens on [seasonNumber] when that season exists, else on
+ * the first tab, with focus on the tabs.
  *
  * Clicking an episode card asks the Sources for it and goes straight to the player, which chooses the Stream; [onPlay]
- * gets the season and episode, so Back from the player can return to its card. Holding OK on a card, or pressing the
+ * gets the episode, so Back from the player can return to its card. Holding OK on a card, or pressing the
  * remote's Menu button on it, opens Choose Stream for that episode instead. Playback resumes where [continueWatching]
  * says it got to, and + Watchlist adds the Series to [watchlist] or takes it off.
  */
@@ -82,13 +83,13 @@ private sealed interface EpisodesState {
 fun SeriesDetailScreen(
     tmdbId: Int,
     seasonNumber: Int?,
-    episodeNumber: Int?,
+    focusEpisode: TitleReference.Episode?,
     catalogue: Catalogue,
     lookUp: (TitleReference) -> TitleLookup,
     continueWatching: ContinueWatching,
     watchlist: Watchlist,
     autoPlay: Boolean,
-    onPlay: (season: Int, episode: Int, request: PlayRequest) -> Unit,
+    onPlay: (episode: TitleReference.Episode, request: PlayRequest) -> Unit,
 ) {
     var state by remember(tmdbId) { mutableStateOf<SeriesState>(SeriesState.Loading) }
     LaunchedEffect(tmdbId) {
@@ -101,7 +102,7 @@ fun SeriesDetailScreen(
     when (val s = state) {
         SeriesState.Loading -> Message("Loading…")
         is SeriesState.Failed -> Message(s.reason.message())
-        is SeriesState.Loaded -> SeriesDetail(s.details, seasonNumber, episodeNumber, catalogue, lookUp, continueWatching, watchlist, autoPlay, onPlay)
+        is SeriesState.Loaded -> SeriesDetail(s.details, focusEpisode?.season ?: seasonNumber, focusEpisode, catalogue, lookUp, continueWatching, watchlist, autoPlay, onPlay)
     }
 }
 
@@ -109,35 +110,37 @@ fun SeriesDetailScreen(
 private fun SeriesDetail(
     details: SeriesDetails,
     seasonNumber: Int?,
-    episodeNumber: Int?,
+    focusEpisode: TitleReference.Episode?,
     catalogue: Catalogue,
     lookUp: (TitleReference) -> TitleLookup,
     continueWatching: ContinueWatching,
     watchlist: Watchlist,
     autoPlay: Boolean,
-    onPlay: (season: Int, episode: Int, request: PlayRequest) -> Unit,
+    onPlay: (episode: TitleReference.Episode, request: PlayRequest) -> Unit,
 ) {
     var seasonIndex by remember(details) { mutableStateOf(details.seasons.indexOfFirst { it.number == seasonNumber }.coerceAtLeast(0)) }
     // The card that takes focus when the episode row shows: the one played, or the one Choose Stream was opened on.
-    var focusEpisode by remember(details) { mutableStateOf(episodeNumber) }
+    var focusCard by remember(details) { mutableStateOf(focusEpisode) }
     var choosing by remember(details) { mutableStateOf<Pair<Episode, TitleLookup>?>(null) }
     val season = details.seasons.getOrNull(seasonIndex)
-    fun play(episode: Episode, titleLookup: TitleLookup, stream: Stream?) {
+    /** Plays [episode] on the Stream picked in Choose Stream, or, when none was ([handPicked] null), on the player's choice. */
+    fun play(episode: Episode, titleLookup: TitleLookup, handPicked: Stream?) {
         val watched = continueWatching.of(episode.reference)
         val request = PlayRequest(
-            stream, handPicked = stream != null, titleLookup, "${details.title.name} · ${episode.label()}",
+            handPicked?.let { StreamToPlay.Chosen(it, handPicked = true) } ?: StreamToPlay.ToBeChosen(watched?.lastWorked),
+            titleLookup,
+            "${details.title.name} · ${episode.label()}",
             startAtMillis = watched?.resumeAtMillis ?: 0,
             watching = Watching(details.title, episode.reference, episode.label(), imageUrl = episode.stillUrl ?: details.backdropUrl),
-            lastWorked = watched?.lastWorked,
         )
-        onPlay(episode.reference.episode!!.season, episode.number, request)
+        onPlay(episode.reference.episode!!, request)
     }
 
     choosing?.let { (episode, titleLookup) ->
         val lookup by titleLookup.lookups.collectAsState()
         BackHandler {
             titleLookup.cancel()
-            focusEpisode = episode.number
+            focusCard = episode.reference.episode
             choosing = null
         }
         ChooseStreamScreen("${details.title.name} · ${episode.label()}", lookup) { play(episode, titleLookup, it) }
@@ -176,16 +179,16 @@ private fun SeriesDetail(
             if (details.seasons.isEmpty()) {
                 Text("TMDB lists no episodes for this Series.", modifier = Modifier.padding(start = 48.dp))
             } else {
-                SeasonTabs(details.seasons, seasonIndex, takeFocus = focusEpisode == null) { seasonIndex = it }
+                SeasonTabs(details.seasons, seasonIndex, takeFocus = focusCard == null) { seasonIndex = it }
             }
             if (season != null) {
                 EpisodeRow(
                     details,
                     season,
                     catalogue,
-                    focusEpisode = focusEpisode,
+                    focusEpisode = focusCard,
                     playFirstEpisode = autoPlay && season.number == 1,
-                    onPlay = { play(it, lookUp(it.reference), stream = null) },
+                    onPlay = { play(it, lookUp(it.reference), handPicked = null) },
                     onChoose = { choosing = it to lookUp(it.reference) },
                 )
             }
@@ -222,7 +225,7 @@ private fun EpisodeRow(
     details: SeriesDetails,
     season: Season,
     catalogue: Catalogue,
-    focusEpisode: Int?,
+    focusEpisode: TitleReference.Episode?,
     playFirstEpisode: Boolean,
     onPlay: (Episode) -> Unit,
     onChoose: (Episode) -> Unit,
@@ -242,19 +245,19 @@ private fun EpisodeRow(
             EpisodesState.Loading -> Text("Loading episodes…", modifier = Modifier.padding(start = 48.dp))
             is EpisodesState.Failed -> Text(s.reason.message(), modifier = Modifier.padding(start = 48.dp))
             is EpisodesState.Loaded -> {
-                val playedAt = s.episodes.indexOfFirst { it.number == focusEpisode }
-                val row = rememberLazyListState(playedAt.coerceAtLeast(0))
+                val focusIndex = s.episodes.indexOfFirst { it.reference.episode?.isSameAs(focusEpisode) == true }
+                val row = rememberLazyListState(focusIndex.coerceAtLeast(0))
                 val focus = remember { FocusRequester() }
                 var focused by remember { mutableStateOf(false) }
                 // Coming back from the player, its View hands focus back a frame or two late, so this asks again.
-                LaunchedEffect(playedAt) { if (playedAt >= 0) focus.requestFocusUntil { focused } }
+                LaunchedEffect(focusIndex) { if (focusIndex >= 0) focus.requestFocusUntil { focused } }
                 LazyRow(
                     state = row,
                     contentPadding = PaddingValues(horizontal = 48.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     itemsIndexed(s.episodes, key = { _, episode -> episode.number }) { index, episode ->
-                        val modifier = if (index == playedAt) Modifier.focusRequester(focus).onFocusChanged { focused = it.isFocused } else Modifier
+                        val modifier = if (index == focusIndex) Modifier.focusRequester(focus).onFocusChanged { focused = it.isFocused } else Modifier
                         EpisodeCard(episode, modifier, onClick = { onPlay(episode) }, onChoose = { onChoose(episode) })
                     }
                 }
@@ -298,6 +301,9 @@ private fun EpisodeCard(episode: Episode, modifier: Modifier, onClick: () -> Uni
         }
     }
 }
+
+/** The same episode: the same season and number, whatever else the Catalogue has learnt about it since. */
+private fun TitleReference.Episode.isSameAs(other: TitleReference.Episode?) = other != null && season == other.season && episode == other.episode
 
 private fun Episode.label(): String {
     val numbering = reference.episode!!

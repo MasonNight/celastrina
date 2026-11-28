@@ -57,23 +57,30 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterNotNull
 
 /**
- * What Play or Choose Stream asks the player for: [stream] of [title], from [lookup], which may still be running so
- * Streams that arrive late can still be failed over to, and which Failover can ask again when it gets old.
- * [handPicked] when the Household chose it in Choose Stream. Playback starts [startAtMillis] into the Title. Continue
- * watching remembers how far playback gets in [watching], and on which Stream.
- *
- * Without a [stream], as when an episode card is clicked, the player chooses one itself from the Lookup as it arrives
- * (see [oneClickChoice]), putting the Stream that [lastWorked] first.
+ * What Play, Choose Stream or an episode card asks the player for: [stream] of [title], from [lookup], which may still
+ * be running so Streams that arrive late can still be failed over to, and which Failover can ask again when it gets
+ * old. Playback starts [startAtMillis] into the Title. Continue watching remembers how far playback gets in [watching],
+ * and on which Stream.
  */
 data class PlayRequest(
-    val stream: Stream?,
-    val handPicked: Boolean,
+    val stream: StreamToPlay,
     val lookup: TitleLookup,
     val title: String,
     val startAtMillis: Long = 0,
     val watching: Watching? = null,
-    val lastWorked: WorkedStream? = null,
 )
+
+/** Which Stream a [PlayRequest] plays. */
+sealed interface StreamToPlay {
+    /** [stream], chosen by the Household in Choose Stream when [handPicked], otherwise by Play or resuming. */
+    data class Chosen(val stream: Stream, val handPicked: Boolean) : StreamToPlay
+
+    /**
+     * None yet, as when an episode card is clicked: the player chooses one itself from the Lookup as it arrives (see
+     * [oneClickChoice]), putting the Stream that [lastWorked] first.
+     */
+    data class ToBeChosen(val lastWorked: WorkedStream?) : StreamToPlay
+}
 
 /**
  * Plays the requested Stream full screen, with Media3's own controls on the remote's D-pad. When a Stream stops
@@ -81,42 +88,51 @@ data class PlayRequest(
  * When Failover gives up, the error screen's Retry and Choose Stream start a new playback session here, from where
  * playback had got to. Every 10 s, and on leaving, [continueWatching] saves the position and the Stream that worked.
  *
- * A request without a Stream first shows "Finding a Stream…" over its picture until one is chosen. Leaving before then
+ * A request for a Stream [StreamToPlay.ToBeChosen] first shows "Finding a Stream…" over its picture until one is chosen. Leaving before then
  * cancels the Lookup. When no Source has anything to play, it says what happened at each, with [onBack] and Choose Stream.
  */
 @Composable
 fun PlayerScreen(request: PlayRequest, failoverMemory: FailoverMemory, continueWatching: ContinueWatching, logger: Logger, onBack: () -> Unit) {
-    var session by remember(request) { mutableStateOf(request.stream?.let { Session(request, it, number = 0) }) }
-    val current = session
-    if (current == null) {
-        FindingStream(request, failoverMemory, onBack) { stream, handPicked ->
-            session = Session(request.copy(stream = stream, handPicked = handPicked), stream, number = 0)
+    var session by remember(request) { mutableStateOf<Session?>(null) }
+    val current = session ?: when (val stream = request.stream) {
+        is StreamToPlay.Chosen -> Session(request, stream, number = 0)
+        is StreamToPlay.ToBeChosen -> {
+            FindingStream(request, stream.lastWorked, failoverMemory, onBack) { session = Session(request, it, number = 0) }
+            return
         }
-        return
     }
     key(current) {
-        PlaybackSession(current.request, current.stream, failoverMemory, continueWatching, logger) {
-            session = Session(it, checkNotNull(it.stream), current.number + 1)
+        PlaybackSession(current.request, current.chosen, failoverMemory, continueWatching, logger) { chosen, startAtMillis ->
+            session = Session(current.request.copy(startAtMillis = startAtMillis), chosen, current.number + 1)
         }
     }
 }
 
-/** One playback session: a [request] for [stream] and its own Failover. [number] tells a retry of the same request apart. */
-private data class Session(val request: PlayRequest, val stream: Stream, val number: Int)
+/**
+ * One playback session: [request] playing the [chosen] Stream, with its own Failover. [number] tells a retry of the
+ * same request apart.
+ */
+private data class Session(val request: PlayRequest, val chosen: StreamToPlay.Chosen, val number: Int)
 
 /**
  * The episode's picture with "Finding a Stream…" while [oneClickChoice] waits, then [play] with its choice. When nothing
  * can play, the same kind of screen as Give up. Leaving before a Stream is chosen cancels the Lookup.
  */
 @Composable
-private fun FindingStream(request: PlayRequest, failoverMemory: FailoverMemory, onBack: () -> Unit, play: (Stream, handPicked: Boolean) -> Unit) {
+private fun FindingStream(
+    request: PlayRequest,
+    lastWorked: WorkedStream?,
+    failoverMemory: FailoverMemory,
+    onBack: () -> Unit,
+    play: (StreamToPlay.Chosen) -> Unit,
+) {
     val lookup by request.lookup.lookups.collectAsState()
-    val chosen = remember { booleanArrayOf(false) }
+    var chosen by remember { mutableStateOf(false) }
     fun choose(stream: Stream, handPicked: Boolean) {
-        chosen[0] = true
-        play(stream, handPicked)
+        chosen = true
+        play(StreamToPlay.Chosen(stream, handPicked))
     }
-    DisposableEffect(request) { onDispose { if (!chosen[0]) request.lookup.cancel() } }
+    DisposableEffect(request) { onDispose { if (!chosen) request.lookup.cancel() } }
     // The choice stops waiting once enough time has passed, so the time is checked again as it passes, on the clock
     // the Lookup was asked by.
     var now by remember { mutableLongStateOf(Clock.System.nowMillis()) }
@@ -126,7 +142,7 @@ private fun FindingStream(request: PlayRequest, failoverMemory: FailoverMemory, 
             now = Clock.System.nowMillis()
         }
     }
-    val choice = lookup?.oneClickChoice(MediaCodecDecoders, failoverMemory, request.lastWorked, now) ?: StreamChoice.Waiting
+    val choice = lookup?.oneClickChoice(MediaCodecDecoders, failoverMemory, lastWorked, now) ?: StreamChoice.Waiting
     LaunchedEffect(choice) { if (choice is StreamChoice.Play) choose(choice.stream, handPicked = false) }
     if (choice is StreamChoice.NothingToPlay) {
         NothingToPlayScreen(request.title, choice.sources, request.lookup, onBack) { choose(it, handPicked = true) }
@@ -151,18 +167,19 @@ private fun FindingStream(request: PlayRequest, failoverMemory: FailoverMemory, 
 @Composable
 private fun PlaybackSession(
     request: PlayRequest,
-    stream: Stream,
+    chosen: StreamToPlay.Chosen,
     failoverMemory: FailoverMemory,
     continueWatching: ContinueWatching,
     logger: Logger,
-    playAgain: (PlayRequest) -> Unit,
+    playAgain: (StreamToPlay.Chosen, startAtMillis: Long) -> Unit,
 ) {
+    val stream = chosen.stream
     val context = LocalContext.current
     val failover = remember {
         Failover(
             checkNotNull(request.lookup.lookups.value),
             stream,
-            request.handPicked,
+            chosen.handPicked,
             MediaCodecDecoders,
             failoverMemory,
             Clock.System,
@@ -206,7 +223,7 @@ private fun PlaybackSession(
     if (failure != null) {
         // Leaving the player here releases it.
         GiveUpScreen(request.title, failure, request.lookup, failoverMemory) { stream, handPicked ->
-            playAgain(request.copy(stream = stream, handPicked = handPicked, startAtMillis = failover.positionMillis))
+            playAgain(StreamToPlay.Chosen(stream, handPicked), failover.positionMillis)
         }
         return
     }
